@@ -1,0 +1,55 @@
+{
+	"name": "@narumitw/pi-skillforge",
+	"version": "0.1.0",
+	"description": "Pi package for improving agent skills through verified project memory.",
+	"type": "module",
+	"scripts": {
+		"format": "biome format --write .",
+		"lint": "biome lint .",
+		"biome:check": "biome check .",
+		"typecheck": "tsc --noEmit",
+		"check": "npm run biome:check && npm run typecheck"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/narumiruna/pi-skillforge.git"
+	},
+	"bugs": {
+		"url": "https://github.com/narumiruna/pi-skillforge/issues"
+	},
+	"homepage": "https://github.com/narumiruna/pi-skillforge#readme",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-coding-agent",
+		"extension",
+		"skills",
+		"memory"
+	],
+	"files": [
+		"extensions",
+		"lib",
+		"schemas",
+		"templates",
+		"examples",
+		"README.md",
+		"LICENSE"
+	],
+	"peerDependencies": {
+		"@mariozechner/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"pi": {
+		"extensions": [
+			"./extensions"
+		]
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.14",
+		"@mariozechner/pi-coding-agent": "^0.72.1",
+		"@types/node": "^25.6.0",
+		"typebox": "^1.1.37",
+		"typescript": "^6.0.3"
+	}
+}
