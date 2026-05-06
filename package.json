@@ -1,6 +1,6 @@
 {
 	"name": "@narumitw/pi-skillforge",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Pi package for improving agent skills through verified project memory.",
 	"type": "module",
 	"scripts": {
@@ -37,7 +37,6 @@
 		"LICENSE"
 	],
 	"peerDependencies": {
-		"@mariozechner/pi-coding-agent": "*",
 		"typebox": "*"
 	},
 	"pi": {
