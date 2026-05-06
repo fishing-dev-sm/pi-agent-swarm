@@ -49,6 +49,8 @@ Useful commands:
 
 Memory entries can be Markdown-with-frontmatter, YAML, or JSON files under `.pi-skillforge/memory/`.
 
+Before each agent turn, the extension conservatively retrieves confirmed or observed memories that match the prompt, loaded skill metadata, and memory scope. Relevant memories are injected as a hidden concise context message; unrelated memory is not injected.
+
 The extension also registers the `skillforge_capture_memory` tool. The agent should only use it when you explicitly ask to remember or capture a verified gotcha, decision, or pattern.
 
 ## Package layout
@@ -62,6 +64,7 @@ pi-skillforge/
 ├── lib/
 │   ├── capture.ts
 │   ├── parse.ts
+│   ├── retrieve.ts
 │   ├── serialize.ts
 │   ├── storage.ts
 │   ├── types.ts
