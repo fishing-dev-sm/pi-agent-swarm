@@ -39,17 +39,22 @@ After loading the package in Pi, run:
 Useful commands:
 
 ```text
-/skillforge init              # create .pi-skillforge/ storage in the current project
-/skillforge capture gotcha    # open a reviewed memory-entry draft in the editor
-/skillforge capture decision  # capture a project decision
-/skillforge capture pattern   # capture a reusable successful pattern
-/skillforge retrieve <prompt> # preview retrieval scores and reasons
-/skillforge search <prompt>   # alias for retrieve
-/skillforge validate          # validate memory files and rebuild index.json
-/skillforge reindex           # rebuild index.json from valid memory files
+/skillforge init                       # create .pi-skillforge/ storage in the current project
+/skillforge init --global              # create ~/.pi/agent/skillforge/ global storage
+/skillforge capture gotcha             # open a local reviewed memory-entry draft in the editor
+/skillforge capture gotcha --global    # capture to global storage
+/skillforge capture decision           # capture a project decision
+/skillforge capture pattern            # capture a reusable successful pattern
+/skillforge retrieve <prompt>          # preview local + global retrieval scores and reasons
+/skillforge retrieve <prompt> --local  # preview only project-local memory
+/skillforge retrieve <prompt> --global # preview only global memory
+/skillforge search <prompt>            # alias for retrieve
+/skillforge validate                   # validate local memory files and rebuild index.json
+/skillforge validate --global          # validate global memory files and rebuild index.json
+/skillforge reindex                    # rebuild local index.json from valid memory files
 ```
 
-Memory entries can be Markdown-with-frontmatter, YAML, or JSON files under `.pi-skillforge/memory/`.
+Memory entries can be Markdown-with-frontmatter, YAML, or JSON files under `.pi-skillforge/memory/` or global `~/.pi/agent/skillforge/memory/` (`$PI_CODING_AGENT_DIR/skillforge/memory/` when `PI_CODING_AGENT_DIR` is set).
 
 ## Workflows
 
@@ -67,7 +72,7 @@ The extension also registers the `skillforge_capture_memory` tool. The agent sho
 
 ### Retrieve relevant memory
 
-Before each agent turn, the extension conservatively retrieves confirmed or observed memories that match the prompt, loaded skill metadata, and memory scope. Relevant memories are injected as a hidden concise context message; unrelated memory is not injected.
+Before each agent turn, the extension conservatively retrieves confirmed or observed memories from both project-local and global storage that match the prompt, loaded skill metadata, and memory scope. Relevant memories are injected as a hidden concise context message; unrelated memory is not injected.
 
 Retrieval rules are intentionally conservative:
 
@@ -80,6 +85,7 @@ To debug retrieval without starting an agent turn, run:
 
 ```text
 /skillforge retrieve update ruff settings in pyproject.toml
+/skillforge retrieve update ruff settings in pyproject.toml --global
 ```
 
 The preview shows matching memory ids, scores, reasons, paths, and the first fix line.
