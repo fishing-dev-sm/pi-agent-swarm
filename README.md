@@ -1,12 +1,14 @@
 # pi-skillforge
 
-Pi package for improving agent skills through verified project memory.
+Pi package for improving agent skills through verified global memory and reviewed skill patches.
 
-`pi-skillforge` captures recurring gotchas, fixes, decisions, and workflow learnings from coding-agent sessions, stores them as structured project-local memory, retrieves only relevant entries for active skills, and promotes stable repeated learnings into proposed skill improvements.
+`pi-skillforge` automatically captures verified gotchas, fixes, decisions, and workflow learnings from coding-agent sessions, stores them under Pi's global agent directory, retrieves only relevant entries for active skills, and promotes stable repeated learnings into skill patch proposals.
 
 ## Status
 
-Early implementation. The package now supports project-local memory initialization, reviewed capture, schema validation, conservative retrieval injection, and retrieval debugging. Promotion into skill patch proposals is still planned. See [PLAN.md](./PLAN.md) for the product plan and memory model.
+Early implementation. The package supports global-only project-aware memory storage, automatic retrieval injection, agent-mediated automatic capture, and automatic skill patch proposal generation. The only user-facing command reviews pending patches for one skill and applies them after explicit approval.
+
+See [PLAN.md](./PLAN.md) for the product plan and memory model.
 
 ## Install
 
@@ -30,69 +32,107 @@ pi -e .
 
 ## Usage
 
-After loading the package in Pi, run:
+`pi-skillforge` is designed to be zero-maintenance during normal agent work. After the package is loaded, there is no setup command and no manual memory workflow.
+
+What happens automatically:
+
+1. Before each agent turn, relevant project/global memories are retrieved and injected as hidden context.
+2. During work, the agent may call `skillforge_capture_memory` when it has a verified reusable gotcha, decision, or pattern.
+3. When a confirmed memory becomes stable enough, the extension writes a pending skill patch proposal under the global Skillforge store.
+
+The only user-facing command is for reviewing generated skill patches:
 
 ```text
-/skillforge
+/skillforge <skill-name>
 ```
 
-Useful commands:
+Example:
 
 ```text
-/skillforge init                       # create .pi-skillforge/ storage in the current project
-/skillforge init --global              # create ~/.pi/agent/skillforge/ global storage
-/skillforge capture gotcha             # open a local reviewed memory-entry draft in the editor
-/skillforge capture gotcha --global    # capture to global storage
-/skillforge capture decision           # capture a project decision
-/skillforge capture pattern            # capture a reusable successful pattern
-/skillforge retrieve <prompt>          # preview local + global retrieval scores and reasons
-/skillforge retrieve <prompt> --local  # preview only project-local memory
-/skillforge retrieve <prompt> --global # preview only global memory
-/skillforge search <prompt>            # alias for retrieve
-/skillforge validate                   # validate local memory files and rebuild index.json
-/skillforge validate --global          # validate global memory files and rebuild index.json
-/skillforge reindex                    # rebuild local index.json from valid memory files
+/skillforge python-typer
 ```
 
-Memory entries can be Markdown-with-frontmatter, YAML, or JSON files under `.pi-skillforge/memory/` or global `~/.pi/agent/skillforge/memory/` (`$PI_CODING_AGENT_DIR/skillforge/memory/` when `PI_CODING_AGENT_DIR` is set).
+This command:
+
+1. Finds pending patch proposals for the named skill.
+2. Shows the target skill, source memory, proposed guidance, rationale, and verification evidence.
+3. Asks for approval before editing the target `SKILL.md`.
+4. Marks the proposal as applied and appends to `promotion-log.md` after a successful apply.
+
+It does not apply patches without confirmation.
+
+There are intentionally no commands for init, capture, retrieve, validate, reindex, or promote; those flows are automatic/internal.
+
+## Storage
+
+All pi-skillforge data is stored under Pi's global agent directory:
+
+```txt
+${PI_CODING_AGENT_DIR:-~/.pi/agent}/skillforge/
+├── memory/
+│   ├── global/
+│   │   ├── gotchas/
+│   │   ├── decisions/
+│   │   └── patterns/
+│   └── projects/
+│       └── <project-id>/
+│           ├── gotchas/
+│           ├── decisions/
+│           └── patterns/
+├── promotions/
+│   ├── global/
+│   └── projects/
+│       └── <project-id>/
+├── registry.yaml
+├── index.json
+└── promotion-log.md
+```
+
+There is no repo-local `.pi-skillforge/` store. Project-specific memories are isolated by `<project-id>` inside the global store; retrieval reads only the current project partition plus the global partition.
 
 ## Workflows
 
-### Capture reviewed project memory
+### Automatic capture
 
-Use the interactive capture command when you want to record a verified lesson:
+The extension registers the `skillforge_capture_memory` tool. The agent may use it automatically when the current task produces a verified, reusable gotcha, decision, or pattern with concrete evidence.
 
-```text
-/skillforge capture gotcha
-```
+Capture rules are intentionally conservative:
 
-The command opens a draft entry in Pi's editor. Replace every placeholder before saving. Entries must include trigger, symptom, root cause, fix, verification, scope, confidence, and hit count.
+- Do not capture speculation or ordinary chat history.
+- Capture only reusable learnings with prevention value.
+- Include trigger, symptom, root cause, fix, verification, scope, and confidence.
+- Prefer the project partition for project-specific learnings.
+- Use the global partition only for clearly cross-project learnings.
 
-The extension also registers the `skillforge_capture_memory` tool. The agent should only use it when you explicitly ask to remember or capture a verified gotcha, decision, or pattern.
+### Automatic retrieval
 
-### Retrieve relevant memory
+Before each agent turn, the extension retrieves relevant memories from:
 
-Before each agent turn, the extension conservatively retrieves confirmed or observed memories from both project-local and global storage that match the prompt, loaded skill metadata, and memory scope. Relevant memories are injected as a hidden concise context message; unrelated memory is not injected.
+- the current project partition
+- the global partition
 
-Retrieval rules are intentionally conservative:
+Relevant memories are injected as hidden concise context. Unrelated memories are not injected.
+
+Retrieval rules are conservative:
 
 - `draft` and `deprecated` memories are ignored.
 - `excluded_skills` blocks injection when a loaded skill is excluded.
 - Skill-scoped memories require a loaded `skills` or `compatible_skills` match.
 - Prompt/scope terms must also match, so a loaded skill alone is not enough.
 
-To debug retrieval without starting an agent turn, run:
+### Automatic promotion
 
-```text
-/skillforge retrieve update ruff settings in pyproject.toml
-/skillforge retrieve update ruff settings in pyproject.toml --global
-```
+Confirmed memories become skill patch proposals automatically when they are stable enough.
 
-The preview shows matching memory ids, scores, reasons, paths, and the first fix line.
+MVP promotion criteria:
+
+- `confidence: confirmed`
+- `hits >= 3`
+- at least one target `skills` entry
+
+Promotion is checked after a memory is saved and after relevant memories are retrieved. The extension generates proposal files under `promotions/`, but does not modify `SKILL.md` until you run `/skillforge <skill-name>` and approve the patch.
 
 ## Package layout
-
-This repository follows Pi package conventions:
 
 ```txt
 pi-skillforge/
@@ -101,6 +141,7 @@ pi-skillforge/
 ├── lib/
 │   ├── capture.ts
 │   ├── parse.ts
+│   ├── promotion.ts
 │   ├── retrieve.ts
 │   ├── serialize.ts
 │   ├── storage.ts
