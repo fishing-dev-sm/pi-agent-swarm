@@ -43,6 +43,7 @@ Useful commands:
 /skillforge capture gotcha    # open a reviewed memory-entry draft in the editor
 /skillforge capture decision  # capture a project decision
 /skillforge capture pattern   # capture a reusable successful pattern
+/skillforge retrieve <prompt> # preview retrieval scores and reasons
 /skillforge validate          # validate memory files and rebuild index.json
 /skillforge reindex           # rebuild index.json from valid memory files
 ```
