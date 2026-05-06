@@ -6,7 +6,7 @@ Pi package for improving agent skills through verified project memory.
 
 ## Status
 
-Early implementation. The package exposes `/skillforge` commands for project-local memory storage initialization, validation, and index rebuilding. See [PLAN.md](./PLAN.md) for the product plan and memory model.
+Early implementation. The package exposes `/skillforge` commands and an agent tool for project-local memory capture, validation, storage initialization, and index rebuilding. See [PLAN.md](./PLAN.md) for the product plan and memory model.
 
 ## Install
 
@@ -39,12 +39,17 @@ After loading the package in Pi, run:
 Useful commands:
 
 ```text
-/skillforge init       # create .pi-skillforge/ storage in the current project
-/skillforge validate   # validate memory files and rebuild index.json
-/skillforge reindex    # rebuild index.json from valid memory files
+/skillforge init              # create .pi-skillforge/ storage in the current project
+/skillforge capture gotcha    # open a reviewed memory-entry draft in the editor
+/skillforge capture decision  # capture a project decision
+/skillforge capture pattern   # capture a reusable successful pattern
+/skillforge validate          # validate memory files and rebuild index.json
+/skillforge reindex           # rebuild index.json from valid memory files
 ```
 
 Memory entries can be Markdown-with-frontmatter, YAML, or JSON files under `.pi-skillforge/memory/`.
+
+The extension also registers the `skillforge_capture_memory` tool. The agent should only use it when you explicitly ask to remember or capture a verified gotcha, decision, or pattern.
 
 ## Package layout
 
@@ -55,7 +60,9 @@ pi-skillforge/
 ├── extensions/
 │   └── skillforge.ts
 ├── lib/
+│   ├── capture.ts
 │   ├── parse.ts
+│   ├── serialize.ts
 │   ├── storage.ts
 │   ├── types.ts
 │   └── validate.ts
