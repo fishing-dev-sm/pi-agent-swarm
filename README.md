@@ -6,7 +6,7 @@ Pi package for improving agent skills through verified project memory.
 
 ## Status
 
-Early scaffold. The published package currently verifies that the Pi extension loads and exposes a `/skillforge` command. See [PLAN.md](./PLAN.md) for the product plan and memory model.
+Early implementation. The package exposes `/skillforge` commands for project-local memory storage initialization, validation, and index rebuilding. See [PLAN.md](./PLAN.md) for the product plan and memory model.
 
 ## Install
 
@@ -36,7 +36,15 @@ After loading the package in Pi, run:
 /skillforge
 ```
 
-The scaffold command should report that `pi-skillforge` is loaded.
+Useful commands:
+
+```text
+/skillforge init       # create .pi-skillforge/ storage in the current project
+/skillforge validate   # validate memory files and rebuild index.json
+/skillforge reindex    # rebuild index.json from valid memory files
+```
+
+Memory entries can be Markdown-with-frontmatter, YAML, or JSON files under `.pi-skillforge/memory/`.
 
 ## Package layout
 
@@ -47,6 +55,10 @@ pi-skillforge/
 ├── extensions/
 │   └── skillforge.ts
 ├── lib/
+│   ├── parse.ts
+│   ├── storage.ts
+│   ├── types.ts
+│   └── validate.ts
 ├── schemas/
 ├── templates/
 ├── examples/
