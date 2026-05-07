@@ -1,48 +1,20 @@
 {
-	"name": "@narumitw/pi-skillforge",
-	"version": "0.2.1",
-	"description": "Pi package for improving agent skills through verified project memory.",
+	"name": "pi-extensions",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Monorepo for @narumitw pi extension packages.",
 	"type": "module",
+	"workspaces": [
+		"extensions/*"
+	],
 	"scripts": {
 		"format": "biome format --write .",
 		"lint": "biome lint .",
 		"biome:check": "biome check .",
-		"typecheck": "tsc --noEmit",
-		"check": "npm run biome:check && npm run typecheck"
-	},
-	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/narumiruna/pi-skillforge.git"
-	},
-	"bugs": {
-		"url": "https://github.com/narumiruna/pi-skillforge/issues"
-	},
-	"homepage": "https://github.com/narumiruna/pi-skillforge#readme",
-	"keywords": [
-		"pi-package",
-		"pi",
-		"pi-coding-agent",
-		"extension",
-		"skills",
-		"memory"
-	],
-	"files": [
-		"extensions",
-		"lib",
-		"schemas",
-		"templates",
-		"examples",
-		"README.md",
-		"LICENSE"
-	],
-	"peerDependencies": {
-		"typebox": "*"
-	},
-	"pi": {
-		"extensions": [
-			"./extensions"
-		]
+		"typecheck": "npm --workspaces run typecheck",
+		"check": "npm run biome:check && npm run typecheck",
+		"pack:skillforge": "npm --workspace @narumitw/pi-skillforge pack --dry-run",
+		"pack:retry": "npm --workspace @narumitw/pi-retry pack --dry-run"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.14",
