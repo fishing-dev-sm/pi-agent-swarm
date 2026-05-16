@@ -115,6 +115,12 @@ npm run pack:statusline
 npm run pack:subagents
 ```
 
+Publishing note for new scoped packages: `just npm-public <package>` only changes visibility for an already-published package. If npm returns 404 for a brand-new package such as `@narumitw/pi-subagents`, create it first with:
+
+```bash
+npm publish --workspace @narumitw/pi-subagents --access public
+```
+
 ## 🗂️ Repository structure
 
 ```txt
