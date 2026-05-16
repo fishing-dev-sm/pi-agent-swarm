@@ -2,7 +2,7 @@
 
 [![npm scope](https://img.shields.io/badge/npm-@narumitw-blue)](https://www.npmjs.com/org/narumitw) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-Production-ready, independently installable [Pi](https://pi.dev) extension packages for the Pi coding agent. This monorepo provides native Pi tools and commands for Biome LSP diagnostics, Chrome DevTools automation, Firecrawl web scraping, Python LSP diagnostics with ty and Ruff, goal-driven task completion, retry handling, terminal statuslines, and keep-awake automation.
+Production-ready, independently installable [Pi](https://pi.dev) extension packages for the Pi coding agent. This monorepo provides native Pi tools and commands for Biome LSP diagnostics, Chrome DevTools automation, Codex usage status, Firecrawl web scraping, Python LSP diagnostics with ty and Ruff, goal-driven task completion, retry handling, terminal statuslines, and keep-awake automation.
 
 ## 📦 Pi extension packages
 
@@ -14,6 +14,7 @@ Install only the Pi extensions you need. Each package is published under the `@n
 | [`@narumitw/pi-btw`](./extensions/pi-btw) | 💬 `/btw` side-question command for asking quick questions without polluting the main conversation. | `pi install npm:@narumitw/pi-btw` |
 | [`@narumitw/pi-caffeinate`](./extensions/pi-caffeinate) | ☕ Cross-platform sleep prevention while the Pi agent is processing long-running prompts. | `pi install npm:@narumitw/pi-caffeinate` |
 | [`@narumitw/pi-chrome-devtools`](./extensions/pi-chrome-devtools) | 🌐 Native Chrome DevTools Protocol tools for listing tabs, navigating pages, evaluating JavaScript, and taking screenshots. | `pi install npm:@narumitw/pi-chrome-devtools` |
+| [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) | 📊 `/codex-status` command for ChatGPT Codex subscription usage, using Pi auth first and Codex CLI only as fallback. | `pi install npm:@narumitw/pi-codex-usage` |
 | [`@narumitw/pi-firecrawl`](./extensions/pi-firecrawl) | 🔥 Firecrawl-powered web scraping, crawling, URL discovery, and web search tools for research workflows. | `pi install npm:@narumitw/pi-firecrawl` |
 | [`@narumitw/pi-goal`](./extensions/pi-goal) | 🎯 `/goal` mode that keeps the agent working until a verifiable task is complete. | `pi install npm:@narumitw/pi-goal` |
 | [`@narumitw/pi-python-lsp`](./extensions/pi-python-lsp) | 🐍 Python language-server tools for ty type diagnostics and Ruff linting, formatting, and fixes. | `pi install npm:@narumitw/pi-python-lsp` |
@@ -55,6 +56,10 @@ Use [`@narumitw/pi-chrome-devtools`](./extensions/pi-chrome-devtools) when you w
 
 Use [`@narumitw/pi-firecrawl`](./extensions/pi-firecrawl) to give Pi native Firecrawl tools for scraping markdown or HTML, mapping URLs, crawling websites, and searching the web from inside an agent workflow.
 
+### 📊 Codex usage status
+
+Use [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) to show ChatGPT Codex subscription usage and reset windows from Pi with `/codex-status`. It uses Pi's OpenAI Codex auth first, so Codex CLI is optional.
+
 ### 🐍 Python coding with ty and Ruff
 
 Use [`@narumitw/pi-python-lsp`](./extensions/pi-python-lsp) to let Pi run Python type checks through `ty server`, lint diagnostics through `ruff server`, Ruff formatting, and Ruff source fixes such as import organization.
@@ -92,6 +97,7 @@ pi -e ./extensions/pi-biome-lsp
 pi -e ./extensions/pi-btw
 pi -e ./extensions/pi-caffeinate
 pi -e ./extensions/pi-chrome-devtools
+pi -e ./extensions/pi-codex-usage
 pi -e ./extensions/pi-firecrawl
 pi -e ./extensions/pi-goal
 pi -e ./extensions/pi-python-lsp
@@ -107,6 +113,7 @@ npm run pack:biome-lsp
 npm run pack:btw
 npm run pack:caffeinate
 npm run pack:chrome-devtools
+npm run pack:codex-usage
 npm run pack:firecrawl
 npm run pack:goal
 npm run pack:python-lsp
@@ -129,6 +136,7 @@ extensions/
 ├── pi-btw/
 ├── pi-caffeinate/
 ├── pi-chrome-devtools/
+├── pi-codex-usage/
 ├── pi-firecrawl/
 ├── pi-goal/
 ├── pi-python-lsp/
