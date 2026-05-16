@@ -14,7 +14,7 @@ Install only the Pi extensions you need. Each package is published under the `@n
 | [`@narumitw/pi-btw`](./extensions/pi-btw) | 💬 `/btw` side-question command for asking quick questions without polluting the main conversation. | `pi install npm:@narumitw/pi-btw` |
 | [`@narumitw/pi-caffeinate`](./extensions/pi-caffeinate) | ☕ Cross-platform sleep prevention while the Pi agent is processing long-running prompts. | `pi install npm:@narumitw/pi-caffeinate` |
 | [`@narumitw/pi-chrome-devtools`](./extensions/pi-chrome-devtools) | 🌐 Native Chrome DevTools Protocol tools for listing tabs, navigating pages, evaluating JavaScript, and taking screenshots. | `pi install npm:@narumitw/pi-chrome-devtools` |
-| [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) | 📊 `/codex-status` command for ChatGPT Codex subscription usage, using Pi auth first and Codex CLI only as fallback. | `pi install npm:@narumitw/pi-codex-usage` |
+| [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) | 📊 `/codex-status` command and automatic statusline item for ChatGPT Codex subscription usage, using Pi auth first and Codex CLI only as fallback. | `pi install npm:@narumitw/pi-codex-usage` |
 | [`@narumitw/pi-firecrawl`](./extensions/pi-firecrawl) | 🔥 Firecrawl-powered web scraping, crawling, URL discovery, and web search tools for research workflows. | `pi install npm:@narumitw/pi-firecrawl` |
 | [`@narumitw/pi-goal`](./extensions/pi-goal) | 🎯 `/goal` mode that keeps the agent working until a verifiable task is complete. | `pi install npm:@narumitw/pi-goal` |
 | [`@narumitw/pi-python-lsp`](./extensions/pi-python-lsp) | 🐍 Python language-server tools for ty type diagnostics and Ruff linting, formatting, and fixes. | `pi install npm:@narumitw/pi-python-lsp` |
@@ -58,7 +58,7 @@ Use [`@narumitw/pi-firecrawl`](./extensions/pi-firecrawl) to give Pi native Fire
 
 ### 📊 Codex usage status
 
-Use [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) to show ChatGPT Codex subscription usage and reset windows from Pi with `/codex-status`. It uses Pi's OpenAI Codex auth first, so Codex CLI is optional.
+Use [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) to show ChatGPT Codex subscription usage and reset windows from Pi with `/codex-status`. When the current model uses `openai-codex`, it also shows compact quota status in the statusline. It uses Pi's OpenAI Codex auth first, so Codex CLI is optional.
 
 ### 🐍 Python coding with ty and Ruff
 
