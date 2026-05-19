@@ -2,7 +2,7 @@
 
 [![npm scope](https://img.shields.io/badge/npm-@narumitw-blue)](https://www.npmjs.com/org/narumitw) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-Production-ready, independently installable [Pi](https://pi.dev) extension packages for the Pi coding agent. This monorepo provides native Pi tools and commands for shared LSP diagnostics and edits, Chrome DevTools automation, Codex usage status, Firecrawl web scraping, goal-driven task completion, retry handling, terminal statuslines, and keep-awake automation.
+Production-ready, independently installable [Pi](https://pi.dev) extension packages for the Pi coding agent. This monorepo provides native Pi tools and commands for configurable LSP diagnostics and source fixes, Chrome DevTools automation, Codex usage status, Firecrawl web scraping, goal-driven task completion, retry handling, terminal statuslines, and keep-awake automation.
 
 ## 📦 Pi extension packages
 
@@ -16,7 +16,7 @@ Install only the Pi extensions you need. Each package is published under the `@n
 | [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) | 📊 `/codex-status` command and automatic statusline item for ChatGPT Codex subscription usage, using Pi auth first and Codex CLI only as fallback. | `pi install npm:@narumitw/pi-codex-usage` |
 | [`@narumitw/pi-firecrawl`](./extensions/pi-firecrawl) | 🔥 Firecrawl-powered web scraping, crawling, URL discovery, and web search tools for research workflows. | `pi install npm:@narumitw/pi-firecrawl` |
 | [`@narumitw/pi-goal`](./extensions/pi-goal) | 🎯 `/goal` mode that keeps the agent working until a verifiable task is complete. | `pi install npm:@narumitw/pi-goal` |
-| [`@narumitw/pi-lsp`](./extensions/pi-lsp) | 🧠 Shared language-server tools for Biome diagnostics/edits, ty diagnostics, and Ruff diagnostics/edits. | `pi install npm:@narumitw/pi-lsp` |
+| [`@narumitw/pi-lsp`](./extensions/pi-lsp) | 🧠 Configurable language-server diagnostics and source-fix tools routed by file extension. | `pi install npm:@narumitw/pi-lsp` |
 | [`@narumitw/pi-retry`](./extensions/pi-retry) | 🔁 Retry support for provider responses that fail with `Unknown error (no error details in response)`. | `pi install npm:@narumitw/pi-retry` |
 | [`@narumitw/pi-statusline`](./extensions/pi-statusline) | ✨ A rich Pi terminal statusline with model, tools, git branch, context usage, token totals, cost, and time. | `pi install npm:@narumitw/pi-statusline` |
 | [`@narumitw/pi-subagents`](./extensions/pi-subagents) | 🤖 Delegate work to specialized isolated subagents with single, parallel, and chained execution modes. | `pi install npm:@narumitw/pi-subagents` |
@@ -45,11 +45,11 @@ pi -e npm:@narumitw/pi-goal -e npm:@narumitw/pi-statusline -e npm:@narumitw/pi-l
 
 ### 🧠 Shared language-server workflows
 
-Use [`@narumitw/pi-lsp`](./extensions/pi-lsp) to let Pi run Biome, ty, and Ruff language-server tools through one shared LSP runner. It covers Biome diagnostics and edits, ty type diagnostics, and Ruff lint diagnostics, formatting, import organization, and source fixes. The older split packages [`@narumitw/pi-biome-lsp`](./extensions/deprecated/pi-biome-lsp) and [`@narumitw/pi-python-lsp`](./extensions/deprecated/pi-python-lsp) are deprecated, kept for reference, and excluded from active workspace scripts.
+Use [`@narumitw/pi-lsp`](./extensions/pi-lsp) to let Pi run configurable Language Server Protocol servers through one shared runner. Configure servers in `.pi/lsp.json`, `~/.pi/agent/lsp.json`, or `PI_LSP_CONFIG` with simple `{ command, extensions }` entries, then use Pi tools for diagnostics and source code actions. The older split packages [`@narumitw/pi-biome-lsp`](./extensions/deprecated/pi-biome-lsp) and [`@narumitw/pi-python-lsp`](./extensions/deprecated/pi-python-lsp) are deprecated, kept for reference, and excluded from active workspace scripts.
 
 ### 🧬 JavaScript and TypeScript coding with Biome
 
-Use [`@narumitw/pi-lsp`](./extensions/pi-lsp) to let Pi run Biome diagnostics through `biome lsp-proxy`, format supported files, organize imports, and apply safe Biome source fixes.
+Use [`@narumitw/pi-lsp`](./extensions/pi-lsp) to route TypeScript, JavaScript, JSON, CSS, and other supported files to `biome lsp-proxy` for diagnostics and source actions such as organize imports or fix-all code actions.
 
 ### 🌐 Browser automation and debugging
 
@@ -65,7 +65,7 @@ Use [`@narumitw/pi-codex-usage`](./extensions/pi-codex-usage) to show ChatGPT Co
 
 ### 🐍 Python coding with ty and Ruff
 
-Use [`@narumitw/pi-lsp`](./extensions/pi-lsp) to let Pi run Python type checks through `ty server`, lint diagnostics through `ruff server`, Ruff formatting, and Ruff source fixes such as import organization.
+Use [`@narumitw/pi-lsp`](./extensions/pi-lsp) to route Python files to configured servers such as `ty server` for type diagnostics and `ruff server` for lint diagnostics or source actions such as import organization.
 
 ### 🎯 Autonomous task completion
 
