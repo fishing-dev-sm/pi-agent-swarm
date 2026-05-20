@@ -2,7 +2,7 @@
 
 [![npm scope](https://img.shields.io/badge/npm-@narumitw-blue)](https://www.npmjs.com/org/narumitw) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-Production-ready, independently installable [Pi](https://pi.dev) extension packages for the Pi coding agent. This monorepo provides native Pi tools and commands for configurable LSP diagnostics and source fixes, Chrome DevTools automation, Codex usage status, Firecrawl web scraping, goal-driven task completion, retry handling, terminal statuslines, and keep-awake automation.
+Production-ready, independently installable [Pi](https://pi.dev) extension packages for the Pi coding agent. This monorepo provides native Pi tools and commands for configurable LSP diagnostics and source fixes, Chrome DevTools automation, Codex usage status, Firecrawl web scraping, Telegram remote session chat, goal-driven task completion, retry handling, terminal statuslines, and keep-awake automation.
 
 ## 📦 Pi extension packages
 
@@ -20,6 +20,7 @@ Install only the Pi extensions you need. Each package is published under the `@n
 | [`@narumitw/pi-retry`](./extensions/pi-retry) | 🔁 Retry support for provider responses that fail with `Unknown error (no error details in response)`. | `pi install npm:@narumitw/pi-retry` |
 | [`@narumitw/pi-statusline`](./extensions/pi-statusline) | ✨ A rich Pi terminal statusline with model, tools, git branch, context usage, token totals, cost, and time. | `pi install npm:@narumitw/pi-statusline` |
 | [`@narumitw/pi-subagents`](./extensions/pi-subagents) | 🤖 Delegate work to specialized isolated subagents with single, parallel, and chained execution modes. | `pi install npm:@narumitw/pi-subagents` |
+| [`@narumitw/pi-telegram`](./extensions/pi-telegram) | 📨 Telegram Bot bridge for talking to the current Pi session without adding custom tools. | `pi install npm:@narumitw/pi-telegram` |
 
 ## 🚀 Quick start
 
@@ -71,6 +72,10 @@ Use [`@narumitw/pi-lsp`](./extensions/pi-lsp) to route Python files to configure
 
 Use [`@narumitw/pi-goal`](./extensions/pi-goal) for long-running implementation, debugging, refactoring, and verification tasks where the agent should continue past planning and call `goal_complete` only after the goal is done.
 
+### 📨 Remote Telegram session chat
+
+Use [`@narumitw/pi-telegram`](./extensions/pi-telegram) to talk to one currently running Pi session from a Telegram Bot configured by JSON. Polling is opt-in with `/telegram` or `/telegram enable`; it registers no custom tools, so Telegram messages become normal Pi user messages and code changes depend on the session's active `edit`, `write`, and `bash` tools.
+
 ### 🤖 Delegated subagents
 
 Use [`@narumitw/pi-subagents`](./extensions/pi-subagents) when you want the Pi agent to delegate scouting, planning, review, or implementation work to isolated worker processes with single, parallel, or chained execution.
@@ -106,6 +111,7 @@ pi -e ./extensions/pi-lsp
 pi -e ./extensions/pi-retry
 pi -e ./extensions/pi-statusline
 pi -e ./extensions/pi-subagents
+pi -e ./extensions/pi-telegram
 ```
 
 Preview npm package contents before publishing:
@@ -121,6 +127,7 @@ npm run pack:lsp
 npm run pack:retry
 npm run pack:statusline
 npm run pack:subagents
+npm run pack:telegram
 ```
 
 Publishing note for new scoped packages: `just npm-public <package>` only changes visibility for an already-published package. If npm returns 404 for a brand-new package such as `@narumitw/pi-subagents`, create it first with:
@@ -147,7 +154,8 @@ extensions/
 ├── pi-lsp/
 ├── pi-retry/
 ├── pi-statusline/
-└── pi-subagents/
+├── pi-subagents/
+└── pi-telegram/
 ```
 
 Each active extension package contains its own `package.json`, `README.md`, `LICENSE`, `tsconfig.json`, and TypeScript source under `src/`. Deprecated packages live under `extensions/deprecated/` and are excluded from workspace scripts.
