@@ -26,7 +26,7 @@ if (missingTests.length > 0) {
 
 run(tsc, ["-p", "tsconfig.test.json"]);
 
-const testFiles = findFiles(path.join(outDir, "extensions"), ".test.js");
+const testFiles = findFiles(outDir, ".test.js");
 if (testFiles.length === 0) {
 	console.error("No compiled test files found.");
 	process.exit(1);
