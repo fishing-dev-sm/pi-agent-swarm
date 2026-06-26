@@ -6,7 +6,7 @@ Production-ready, independently installable [Pi](https://pi.dev) extension packa
 
 ## 📦 Pi extension packages
 
-Install only the Pi extensions you need. Each package is published under the `@narumitw` npm scope and can be installed directly with `pi install npm:<package>`.
+Install only the Pi extensions you need. Each package is published under the `@narumitw` npm scope and can be installed directly with the package-specific `pi install npm:@narumitw/...` command.
 
 | Pi extension | What it adds | Install |
 | --- | --- | --- |
@@ -152,10 +152,10 @@ npm run pack:subagents
 npm run pack:wait-what
 ```
 
-Publishing note for new scoped packages: `just npm-public <package>` only changes visibility for an already-published package. If npm returns 404 for a brand-new package, create it first with:
+Publishing note for new scoped packages: `just npm-public @narumitw/pi-new-extension` only changes visibility for an already-published package. If npm returns 404 for a brand-new package, create it first with the new package's workspace name, for example:
 
 ```bash
-npm publish --workspace <package-name> --access public
+npm publish --workspace @narumitw/pi-new-extension --access public
 ```
 
 ## 🗂️ Repository structure
