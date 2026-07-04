@@ -68,7 +68,7 @@ Use [`@narumitw/pi-firecrawl`](./extensions/pi-firecrawl) to give Pi native Fire
 
 ### 🔎 Google GenAI grounding
 
-Use [`@narumitw/pi-google-genai`](./extensions/pi-google-genai) to give Pi Google Search, Google Maps, and URL-context grounding through Gemini Interactions with Pi Google auth or a private `google-genai.json` key.
+Use [`@narumitw/pi-google-genai`](./extensions/pi-google-genai) to give Pi Google Search, Google Maps, and URL-context grounding through Gemini Interactions with Pi Google auth or a private `google-genai.json` config.
 
 ### 🔐 Codex subscription accounts
 
