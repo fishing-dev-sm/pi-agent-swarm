@@ -2,9 +2,9 @@
 
 [![npm scope](https://img.shields.io/badge/npm-@narumitw-blue)](https://www.npmjs.com/org/narumitw) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-Production-ready, independently installable [Pi](https://pi.dev) Coding Agent extension packages for AI coding workflows. This TypeScript monorepo publishes npm packages under `@narumitw` and gives Pi native tools, slash commands, and statusline integrations for LSP diagnostics and code actions across TypeScript, JavaScript, Python, JSON, CSS, and more; Chrome DevTools Protocol browser automation; Firecrawl web scraping, crawling, and web search; Google GenAI/Gemini Search, Maps, and URL-context grounding; ChatGPT Codex account switching and usage status; GitHub pull request checks; goal mode; Codex-like plan mode; subagents; rich terminal statuslines; Cloudflare R2/S3 settings sync; retry handling; pause-and-explain commands; side questions; and keep-awake automation.
+Production-ready, independently installable [Pi](https://pi.dev) Coding Agent extension packages for AI coding workflows. This TypeScript monorepo publishes npm packages under `@narumitw` and gives Pi native tools, slash commands, and statusline integrations for LSP diagnostics and code actions across TypeScript, JavaScript, Python, JSON, CSS, and more; Chrome DevTools Protocol browser automation; Firecrawl web scraping, crawling, and web search; Google GenAI grounding for Google Search, Maps, and URL context; ChatGPT Codex account switching and usage status; GitHub pull request checks; goal mode; Codex-like plan mode; subagents; rich terminal statuslines; Cloudflare R2/S3 settings sync; retry handling; `/wait-what` pause explanations; side questions; and keep-awake automation.
 
-**Search keywords:** Pi Coding Agent extensions, AI coding agent tools, npm Pi packages, LSP diagnostics, Language Server Protocol, Chrome DevTools Protocol, browser automation, web scraping, Firecrawl, Google Gemini grounding, ChatGPT Codex tools, subagents, terminal statusline, Cloudflare R2 sync, S3 sync.
+**Search keywords:** Pi Coding Agent extensions, AI coding agent tools, npm Pi packages, LSP diagnostics, Language Server Protocol, Chrome DevTools Protocol, browser automation, web scraping, Firecrawl, Google GenAI grounding, ChatGPT Codex tools, subagents, terminal statusline, Cloudflare R2 sync, S3 sync.
 
 ## 📦 Pi extension packages
 
@@ -20,7 +20,7 @@ Install only the Pi extensions you need. Each package is published under the `@n
 | [`@narumitw/pi-firecrawl`](./extensions/pi-firecrawl) | 🔥 Firecrawl-powered web scraping, crawling, URL discovery, and web search tools for documentation and research workflows. | `pi install npm:@narumitw/pi-firecrawl` |
 | [`@narumitw/pi-github-pr`](./extensions/pi-github-pr) | 🔎 Passive current-branch GitHub PR checks, review, and comment counts in the statusline. | `pi install npm:@narumitw/pi-github-pr` |
 | [`@narumitw/pi-goal`](./extensions/pi-goal) | 🎯 `/goal` mode that keeps the agent working until a verifiable task is complete. | `pi install npm:@narumitw/pi-goal` |
-| [`@narumitw/pi-google-genai`](./extensions/pi-google-genai) | 🔎 Google GenAI/Gemini grounding tools for Google Search, Maps, and URL context. | `pi install npm:@narumitw/pi-google-genai` |
+| [`@narumitw/pi-google-genai`](./extensions/pi-google-genai) | 🔎 Google GenAI grounding tools for Google Search, Maps, and URL context. | `pi install npm:@narumitw/pi-google-genai` |
 | [`@narumitw/pi-lsp`](./extensions/pi-lsp) | 🧠 Language-agnostic LSP diagnostics and code actions for TypeScript, JavaScript, Python, JSON, CSS, and more through configured language servers. | `pi install npm:@narumitw/pi-lsp` |
 | [`@narumitw/pi-plan-mode`](./extensions/pi-plan-mode) | 🧭 Codex-like read-only `/plan` collaboration mode with safe exploration and implementation-ready plans. | `pi install npm:@narumitw/pi-plan-mode` |
 | [`@narumitw/pi-retry`](./extensions/pi-retry) | 🔁 Retry support for provider responses that fail with `Unknown error (no error details in response)`. | `pi install npm:@narumitw/pi-retry` |
