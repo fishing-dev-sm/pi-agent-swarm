@@ -26,6 +26,7 @@ Run commands from the repository root unless noted otherwise.
 - Biome is authoritative: tabs, 100-column line width, double quotes, semicolons, and recommended lint rules.
 - Keep extension packages small and self-contained. Add dependencies only when they solve a current extension need.
 - When adding an extension, include the source in `pi.extensions`, package publish `files`, and root workspace-aware scripts/recipes if users need them.
+- When a source file exceeds 1,000 lines, it must be reviewed for decomposition. Split it along clear responsibility boundaries when doing so improves cohesion, maintainability, or testability. Do not split files mechanically solely to satisfy the line limit. Generated, vendored, migration, snapshot, and primarily declarative files may be exempt.
 
 ## Testing and verification
 
