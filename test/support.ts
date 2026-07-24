@@ -288,6 +288,9 @@ export function createCustomSelectorHarness(factory: unknown, width = 100) {
 		render() {
 			return component.render(width);
 		},
+		dispose() {
+			(component as { dispose?: () => void }).dispose?.();
+		},
 		get result() {
 			return result;
 		},
