@@ -204,5 +204,6 @@ vite.config.ts.timestamp-*
 src/
 src.zip
 third_party/
+extensions/pi-lsp/test/docker/results/raw/
 extensions/archived/
 worktrees/
