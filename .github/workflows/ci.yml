@@ -13,8 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: Check and test against the latest Pi packages
+  ci:
     runs-on: ubuntu-latest
 
     steps:
