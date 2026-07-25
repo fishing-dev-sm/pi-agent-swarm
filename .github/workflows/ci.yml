@@ -13,8 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: Check and test against the latest Pi packages
+  ci:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,11 +25,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-
-      - name: Set up npm
-        run: |
-          npm install -g npm@11.16.0
-          npm --version
 
       - name: Install dependencies
         run: npm ci
