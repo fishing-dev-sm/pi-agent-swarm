@@ -4,8 +4,8 @@ This guide defines the stable conventions for active extensions in this monorepo
 platform constraints from repository requirements and preferred product patterns so that review does
 not confuse runtime correctness with local taste.
 
-The Pi guidance is reviewed against the latest published
-`@earendil-works/pi-coding-agent` release and canonical documentation:
+The Pi guidance targets the latest published `@earendil-works/pi-coding-agent` release and
+canonical documentation:
 
 - [Extension API](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)
 - [Package format](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md)
