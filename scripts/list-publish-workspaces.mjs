@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 
 const releaseTagPattern = /^v(\d+)\.(\d+)\.(\d+)$/;
-const excludedDirectories = new Set(["experimental"]);
+const extensionsDirectory = "extensions";
 const [mode, ...args] = process.argv.slice(2);
 
 let releaseCommit;
@@ -57,10 +57,10 @@ function selectChangedDirectories(tag, commit) {
 		previousRelease.commit,
 		parent,
 		"--",
-		"extensions",
+		extensionsDirectory,
 	])) {
 		const [topLevel, directory, child] = changedPath.split("/");
-		if (topLevel === "extensions" && directory && child) changedDirectories.add(directory);
+		if (topLevel === extensionsDirectory && directory && child) changedDirectories.add(directory);
 	}
 	return changedDirectories;
 }
@@ -117,7 +117,7 @@ function isCanonicalReleaseCommit(tag, version, commit, parent, packages) {
 	const beforeLock = tryReadJsonAt(parent, "package-lock.json");
 	const afterLock = tryReadJsonAt(commit, "package-lock.json");
 	if (!beforeLock || !afterLock) return false;
-	const workspacePaths = packages.map(({ directory }) => `extensions/${directory}`);
+	const workspacePaths = packages.map(({ directory }) => `${extensionsDirectory}/${directory}`);
 	if (!normalizeLockfileVersions(beforeLock, workspacePaths)) return false;
 	if (!normalizeLockfileVersions(afterLock, workspacePaths, version)) return false;
 	return isDeepStrictEqual(beforeLock, afterLock);
@@ -143,9 +143,14 @@ function normalizeVersion(value, expectedVersion) {
 
 function listProductionPackages(commit) {
 	const packages = [];
-	for (const directory of gitNullList(["ls-tree", "-z", "--name-only", `${commit}:extensions`])) {
-		if (excludedDirectories.has(directory) || directory.includes("/")) continue;
-		const manifestPath = `extensions/${directory}/package.json`;
+	for (const directory of gitNullList([
+		"ls-tree",
+		"-z",
+		"--name-only",
+		`${commit}:${extensionsDirectory}`,
+	])) {
+		if (directory.includes("/")) continue;
+		const manifestPath = `${extensionsDirectory}/${directory}/package.json`;
 		const packageJson = tryReadJsonAt(commit, manifestPath);
 		if (!packageJson || packageJson.private) continue;
 

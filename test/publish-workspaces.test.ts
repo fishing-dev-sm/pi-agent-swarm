@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,7 +29,7 @@ test("canonical releases select only changed production extensions in determinis
 			{ directory: "pi-zulu", name: "@fixture/zulu" },
 			{ directory: "pi-alpha", name: "@fixture/alpha" },
 			{ directory: "pi-private", name: "@fixture/private", private: true },
-			{ directory: "experimental/pi-experiment", name: "@fixture/experiment" },
+			{ directory: "pi-experiment", name: "@fixture/experiment", root: "experimental" },
 			{ directory: "pi-legacy", name: "@fixture/legacy", root: "deprecated" },
 		],
 		(repository) => {
@@ -30,11 +38,7 @@ test("canonical releases select only changed production extensions in determinis
 			write(repository, "extensions/pi-zulu/src/index.ts", "export const zulu = 1;\n");
 			write(repository, "extensions/pi-zulu/test/index.test.ts", "// second zulu path\n");
 			write(repository, "extensions/pi-private/src/index.ts", "private change\n");
-			write(
-				repository,
-				"extensions/experimental/pi-experiment/src/index.ts",
-				"experimental change\n",
-			);
+			write(repository, "experimental/pi-experiment/src/index.ts", "experimental change\n");
 			write(repository, "deprecated/pi-legacy/src/index.ts", "legacy change\n");
 			addPackage(repository, { directory: "pi-middle", name: "@fixture/middle" });
 			refreshLockfile(repository);
@@ -91,7 +95,7 @@ test("first and nonstandard releases safely select every production package", ()
 			{ directory: "pi-beta", name: "@fixture/beta" },
 			{ directory: "pi-alpha", name: "@fixture/alpha" },
 			{ directory: "pi-private", name: "@fixture/private", private: true },
-			{ directory: "experimental/pi-experiment", name: "@fixture/experiment" },
+			{ directory: "pi-experiment", name: "@fixture/experiment", root: "experimental" },
 		],
 		(repository) => {
 			createRelease(repository, "v1.0.0");
@@ -162,7 +166,7 @@ test("all-packages mode is deterministic and excludes non-production workspaces"
 			{ directory: "pi-zulu", name: "@fixture/zulu" },
 			{ directory: "pi-alpha", name: "@fixture/alpha" },
 			{ directory: "pi-private", name: "@fixture/private", private: true },
-			{ directory: "experimental/pi-experiment", name: "@fixture/experiment" },
+			{ directory: "pi-experiment", name: "@fixture/experiment", root: "experimental" },
 			{ directory: "pi-legacy", name: "@fixture/legacy", root: "deprecated" },
 		],
 		(repository) => {
@@ -178,7 +182,7 @@ type PackageFixture = {
 	directory: string;
 	name: string;
 	private?: boolean;
-	root?: "deprecated";
+	root?: "experimental" | "deprecated";
 };
 
 function withRepository(packages: PackageFixture[], run: (repository: string) => void) {
@@ -189,7 +193,7 @@ function withRepository(packages: PackageFixture[], run: (repository: string) =>
 			name: "fixture-root",
 			version: "0.0.0",
 			private: true,
-			workspaces: ["extensions/*", "extensions/experimental/*"],
+			workspaces: ["extensions/*", "experimental/*"],
 		});
 		for (const packageFixture of packages) addPackage(repository, packageFixture);
 		refreshLockfile(repository);
@@ -236,12 +240,13 @@ function refreshLockfile(repository: string) {
 			workspaces: rootPackage.workspaces,
 		},
 	};
-	const extensions = path.join(repository, "extensions");
-	if (existsSync(extensions)) {
-		for (const directory of listPackageDirectories(repository)) {
-			const packagePath = path.join(extensions, directory, "package.json");
+	for (const workspaceRoot of ["extensions", "experimental"]) {
+		const rootPath = path.join(repository, workspaceRoot);
+		if (!existsSync(rootPath)) continue;
+		for (const directory of readdirPackageDirectories(rootPath)) {
+			const packagePath = path.join(rootPath, directory, "package.json");
 			const packageJson = readJson(packagePath);
-			packages[`extensions/${directory}`] = {
+			packages[`${workspaceRoot}/${directory}`] = {
 				name: packageJson.name,
 				version: packageJson.version,
 				...(packageJson.private ? { private: true } : {}),
@@ -257,10 +262,18 @@ function refreshLockfile(repository: string) {
 	});
 }
 
+function readdirPackageDirectories(root: string) {
+	return readdirSync(root, { withFileTypes: true })
+		.filter(
+			(entry) => entry.isDirectory() && existsSync(path.join(root, entry.name, "package.json")),
+		)
+		.map((entry) => entry.name)
+		.sort();
+}
+
 function productionPackageDirectories(repository: string) {
 	return listPackageDirectories(repository).filter((directory) => {
 		if (directory.includes("/")) return false;
-		if (directory === "experimental") return false;
 		const packageJson = readJson(path.join(repository, "extensions", directory, "package.json"));
 		return packageJson.private !== true;
 	});

@@ -3,7 +3,7 @@
 ## Project structure
 
 - This is a Node/TypeScript monorepo for independently installable Pi extension packages plus explicitly local-only experiments.
-- Production extension code lives under `extensions/<package>/src/*.ts`; experimental code lives under `extensions/experimental/<package>/src/*.ts`; deprecated reference packages live under `deprecated/<package>/`; each package has its own `package.json`, `README.md`, `LICENSE`, and `tsconfig.json`.
+- Production extension code lives under `extensions/<package>/src/*.ts`; experimental code lives under `experimental/<package>/src/*.ts`; deprecated reference packages live under `deprecated/<package>/`; each package has its own `package.json`, `README.md`, `LICENSE`, and `tsconfig.json`.
 - Root config owns shared tooling: `package.json`, `package-lock.json`, `biome.json`, `tsconfig.json`, `justfile`, and `.github/workflows/*`.
 - Do not hand-edit generated dependency output such as `node_modules/`. Keep package contents aligned with each package `files` list and `pi.extensions` entry.
 
@@ -29,15 +29,15 @@ Run commands from the repository root unless noted otherwise.
 - Before adding or changing extension-owned settings files, precedence, validation, persistence, migration, commands, or interactive settings UI, also read and follow `docs/extension-settings.md`.
 - Every active extension package exposes Pi through a thin `src/index.ts` default-export forwarding entrypoint, and its `package.json` declares exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules and run `npm run check:boundaries` to enforce this for production and experimental packages.
 - Production extensions include source in `pi.extensions`, publish `files`, and root workspace-aware scripts/recipes when users need them.
-- Standalone experimental extension packages must live under `extensions/experimental/`, show a user-facing warning, remain covered by root checks, and stay excluded from automated publish/version workflows. An opt-in experimental feature may remain inside a production package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
+- Standalone experimental extension packages must live under `experimental/`, show a user-facing warning, remain covered by root checks, and stay excluded from automated publish/version workflows. An opt-in experimental feature may remain inside a production package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
 - When a source file exceeds 1,000 lines, it must be reviewed for decomposition. Split it along clear responsibility boundaries when doing so improves cohesion, maintainability, or testability. Do not split files mechanically solely to satisfy the line limit. Generated, vendored, migration, snapshot, and primarily declarative files may be exempt.
 
 ## Testing and verification
 
-- Active extension tests live under `extensions/<package>/test/*.test.ts` or `extensions/experimental/<package>/test/*.test.ts` and run with `npm test`; archived tests under `deprecated/` are excluded.
+- Active extension tests live under `extensions/<package>/test/*.test.ts` or `experimental/<package>/test/*.test.ts` and run with `npm test`; archived tests under `deprecated/` are excluded.
 - Use `npm run check` as the CI-equivalent local gate; it runs Biome, boundary checks, workspace typechecks, and tests.
 - For package metadata or publishing changes, also run the relevant `just pack-*` dry run and inspect the tarball contents.
-- For Pi runtime behavior, prefer `pi -e ./extensions/<package>` or the matching `just try-*` recipe before publishing.
+- For Pi runtime behavior, prefer `pi -e ./extensions/<package>`, `pi -e ./experimental/<package>`, or the matching `just try-*` recipe before publishing.
 
 ## Publishing and release safety
 
