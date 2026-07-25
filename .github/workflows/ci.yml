@@ -27,11 +27,6 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Set up npm
-        run: |
-          npm install -g npm@11.16.0
-          npm --version
-
       - name: Install dependencies
         run: npm ci
 

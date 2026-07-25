@@ -38,11 +38,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Set up npm
-        run: |
-          npm install -g npm@11.16.0
-          npm --version
-
       - name: Configure git author
         run: |
           git config user.name "github-actions[bot]"
