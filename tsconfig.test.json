@@ -8,8 +8,8 @@
 	"include": [
 		"extensions/*/src/**/*.ts",
 		"extensions/*/test/**/*.ts",
-		"extensions/experimental/*/src/**/*.ts",
-		"extensions/experimental/*/test/**/*.ts",
+		"experimental/*/src/**/*.ts",
+		"experimental/*/test/**/*.ts",
 		"test/**/*.ts"
 	]
 }

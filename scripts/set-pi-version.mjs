@@ -11,14 +11,18 @@ if (!version) {
 }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const extensionsDir = path.join(root, "extensions");
+const workspaceRoots = [path.join(root, "extensions"), path.join(root, "experimental")].filter(
+	(workspaceRoot) => fs.existsSync(workspaceRoot),
+);
 const manifests = [
 	path.join(root, "package.json"),
-	...fs
-		.readdirSync(extensionsDir, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory())
-		.map((entry) => path.join(extensionsDir, entry.name, "package.json"))
-		.filter((manifest) => fs.existsSync(manifest)),
+	...workspaceRoots.flatMap((workspaceRoot) =>
+		fs
+			.readdirSync(workspaceRoot, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => path.join(workspaceRoot, entry.name, "package.json"))
+			.filter((manifest) => fs.existsSync(manifest)),
+	),
 ];
 
 let updatedDependencies = 0;

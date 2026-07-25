@@ -38,10 +38,13 @@ const SOURCE_FILE_SUFFIXES = [
 
 const rootDirectory = process.cwd();
 const extensionsDirectory = path.join(rootDirectory, "extensions");
-const activePackages = findActiveExtensionPackages(extensionsDirectory);
-const experimentalDirectory = path.join(extensionsDirectory, "experimental") + path.sep;
+const experimentalDirectory = path.join(rootDirectory, "experimental");
+const activePackages = [
+	...findActiveExtensionPackages(extensionsDirectory),
+	...findActiveExtensionPackages(experimentalDirectory),
+].sort((left, right) => left.name.localeCompare(right.name));
 const experimentalPackageCount = activePackages.filter(({ directory }) =>
-	directory.startsWith(experimentalDirectory),
+	directory.startsWith(`${experimentalDirectory}${path.sep}`),
 ).length;
 const failures = [];
 const sourcePaths = activePackages.flatMap((extensionPackage) => {
@@ -77,6 +80,7 @@ if (failures.length > 0) {
 
 function findActiveExtensionPackages(directory) {
 	const packages = [];
+	if (!fs.existsSync(directory)) return packages;
 
 	for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
 		if (!entry.isDirectory() || entry.name === "node_modules") {

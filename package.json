@@ -7,7 +7,7 @@
 	"type": "module",
 	"workspaces": [
 		"extensions/*",
-		"extensions/experimental/*"
+		"experimental/*"
 	],
 	"scripts": {
 		"format": "biome format --write .",

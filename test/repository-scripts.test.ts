@@ -8,6 +8,7 @@ import test from "node:test";
 const repositoryRoot = process.cwd();
 const bumpScript = path.join(repositoryRoot, "scripts", "bump-shared-version.mjs");
 const checkScript = path.join(repositoryRoot, "scripts", "run-checks.mjs");
+const setPiVersionScript = path.join(repositoryRoot, "scripts", "set-pi-version.mjs");
 const expectedChecks = ["biome:check", "check:boundaries", "test", "typecheck"];
 
 test("shared-version discovery skips publishable experimental workspaces", () => {
@@ -17,13 +18,13 @@ test("shared-version discovery skips publishable experimental workspaces", () =>
 			name: "fixture-root",
 			private: true,
 			version: "1.2.3",
-			workspaces: ["extensions/*", "extensions/experimental/*"],
+			workspaces: ["extensions/*", "experimental/*"],
 		});
 		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
 			name: "@fixture/public",
 			version: "1.2.3",
 		});
-		writeJson(path.join(fixture, "extensions/experimental/pi-manual/package.json"), {
+		writeJson(path.join(fixture, "experimental/pi-manual/package.json"), {
 			name: "@fixture/manual-experiment",
 			version: "0.0.0",
 		});
@@ -45,7 +46,7 @@ test("shared-version discovery skips workspace roots that are not present", () =
 			name: "fixture-root",
 			private: true,
 			version: "1.2.3",
-			workspaces: ["extensions/*", "extensions/experimental/*"],
+			workspaces: ["extensions/*", "experimental/*"],
 		});
 		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
 			name: "@fixture/public",
@@ -57,6 +58,43 @@ test("shared-version discovery skips workspace roots that are not present", () =
 			encoding: "utf8",
 		});
 		assert.deepEqual(JSON.parse(output), ["extensions/pi-public/package.json", "package.json"]);
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("latest-Pi setup updates production and root experimental workspaces", () => {
+	const fixture = mkdtempSync(path.join(tmpdir(), "pi-version-workspaces-"));
+	try {
+		writeJson(path.join(fixture, "package.json"), {
+			name: "fixture-root",
+			private: true,
+			devDependencies: { "@earendil-works/pi-coding-agent": "1.0.0" },
+		});
+		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
+			name: "@fixture/public",
+			devDependencies: { "@earendil-works/pi-tui": "1.0.0" },
+		});
+		writeJson(path.join(fixture, "experimental/pi-manual/package.json"), {
+			name: "@fixture/manual-experiment",
+			devDependencies: { "@earendil-works/pi-ai": "1.0.0" },
+		});
+
+		const fixtureScript = path.join(fixture, "scripts/set-pi-version.mjs");
+		mkdirSync(path.dirname(fixtureScript), { recursive: true });
+		writeFileSync(fixtureScript, readFileSync(setPiVersionScript, "utf8"));
+		execFileSync(process.execPath, [fixtureScript, "9.9.9"], { cwd: fixture });
+		assert.equal(
+			JSON.parse(readFileSync(path.join(fixture, "package.json"), "utf8")).devDependencies[
+				"@earendil-works/pi-coding-agent"
+			],
+			"9.9.9",
+		);
+		assert.equal(
+			JSON.parse(readFileSync(path.join(fixture, "experimental/pi-manual/package.json"), "utf8"))
+				.devDependencies["@earendil-works/pi-ai"],
+			"9.9.9",
+		);
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
@@ -83,8 +121,8 @@ test("experimental publishing is manual-only", () => {
 		"utf8",
 	);
 	const justfile = readFileSync(path.join(repositoryRoot, "justfile"), "utf8");
-	assert.match(selector, /new Set\(\["experimental"\]\)/);
-	assert.match(justfile, /package_json="\.\/extensions\/experimental\/pi-\$name\/package\.json"/);
+	assert.match(selector, /const extensionsDirectory = "extensions"/);
+	assert.match(justfile, /package_json="\.\/experimental\/pi-\$name\/package\.json"/);
 	assert.match(justfile, /WARNING: manually publishing experimental Pi extension/);
 	assert.match(justfile, /^publish name:/m);
 	assert.doesNotMatch(justfile, /\botp\b|--otp/);

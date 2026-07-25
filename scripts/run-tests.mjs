@@ -16,7 +16,12 @@ const tsc = path.join(
 
 fs.rmSync(outDir, { recursive: true, force: true });
 
-const missingTests = activeExtensionDirectories()
+const activeExtensionRoots = [
+	path.join(root, "extensions"),
+	path.join(root, "experimental"),
+].filter((directory) => fs.existsSync(directory));
+const missingTests = activeExtensionRoots
+	.flatMap((directory) => activeExtensionDirectories(directory))
 	.filter((extensionDir) => !hasTestFile(path.join(extensionDir, "test")))
 	.map((extensionDir) => path.relative(root, extensionDir));
 if (missingTests.length > 0) {

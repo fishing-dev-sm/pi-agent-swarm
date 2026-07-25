@@ -118,7 +118,7 @@ and long-running interactive work should expose cancellation.
 ### Package layout and boundaries
 
 - **MUST:** Keep active production packages under `extensions/<package>/`, experiments under
-  `extensions/experimental/<package>/`, and deprecated references under `deprecated/<package>/`.
+  `experimental/<package>/`, and deprecated references under `deprecated/<package>/`.
   **Verification:** `Review` of package locations and lifecycle moves.
 - **MUST:** Give every active package a thin `src/index.ts` default-export forwarder and declare
   exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules.

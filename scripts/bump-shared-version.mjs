@@ -63,8 +63,8 @@ execFileSync("npm", ["install", "--package-lock-only", "--ignore-scripts"], {
 console.log(newVersion);
 
 function isExperimentalPackagePath(packagePath) {
-	const [topLevel, category] = path.normalize(packagePath).split(path.sep);
-	return topLevel === "extensions" && category === "experimental";
+	const [topLevel] = path.normalize(packagePath).split(path.sep);
+	return topLevel === "experimental";
 }
 
 function readPackage(packagePath) {
