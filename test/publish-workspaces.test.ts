@@ -23,7 +23,7 @@ const gitEnvironment = {
 	GIT_COMMITTER_NAME: "Fixture Author",
 };
 
-test("canonical releases select only changed production extensions in deterministic order", () => {
+test("canonical releases select changed publishable extensions in deterministic order", () => {
 	withRepository(
 		[
 			{ directory: "pi-zulu", name: "@fixture/zulu" },
@@ -47,6 +47,7 @@ test("canonical releases select only changed production extensions in determinis
 			createRelease(repository, "v1.1.0");
 
 			assert.deepEqual(select(repository, "--release", "v1.1.0"), [
+				["@fixture/experiment", "1.1.0"],
 				["@fixture/middle", "1.1.0"],
 				["@fixture/zulu", "1.1.0"],
 			]);
@@ -89,7 +90,7 @@ test("release selection omits deleted and unchanged packages", () => {
 	);
 });
 
-test("first and nonstandard releases safely select every production package", () => {
+test("first and nonstandard releases safely select every publishable package", () => {
 	withRepository(
 		[
 			{ directory: "pi-beta", name: "@fixture/beta" },
@@ -102,6 +103,7 @@ test("first and nonstandard releases safely select every production package", ()
 			assert.deepEqual(select(repository, "--release", "v1.0.0"), [
 				["@fixture/alpha", "1.0.0"],
 				["@fixture/beta", "1.0.0"],
+				["@fixture/experiment", "1.0.0"],
 			]);
 		},
 	);
@@ -160,7 +162,7 @@ test("a package introduced inside the release commit falls back to all packages"
 	});
 });
 
-test("all-packages mode is deterministic and excludes non-production workspaces", () => {
+test("all-packages mode includes experimental packages and excludes private and deprecated ones", () => {
 	withRepository(
 		[
 			{ directory: "pi-zulu", name: "@fixture/zulu" },
@@ -172,6 +174,7 @@ test("all-packages mode is deterministic and excludes non-production workspaces"
 		(repository) => {
 			assert.deepEqual(select(repository, "--all"), [
 				["@fixture/alpha", "0.0.0"],
+				["@fixture/experiment", "0.0.0"],
 				["@fixture/zulu", "0.0.0"],
 			]);
 		},
@@ -220,8 +223,7 @@ function createRelease(repository: string, tagName: string) {
 	rootPackage.version = version;
 	writeJson(repository, "package.json", rootPackage);
 
-	for (const directory of productionPackageDirectories(repository)) {
-		const packagePath = path.join(repository, "extensions", directory, "package.json");
+	for (const packagePath of publishablePackagePaths(repository)) {
 		const packageJson = readJson(packagePath);
 		packageJson.version = version;
 		writeJson(repository, path.relative(repository, packagePath), packageJson);
@@ -271,27 +273,27 @@ function readdirPackageDirectories(root: string) {
 		.sort();
 }
 
-function productionPackageDirectories(repository: string) {
-	return listPackageDirectories(repository).filter((directory) => {
-		if (directory.includes("/")) return false;
-		const packageJson = readJson(path.join(repository, "extensions", directory, "package.json"));
-		return packageJson.private !== true;
-	});
+function publishablePackagePaths(repository: string) {
+	return ["extensions", "experimental"].flatMap((workspaceRoot) =>
+		listPackageDirectories(repository, workspaceRoot)
+			.map((directory) => path.join(repository, workspaceRoot, directory, "package.json"))
+			.filter((packagePath) => readJson(packagePath).private !== true),
+	);
 }
 
-function listPackageDirectories(repository: string) {
-	const output = git(repository, "ls-files", "extensions/**/package.json");
+function listPackageDirectories(repository: string, workspaceRoot: string) {
+	const output = git(repository, "ls-files", `${workspaceRoot}/**/package.json`);
 	const tracked = output
 		.split("\n")
 		.filter(Boolean)
-		.map((file) => path.posix.dirname(file).slice("extensions/".length));
-	const untracked = git(repository, "ls-files", "--others", "--exclude-standard", "extensions")
+		.map((file) => path.posix.dirname(file).slice(workspaceRoot.length + 1));
+	const untracked = git(repository, "ls-files", "--others", "--exclude-standard", workspaceRoot)
 		.split("\n")
 		.filter((file) => file.endsWith("/package.json"))
-		.map((file) => path.posix.dirname(file).slice("extensions/".length));
+		.map((file) => path.posix.dirname(file).slice(workspaceRoot.length + 1));
 	return [...new Set([...tracked, ...untracked])]
 		.filter((directory) =>
-			existsSync(path.join(repository, "extensions", directory, "package.json")),
+			existsSync(path.join(repository, workspaceRoot, directory, "package.json")),
 		)
 		.sort();
 }

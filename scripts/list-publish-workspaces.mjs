@@ -4,27 +4,27 @@ import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 
 const releaseTagPattern = /^v(\d+)\.(\d+)\.(\d+)$/;
-const extensionsDirectory = "extensions";
+const packageRoots = ["extensions", "experimental"];
 const [mode, ...args] = process.argv.slice(2);
 
 let releaseCommit;
-let selectedDirectories;
+let selectedPackagePaths;
 
 if (mode === "--all" && args.length === 0) {
 	releaseCommit = resolveCommit("HEAD");
 } else if (mode === "--release" && args.length === 1) {
 	const [tag] = args;
 	releaseCommit = resolveTagCommit(tag);
-	selectedDirectories = selectChangedDirectories(tag, releaseCommit);
+	selectedPackagePaths = selectChangedPackagePaths(tag, releaseCommit);
 } else {
 	throw new Error(
 		"Usage: scripts/list-publish-workspaces.mjs --all | --release <vMAJOR.MINOR.PATCH>",
 	);
 }
 
-const packages = listProductionPackages(releaseCommit);
-const selectedPackages = selectedDirectories
-	? packages.filter(({ directory }) => selectedDirectories.has(directory))
+const packages = listPublishablePackages(releaseCommit);
+const selectedPackages = selectedPackagePaths
+	? packages.filter(({ packagePath }) => selectedPackagePaths.has(packagePath))
 	: packages;
 
 process.stdout.write(
@@ -33,7 +33,7 @@ process.stdout.write(
 		: "",
 );
 
-function selectChangedDirectories(tag, commit) {
+function selectChangedPackagePaths(tag, commit) {
 	const match = releaseTagPattern.exec(tag);
 	if (!match) return fallbackToAll(`tag ${JSON.stringify(tag)} is not a stable release tag`);
 
@@ -43,13 +43,13 @@ function selectChangedDirectories(tag, commit) {
 	const previousRelease = findPreviousRelease(parent);
 	if (!previousRelease) return fallbackToAll(`release ${tag} has no previous release tag`);
 
-	const packages = listProductionPackages(commit);
+	const packages = listPublishablePackages(commit);
 	const releaseVersion = match.slice(1).join(".");
 	if (!isCanonicalReleaseCommit(tag, releaseVersion, commit, parent, packages)) {
 		return fallbackToAll(`release ${tag} was not created by the shared version-bump workflow`);
 	}
 
-	const changedDirectories = new Set();
+	const changedPackagePaths = new Set();
 	for (const changedPath of gitNullList([
 		"diff",
 		"--name-only",
@@ -57,16 +57,18 @@ function selectChangedDirectories(tag, commit) {
 		previousRelease.commit,
 		parent,
 		"--",
-		extensionsDirectory,
+		...packageRoots,
 	])) {
 		const [topLevel, directory, child] = changedPath.split("/");
-		if (topLevel === extensionsDirectory && directory && child) changedDirectories.add(directory);
+		if (packageRoots.includes(topLevel) && directory && child) {
+			changedPackagePaths.add(`${topLevel}/${directory}`);
+		}
 	}
-	return changedDirectories;
+	return changedPackagePaths;
 }
 
 function fallbackToAll(reason) {
-	console.error(`Publish selection fallback: ${reason}; considering all production packages.`);
+	console.error(`Publish selection fallback: ${reason}; considering all publishable packages.`);
 	return undefined;
 }
 
@@ -117,7 +119,7 @@ function isCanonicalReleaseCommit(tag, version, commit, parent, packages) {
 	const beforeLock = tryReadJsonAt(parent, "package-lock.json");
 	const afterLock = tryReadJsonAt(commit, "package-lock.json");
 	if (!beforeLock || !afterLock) return false;
-	const workspacePaths = packages.map(({ directory }) => `${extensionsDirectory}/${directory}`);
+	const workspacePaths = packages.map(({ packagePath }) => packagePath);
 	if (!normalizeLockfileVersions(beforeLock, workspacePaths)) return false;
 	if (!normalizeLockfileVersions(afterLock, workspacePaths, version)) return false;
 	return isDeepStrictEqual(beforeLock, afterLock);
@@ -141,35 +143,39 @@ function normalizeVersion(value, expectedVersion) {
 	return true;
 }
 
-function listProductionPackages(commit) {
+function listPublishablePackages(commit) {
 	const packages = [];
-	for (const directory of gitNullList([
-		"ls-tree",
-		"-z",
-		"--name-only",
-		`${commit}:${extensionsDirectory}`,
-	])) {
-		if (directory.includes("/")) continue;
-		const manifestPath = `${extensionsDirectory}/${directory}/package.json`;
-		const packageJson = tryReadJsonAt(commit, manifestPath);
-		if (!packageJson || packageJson.private) continue;
+	for (const packageRoot of packageRoots) {
+		for (const directory of listTreeDirectories(commit, packageRoot)) {
+			if (directory.includes("/")) continue;
+			const packagePath = `${packageRoot}/${directory}`;
+			const manifestPath = `${packagePath}/package.json`;
+			const packageJson = tryReadJsonAt(commit, manifestPath);
+			if (!packageJson || packageJson.private) continue;
 
-		const { name, version } = packageJson;
-		if (!isTsvValue(name) || !isTsvValue(version)) {
-			throw new Error(`${manifestPath} must contain string name and version fields without tabs`);
+			const { name, version } = packageJson;
+			if (!isTsvValue(name) || !isTsvValue(version)) {
+				throw new Error(`${manifestPath} must contain string name and version fields without tabs`);
+			}
+			packages.push({ directory, manifestPath, name, packagePath, version });
 		}
-		packages.push({ directory, manifestPath, name, version });
 	}
 
 	packages.sort(
-		(a, b) => compareStrings(a.name, b.name) || compareStrings(a.directory, b.directory),
+		(a, b) => compareStrings(a.name, b.name) || compareStrings(a.packagePath, b.packagePath),
 	);
 	for (let index = 1; index < packages.length; index += 1) {
 		if (packages[index - 1].name === packages[index].name) {
-			throw new Error(`Duplicate production package name: ${packages[index].name}`);
+			throw new Error(`Duplicate publishable package name: ${packages[index].name}`);
 		}
 	}
 	return packages;
+}
+
+function listTreeDirectories(commit, packageRoot) {
+	const result = runGit(["ls-tree", "-z", "--name-only", `${commit}:${packageRoot}`], true);
+	if (result.status !== 0) return [];
+	return result.stdout.split("\0").filter(Boolean);
 }
 
 function isTsvValue(value) {

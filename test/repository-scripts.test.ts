@@ -11,7 +11,7 @@ const checkScript = path.join(repositoryRoot, "scripts", "run-checks.mjs");
 const setPiVersionScript = path.join(repositoryRoot, "scripts", "set-pi-version.mjs");
 const expectedChecks = ["biome:check", "check:boundaries", "test", "typecheck"];
 
-test("shared-version discovery skips publishable experimental workspaces", () => {
+test("shared-version discovery includes publishable experimental workspaces", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspaces-"));
 	try {
 		writeJson(path.join(fixture, "package.json"), {
@@ -33,7 +33,11 @@ test("shared-version discovery skips publishable experimental workspaces", () =>
 			cwd: fixture,
 			encoding: "utf8",
 		});
-		assert.deepEqual(JSON.parse(output), ["extensions/pi-public/package.json", "package.json"]);
+		assert.deepEqual(JSON.parse(output), [
+			"experimental/pi-manual/package.json",
+			"extensions/pi-public/package.json",
+			"package.json",
+		]);
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
@@ -115,15 +119,23 @@ test("publish workflow selects changed tag packages and all manual recovery pack
 	assert.match(workflow, />> "\$GITHUB_STEP_SUMMARY"/);
 });
 
-test("experimental publishing is manual-only", () => {
+test("experimental packages participate in automated and manual publishing", () => {
 	const selector = readFileSync(
 		path.join(repositoryRoot, "scripts/list-publish-workspaces.mjs"),
 		"utf8",
 	);
 	const justfile = readFileSync(path.join(repositoryRoot, "justfile"), "utf8");
-	assert.match(selector, /const extensionsDirectory = "extensions"/);
+	const bumpWorkflow = readFileSync(
+		path.join(repositoryRoot, ".github/workflows/bump-version.yml"),
+		"utf8",
+	);
+	assert.match(selector, /const packageRoots = \["extensions", "experimental"\]/);
 	assert.match(justfile, /package_json="\.\/experimental\/pi-\$name\/package\.json"/);
-	assert.match(justfile, /WARNING: manually publishing experimental Pi extension/);
+	assert.match(
+		justfile,
+		/for package_json in extensions\/\*\/package\.json experimental\/\*\/package\.json/,
+	);
+	assert.match(bumpWorkflow, /experimental\/\*\/package\.json/);
 	assert.match(justfile, /^publish name:/m);
 	assert.doesNotMatch(justfile, /\botp\b|--otp/);
 });
