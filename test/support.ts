@@ -285,7 +285,7 @@ export function createCustomSelectorHarness(
 			getKeys(key: string): readonly string[] {
 				if (key === "tui.select.up") return ["up"];
 				if (key === "tui.select.down") return ["down"];
-				if (key === "tui.select.confirm") return ["enter"];
+				if (key === "tui.select.confirm" || key === "tui.input.submit") return ["enter"];
 				if (key === "tui.select.cancel") return ["escape", "ctrl+c"];
 				return [];
 			},
