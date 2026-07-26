@@ -253,7 +253,14 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-export function createCustomSelectorHarness(factory: unknown, width = 100) {
+export function createCustomSelectorHarness(
+	factory: unknown,
+	width = 100,
+	keybindingsOverride?: {
+		matches(data: string, key: string): boolean;
+		getKeys(key: string): readonly string[];
+	},
+) {
 	if (typeof factory !== "function") throw new Error("Expected a custom component factory");
 	let result: unknown;
 	const component = (
@@ -271,9 +278,16 @@ export function createCustomSelectorHarness(factory: unknown, width = 100) {
 				return text;
 			},
 		},
-		{
+		keybindingsOverride ?? {
 			matches(data: string, key: string) {
 				return data === key;
+			},
+			getKeys(key: string): readonly string[] {
+				if (key === "tui.select.up") return ["up"];
+				if (key === "tui.select.down") return ["down"];
+				if (key === "tui.select.confirm" || key === "tui.input.submit") return ["enter"];
+				if (key === "tui.select.cancel") return ["escape", "ctrl+c"];
+				return [];
 			},
 		},
 		(value: unknown) => {
@@ -287,6 +301,12 @@ export function createCustomSelectorHarness(factory: unknown, width = 100) {
 		},
 		render() {
 			return component.render(width);
+		},
+		invalidate() {
+			(component as { invalidate?: () => void }).invalidate?.();
+		},
+		setFocused(focused: boolean) {
+			if ("focused" in component) (component as { focused: boolean }).focused = focused;
 		},
 		dispose() {
 			(component as { dispose?: () => void }).dispose?.();

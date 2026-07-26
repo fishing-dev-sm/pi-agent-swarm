@@ -25,12 +25,21 @@ Run commands from the repository root unless noted otherwise.
 - TypeScript uses `module`/`moduleResolution: NodeNext`, `target: ES2022`, `strict: true`, and `noEmit: true`.
 - Biome is authoritative: tabs, 100-column line width, double quotes, semicolons, and recommended lint rules.
 - Keep extension packages small and self-contained. Add dependencies only when they solve a current extension need.
-- Before creating an extension or changing an existing extension's package, lifecycle, command, menu, UI, status, documentation, or verification behavior, read and follow the relevant sections of `docs/extension-conventions.md`.
-- Before adding or changing extension-owned settings files, precedence, validation, persistence, migration, commands, or interactive settings UI, also read and follow `docs/extension-settings.md`.
 - Every active extension package exposes Pi through a thin `src/index.ts` default-export forwarding entrypoint, and its `package.json` declares exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules and run `npm run check:boundaries` to enforce this for production and experimental packages.
 - Production extensions include source in `pi.extensions`, publish `files`, and root workspace-aware scripts/recipes when users need them.
 - Standalone experimental extension packages must live under `experimental/`, show a user-facing warning, remain covered by root checks, and participate in shared versioning and publishing unless marked `private`. An opt-in experimental feature may remain inside a production package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
 - When a source file exceeds 1,000 lines, it must be reviewed for decomposition. Split it along clear responsibility boundaries when doing so improves cohesion, maintainability, or testability. Do not split files mechanically solely to satisfy the line limit. Generated, vendored, migration, snapshot, and primarily declarative files may be exempt.
+
+## Extension change gates
+
+- Before planning or editing an extension's package, lifecycle, command, menu, custom TUI, settings, status, documentation, or verification behavior, read `docs/extension-conventions.md` completely. Do not defer this reading until review.
+- When extension-owned settings are touched—including loading, persistence, validation, precedence, migration, commands, or UI—also read `docs/extension-settings.md` completely before planning or editing.
+- Before implementation, identify the touched areas and map them to the applicable **MUST** rules and named verification methods.
+- For every asynchronous UI or lifecycle flow, audit user cancellation, component disposal, session replacement, and shutdown separately. Cancel or release every owned task. After each `await`, revalidate any session, generation, context, or mutable state the continuation will use.
+- Treat settings reads and writes as one concurrency protocol; audit ordering, failure recovery, stale reads, invalid-file protection, unknown-field preservation, and atomic publication together.
+- Before completion, audit the final diff against the guides' touched-area and verification checklists. Passing `npm run check` does not replace this semantic audit.
+- When review reveals a convention failure, audit the whole pull-request diff for the same failure class before replying or pushing.
+- In the handoff, name the guides read, touched areas audited, checks and smokes run, and any accepted deviation or unverified path.
 
 ## Testing and verification
 
