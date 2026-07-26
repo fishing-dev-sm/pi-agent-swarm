@@ -305,6 +305,9 @@ export function createCustomSelectorHarness(
 		invalidate() {
 			(component as { invalidate?: () => void }).invalidate?.();
 		},
+		setFocused(focused: boolean) {
+			if ("focused" in component) (component as { focused: boolean }).focused = focused;
+		},
 		dispose() {
 			(component as { dispose?: () => void }).dispose?.();
 		},
