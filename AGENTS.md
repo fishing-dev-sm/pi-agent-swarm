@@ -29,7 +29,7 @@ Run commands from the repository root unless noted otherwise.
 - Before adding or changing extension-owned settings files, precedence, validation, persistence, migration, commands, or interactive settings UI, also read and follow `docs/extension-settings.md`.
 - Every active extension package exposes Pi through a thin `src/index.ts` default-export forwarding entrypoint, and its `package.json` declares exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules and run `npm run check:boundaries` to enforce this for production and experimental packages.
 - Production extensions include source in `pi.extensions`, publish `files`, and root workspace-aware scripts/recipes when users need them.
-- Standalone experimental extension packages must live under `experimental/`, show a user-facing warning, remain covered by root checks, and stay excluded from automated publish/version workflows. An opt-in experimental feature may remain inside a production package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
+- Standalone experimental extension packages must live under `experimental/`, show a user-facing warning, remain covered by root checks, and participate in shared versioning and publishing unless marked `private`. An opt-in experimental feature may remain inside a production package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
 - When a source file exceeds 1,000 lines, it must be reviewed for decomposition. Split it along clear responsibility boundaries when doing so improves cohesion, maintainability, or testability. Do not split files mechanically solely to satisfy the line limit. Generated, vendored, migration, snapshot, and primarily declarative files may be exempt.
 
 ## Testing and verification
@@ -41,7 +41,7 @@ Run commands from the repository root unless noted otherwise.
 
 ## Publishing and release safety
 
-- Experimental packages may be published only by an explicit maintainer using `just publish <name>`; never add them to `publish-all` or GitHub publish workflows.
+- Publishable experimental packages follow the same shared version-bump, `publish-all`, and GitHub publishing workflows as production packages; preserve their experimental warning in user-facing documentation and runtime behavior.
 - If npm shows a scoped package dist-tag but `npm view <package>` returns 404, use `just npm-public <package> <otp>` to set public visibility before bumping or republishing.
 - Use `just bump <package> patch|minor|major` for a no-tag workspace bump. The GitHub `bump-version` workflow bumps all package versions together and tags `v*.*.*`.
 

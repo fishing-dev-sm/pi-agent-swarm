@@ -257,7 +257,7 @@ extensions/
 └── pi-worktree/
 ```
 
-Each production extension package contains its own `package.json`, `README.md`, `LICENSE`, `tsconfig.json`, and TypeScript source under `src/`. Experimental extensions live under the root `experimental/` directory, remain covered by root checks, and may be published only through an explicit local maintainer recipe—not `publish-all` or GitHub workflows. Deprecated packages live under the root `deprecated/` directory and are excluded from workspace scripts.
+Each production extension package contains its own `package.json`, `README.md`, `LICENSE`, `tsconfig.json`, and TypeScript source under `src/`. Experimental extensions live under the root `experimental/` directory, remain covered by root checks, retain a visible experimental warning, and participate in shared versioning and publishing unless marked private. Deprecated packages live under the root `deprecated/` directory and are excluded from workspace scripts.
 
 ## 📄 License
 

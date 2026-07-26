@@ -27,8 +27,7 @@ for (const workspace of rootPackage.workspaces ?? []) {
 		if (!entry.isDirectory()) continue;
 
 		const packagePath = path.join(workspaceRoot, entry.name, "package.json");
-		if (!fs.existsSync(packagePath)) continue;
-		if (isExperimentalPackagePath(packagePath) || readPackage(packagePath).private) continue;
+		if (!fs.existsSync(packagePath) || readPackage(packagePath).private) continue;
 		packagePaths.add(packagePath);
 	}
 }
@@ -61,11 +60,6 @@ execFileSync("npm", ["install", "--package-lock-only", "--ignore-scripts"], {
 });
 
 console.log(newVersion);
-
-function isExperimentalPackagePath(packagePath) {
-	const [topLevel] = path.normalize(packagePath).split(path.sep);
-	return topLevel === "experimental";
-}
 
 function readPackage(packagePath) {
 	return JSON.parse(fs.readFileSync(packagePath, "utf8"));
