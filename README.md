@@ -83,7 +83,6 @@ Choose either `pi-starship` or `pi-statusline`; do not enable both footer extens
 | Package | Use it for | Install |
 | --- | --- | --- |
 | [`pi-image-drop`](./extensions/pi-image-drop) | Stage an ordered, memory-only image batch in a private loopback page for the next Pi message. | `pi install npm:@narumitw/pi-image-drop` |
-| [`pi-webui`](./extensions/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
 
 ## 🧪 Experimental extensions
 
@@ -94,6 +93,7 @@ Choose either `pi-starship` or `pi-statusline`; do not enable both footer extens
 | --- | --- | --- |
 | [`pi-file-context`](./experimental/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it by typing `@` at a word boundary or running `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
 | [`pi-jupyter`](./experimental/pi-jupyter) | Choose and preview saved Jupyter notebooks from one `/jupyter` current-state menu without running a kernel. | `pi install npm:@narumitw/pi-jupyter` |
+| [`pi-webui`](./experimental/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
 
 ## 🔧 Advanced installation
 
