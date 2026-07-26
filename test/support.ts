@@ -253,7 +253,14 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-export function createCustomSelectorHarness(factory: unknown, width = 100) {
+export function createCustomSelectorHarness(
+	factory: unknown,
+	width = 100,
+	keybindingsOverride?: {
+		matches(data: string, key: string): boolean;
+		getKeys(key: string): readonly string[];
+	},
+) {
 	if (typeof factory !== "function") throw new Error("Expected a custom component factory");
 	let result: unknown;
 	const component = (
@@ -271,9 +278,16 @@ export function createCustomSelectorHarness(factory: unknown, width = 100) {
 				return text;
 			},
 		},
-		{
+		keybindingsOverride ?? {
 			matches(data: string, key: string) {
 				return data === key;
+			},
+			getKeys(key: string): readonly string[] {
+				if (key === "tui.select.up") return ["up"];
+				if (key === "tui.select.down") return ["down"];
+				if (key === "tui.select.confirm") return ["enter"];
+				if (key === "tui.select.cancel") return ["escape", "ctrl+c"];
+				return [];
 			},
 		},
 		(value: unknown) => {
