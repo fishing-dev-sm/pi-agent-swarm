@@ -93,6 +93,7 @@ Choose either `pi-starship` or `pi-statusline`; do not enable both footer extens
 | Package | Use it for | Install |
 | --- | --- | --- |
 | [`pi-file-context`](./experimental/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it by typing `@` at a word boundary or running `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
+| [`pi-jupyter`](./experimental/pi-jupyter) | Preview saved Jupyter notebooks in a terminal-native side panel without running a kernel. | `pi install npm:@narumitw/pi-jupyter` |
 
 ## 🔧 Advanced installation
 
