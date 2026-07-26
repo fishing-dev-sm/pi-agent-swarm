@@ -160,6 +160,8 @@ defaults -> user settings -> trusted project overrides -> explicit runtime overr
   forward-compatible data.
 - Write atomically through a temporary file in the destination directory followed by rename.
 - Keep the previous file and effective runtime settings when a write fails.
+- Coordinate reads with pending writes to the same path so reload or session replacement cannot load
+  a pre-write snapshot. Ensure a failed write does not poison subsequent reads or writes.
 - Reload settings on `session_start`, including starts caused by `/reload` and session replacement.
 - Document defaults, precedence, paths, reload behavior, and accepted values in the package README.
 

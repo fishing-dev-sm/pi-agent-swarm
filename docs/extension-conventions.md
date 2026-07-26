@@ -105,9 +105,11 @@ compatible with Google providers. Give tools explicit names in descriptions and 
   `Review` of every custom UI entrypoint.
 - **MUST:** Custom components must keep every rendered line within the supplied width, invalidate
   cached themed content, and request a render after interactive state changes. Components containing
-  an `Input` or `Editor` must forward `Focusable.focused` to that child for IME support.
-  **Verification:** `Test` for custom component rendering and input behavior plus `Review` against
-  Pi's TUI contract.
+  an `Input` or `Editor` must forward `Focusable.focused` to that child for IME support. Components
+  that own asynchronous work must cancel it from `dispose()` as well as from user cancellation paths;
+  ignoring a stale continuation does not release the underlying task.
+  **Verification:** `Test` for rendering, input, user cancellation, and disposal behavior plus
+  `Review` against Pi's TUI contract.
 
 Use the callback-provided theme and keybindings. Prefer Pi's `SelectList`, `SettingsList`, and
 `BorderedLoader` over rebuilding equivalent controls. Escape should cancel or close transient UI,
