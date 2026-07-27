@@ -179,7 +179,10 @@ menu-only:
 
 Use `ctx.ui.select()` for a small action menu. Use `SelectList` for richer selection and
 `SettingsList` for editable settings; do not repeatedly reopen `ctx.ui.select()` after each toggle,
-because that resets navigation state.
+because that resets navigation state. Keep related settings or actions on one level when the list has
+seven or fewer items; do not add an **Advanced** submenu merely to shorten such a list. Only consider
+splitting by item count after the list exceeds seven, and then split along a coherent user task rather
+than an arbitrary row boundary.
 
 ### Settings
 
