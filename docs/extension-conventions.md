@@ -186,8 +186,9 @@ than an arbitrary row boundary.
 
 ### Settings
 
-[`docs/extension-settings.md`](extension-settings.md) owns settings names, paths, precedence, project
-trust, validation, persistence, migration, secrets, interactive UI, and settings-specific tests.
+[`docs/extension-settings.md`](extension-settings.md) owns alignment with Pi core plus settings names,
+paths, precedence, project trust, validation, persistence, migration, secrets, interactive UI, and
+settings-specific tests.
 
 - **MUST:** Read and follow that guide when adding or changing extension-owned settings, including
   their commands or UI. **Verification:** `Review` against its applicable sections and verification
