@@ -3,6 +3,29 @@
 Use these conventions when an extension owns user-facing configuration. Keep packages independently
 installable: each package owns its loader, validator, persistence, UI, tests, and migration code.
 
+## Alignment with Pi core
+
+Pi core's
+[settings documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/settings.md)
+and
+[SDK settings contract](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md#settings-management)
+provide the behavioral reference for extension settings:
+
+- An absent file means no explicit overrides. Defaults stay in code, and a read does not create the
+  settings file or its parent directory.
+- In-memory getters and setters are synchronous from the caller's perspective. Persistence may be
+  queued, but writes stay ordered; callers await an explicit durability boundary before shutdown,
+  reload, or tests that inspect disk state.
+- Storage errors remain data until the application layer reports them. A storage helper must not
+  print directly or corrupt JSON, RPC, or TUI output.
+- A write starts from the latest valid document and changes only owned fields, preserving unrelated
+  settings. A malformed existing file blocks the write instead of being replaced with defaults.
+
+Adopt those semantics, not Pi core's private storage implementation. Extension-owned fields belong in
+an extension-owned file rather than Pi's `settings.json`. For extension files, this repository also
+requires temporary-file-plus-rename publication below, even if Pi core currently uses a different
+internal write mechanism.
+
 ## File names and locations
 
 Name the active user JSON file after the unscoped package name and use the same basename for project
@@ -153,15 +176,23 @@ defaults -> user settings -> trusted project overrides -> explicit runtime overr
 
 ## Loading, validation, and persistence
 
-- Treat a missing file as defaults, not an error.
+- Treat a missing file as defaults, not an error. Loading settings must be side-effect free: do not
+  create the settings file, its parent directory, a lock, or a temporary file merely to materialize
+  defaults. Create the file only after an explicit user save or setup action.
 - Require a JSON object at the top level and validate values at runtime.
 - Warn when invalid settings are ignored; do not silently overwrite an invalid file.
 - Preserve unknown fields during UI saves and migrations so older versions do not erase
   forward-compatible data.
-- Write atomically through a temporary file in the destination directory followed by rename.
+- Write atomically through a temporary file in the destination directory followed by rename. Do not
+  use a hard link as the publication step: Android SELinux denies hard-link creation to Termux's
+  `untrusted_app` domain even when ordinary directory writes and renames are allowed.
 - Keep the previous file and effective runtime settings when a write fails.
 - Coordinate reads with pending writes to the same path so reload or session replacement cannot load
-  a pre-write snapshot. Ensure a failed write does not poison subsequent reads or writes.
+  a pre-write snapshot. Keep queued writes in request order, await their durability boundary before a
+  dependent reload or shutdown completes, and ensure a failed write does not poison subsequent reads
+  or writes.
+- Return or retain storage errors for the command, lifecycle, or UI layer to report through a
+  mode-appropriate channel; do not print from the persistence helper.
 - Reload settings on `session_start`, including starts caused by `/reload` and session replacement.
 - Document defaults, precedence, paths, reload behavior, and accepted values in the package README.
 
@@ -195,7 +226,8 @@ README and any supported Status or Help route.
 
 Tests for a configurable extension should cover the behavior it implements, including:
 
-- missing, valid, malformed, and invalid settings;
+- side-effect-free missing-file loads, first explicit-save creation, valid, malformed, and invalid
+  settings;
 - defaults and user/project precedence;
 - project trust gating;
 - unknown-field preservation and atomic-write failure;
