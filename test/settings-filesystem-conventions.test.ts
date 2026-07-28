@@ -31,6 +31,12 @@ test("settings publishers do not use hard links", () => {
 	}
 });
 
+test("pi-sync publishes a complete, durable temporary inode", () => {
+	const source = readFileSync("extensions/pi-sync/src/config-file.ts", "utf8");
+	assert.doesNotMatch(source, /\bcopyFile\s*\(/u);
+	assert.match(source, /await publishedHandle\.sync\(\)/u);
+});
+
 test("settings paths use Pi tilde expansion", () => {
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = "~/pi-extension-settings-test";
