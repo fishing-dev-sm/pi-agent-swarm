@@ -16,7 +16,7 @@ Run commands from the repository root unless noted otherwise.
 - Run extension tests: `npm test`
 - Format with Biome: `npm run format` or `just format`
 - Typecheck all workspaces: `npm run typecheck`
-- Preview npm package contents: `just pack-extension-menu`, `just pack-caffeinate`, `just pack-chrome-devtools`, `just pack-firecrawl`, `just pack-goal`, `just pack-lsp`, `just pack-retry`, `just pack-statusline`, or `just pack-sync`
+- Preview npm package contents: `just pack-tui-kit`, `just pack-caffeinate`, `just pack-chrome-devtools`, `just pack-firecrawl`, `just pack-goal`, `just pack-lsp`, `just pack-retry`, `just pack-statusline`, or `just pack-sync`
 - Try a local extension without installing: `just try-caffeinate`, `just try-chrome-devtools`, `just try-firecrawl`, `just try-goal`, `just try-lsp`, `just try-retry`, `just try-statusline`, or `just try-sync`
 - Inspect available recipes before adding new workflow commands: `just --list`
 
@@ -26,7 +26,7 @@ Run commands from the repository root unless noted otherwise.
 - Biome is authoritative: tabs, 100-column line width, double quotes, semicolons, and recommended lint rules.
 - Keep extension packages small and self-contained. Add dependencies only when they solve a current extension need.
 - Every active extension package exposes Pi through a thin `src/index.ts` default-export forwarding entrypoint, and its `package.json` declares exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules. Publishable libraries under `packages/` emit JavaScript and declarations and must not declare `pi.extensions`. Run `npm run check:boundaries` to enforce these boundaries.
-- Production extensions include source in `pi.extensions`, publish `files`, and root workspace-aware scripts/recipes when users need them. New standard action/detail/settings/multi-select menus should use `@narumitw/pi-extension-menu`; keep domain state, persistence, confirmations, and specialized UI extension-owned.
+- Production extensions include source in `pi.extensions`, publish `files`, and root workspace-aware scripts/recipes when users need them. New standard action/detail/settings/multi-select menus should use `@narumitw/pi-tui-kit`; keep domain state, persistence, confirmations, and specialized UI extension-owned.
 - Standalone experimental extension packages must live under `experimental/`, show a user-facing warning, remain covered by root checks, and participate in shared versioning and publishing unless marked `private`. An opt-in experimental feature may remain inside a production package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
 - When a source file exceeds 1,000 lines, it must be reviewed for decomposition. Split it along clear responsibility boundaries when doing so improves cohesion, maintainability, or testability. Do not split files mechanically solely to satisfy the line limit. Generated, vendored, migration, snapshot, and primarily declarative files may be exempt.
 

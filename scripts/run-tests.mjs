@@ -14,7 +14,7 @@ const tsc = path.join(
 	process.platform === "win32" ? "tsc.cmd" : "tsc",
 );
 
-runNpm(["run", "build"]);
+if (process.env.PI_EXTENSIONS_BUILD_READY !== "1") runNpm(["run", "build"]);
 fs.rmSync(outDir, { recursive: true, force: true });
 
 const activeExtensionRoots = [

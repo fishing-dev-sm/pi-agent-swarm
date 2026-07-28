@@ -90,10 +90,10 @@ Choose either `pi-starship` or `pi-statusline`; do not enable both footer extens
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-extension-menu`](./packages/pi-extension-menu) | Declare typed action, detail, settings, and multi-select screens while sharing navigation, rendering, mode adaptation, and lifecycle behavior. | `npm install @narumitw/pi-extension-menu` |
+| [`pi-tui-kit`](./packages/pi-tui-kit) | Extend `@earendil-works/pi-tui` with reusable navigation helpers and declarative action, detail, settings, and multi-select flows. | `npm install @narumitw/pi-tui-kit` |
 
 Libraries are runtime dependencies for extension authors, not standalone Pi extensions. New standard
-manager menus should use `@narumitw/pi-extension-menu`; extensions continue to own domain state,
+manager menus should use `@narumitw/pi-tui-kit`; extensions continue to own domain state,
 commands, settings persistence, confirmations, and specialized UI.
 
 ## 🧪 Experimental extensions
@@ -166,7 +166,7 @@ just try file-context
 just pack file-context
 
 # Libraries have dedicated pack recipes
-just pack-extension-menu
+just pack-tui-kit
 ```
 
 Run `just --list` to see all development, install, pack, and publishing recipes.

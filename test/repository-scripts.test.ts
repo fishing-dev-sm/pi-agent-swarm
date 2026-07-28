@@ -9,6 +9,7 @@ const repositoryRoot = process.cwd();
 const boundaryScript = path.join(repositoryRoot, "scripts/check-extension-boundaries.mjs");
 const bumpScript = path.join(repositoryRoot, "scripts/bump-shared-version.mjs");
 const checkScript = path.join(repositoryRoot, "scripts/run-checks.mjs");
+const runTypechecksScript = path.join(repositoryRoot, "scripts/run-typechecks.mjs");
 const setPiVersionScript = path.join(repositoryRoot, "scripts/set-pi-version.mjs");
 const expectedChecks = ["biome:check", "check:boundaries", "test", "typecheck"];
 
@@ -21,7 +22,7 @@ test("shared-version discovery includes publishable library and extension worksp
 			version: "1.2.3",
 			workspaces: ["packages/*", "extensions/*", "experimental/*"],
 		});
-		writeJson(path.join(fixture, "packages/pi-extension-menu/package.json"), {
+		writeJson(path.join(fixture, "packages/pi-tui-kit/package.json"), {
 			name: "@fixture/menu",
 			version: "1.2.3",
 		});
@@ -42,7 +43,7 @@ test("shared-version discovery includes publishable library and extension worksp
 			"experimental/pi-manual/package.json",
 			"extensions/pi-public/package.json",
 			"package.json",
-			"packages/pi-extension-menu/package.json",
+			"packages/pi-tui-kit/package.json",
 		]);
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
@@ -120,7 +121,7 @@ test("latest-Pi setup updates library, production, and experimental workspaces",
 			private: true,
 			devDependencies: { "@earendil-works/pi-coding-agent": "1.0.0" },
 		});
-		writeJson(path.join(fixture, "packages/pi-extension-menu/package.json"), {
+		writeJson(path.join(fixture, "packages/pi-tui-kit/package.json"), {
 			name: "@fixture/menu",
 			devDependencies: { "@earendil-works/pi-coding-agent": "1.0.0" },
 		});
@@ -144,9 +145,8 @@ test("latest-Pi setup updates library, production, and experimental workspaces",
 			"9.9.9",
 		);
 		assert.equal(
-			JSON.parse(
-				readFileSync(path.join(fixture, "packages/pi-extension-menu/package.json"), "utf8"),
-			).devDependencies["@earendil-works/pi-coding-agent"],
+			JSON.parse(readFileSync(path.join(fixture, "packages/pi-tui-kit/package.json"), "utf8"))
+				.devDependencies["@earendil-works/pi-coding-agent"],
 			"9.9.9",
 		);
 		assert.equal(
@@ -208,9 +208,9 @@ test("extension boundaries allow helper libraries but still reject extension dep
 			},
 			include: ["extensions/**/*.ts"],
 		});
-		writeLibraryFixture(fixture, "pi-extension-menu", "@narumitw/pi-extension-menu");
+		writeLibraryFixture(fixture, "pi-tui-kit", "@narumitw/pi-tui-kit");
 		writeExtensionFixture(fixture, "pi-alpha", "@narumitw/pi-alpha", {
-			"@narumitw/pi-extension-menu": "<1",
+			"@narumitw/pi-tui-kit": "<1",
 		});
 		writeExtensionFixture(fixture, "pi-beta", "@narumitw/pi-beta", {});
 
@@ -221,7 +221,7 @@ test("extension boundaries allow helper libraries but still reject extension dep
 		assert.equal(allowed.status, 0, allowed.stderr);
 		assert.match(allowed.stdout, /1 libraries and 2 active extensions/);
 
-		const libraryPath = path.join(fixture, "packages/pi-extension-menu/package.json");
+		const libraryPath = path.join(fixture, "packages/pi-tui-kit/package.json");
 		const library = JSON.parse(readFileSync(libraryPath, "utf8"));
 		library.pi = { extensions: ["./src/index.ts"] };
 		writeJson(libraryPath, library);
@@ -249,19 +249,68 @@ test("extension boundaries allow helper libraries but still reject extension dep
 	}
 });
 
-test("repository checks start in parallel", () => {
+test("standalone typechecks build workspaces unless a verified build is ready", () => {
+	const fixture = mkdtempSync(path.join(tmpdir(), "pi-typecheck-order-"));
+	try {
+		const tracePath = path.join(fixture, "trace.log");
+		const fakeNpmPath = path.join(fixture, "fake-npm.mjs");
+		writeFileSync(
+			fakeNpmPath,
+			`import fs from "node:fs";\nfs.appendFileSync(process.env.FAKE_CHECK_TRACE, process.argv.slice(2).join(" ") + "\\n");\n`,
+		);
+		const baseEnv = {
+			...process.env,
+			FAKE_CHECK_TRACE: tracePath,
+			npm_execpath: fakeNpmPath,
+			PI_EXTENSIONS_BUILD_READY: "",
+		};
+
+		const standalone = spawnSync(process.execPath, [runTypechecksScript], {
+			cwd: repositoryRoot,
+			encoding: "utf8",
+			env: baseEnv,
+		});
+		assert.equal(standalone.status, 0, standalone.stderr);
+		assert.deepEqual(readFileSync(tracePath, "utf8").trim().split("\n"), [
+			"run build",
+			"--workspaces run typecheck",
+		]);
+
+		writeFileSync(tracePath, "");
+		const prebuilt = spawnSync(process.execPath, [runTypechecksScript], {
+			cwd: repositoryRoot,
+			encoding: "utf8",
+			env: { ...baseEnv, PI_EXTENSIONS_BUILD_READY: "1" },
+		});
+		assert.equal(prebuilt.status, 0, prebuilt.stderr);
+		assert.equal(readFileSync(tracePath, "utf8").trim(), "--workspaces run typecheck");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
+test("repository checks build before starting independent gates in parallel", () => {
 	const result = runFakeChecks();
 	assert.equal(result.status, 0, result.stderr);
-	assert.deepEqual(traceEntries(result.trace, "start"), expectedChecks);
-	assert.deepEqual(traceEntries(result.trace, "finish"), expectedChecks);
+	assert.deepEqual(traceEntries(result.trace, "start"), ["build", ...expectedChecks].sort());
+	assert.deepEqual(traceEntries(result.trace, "finish"), ["build", ...expectedChecks].sort());
+	assertBuildFinishedFirst(result.trace);
 });
 
 test("repository checks report a failing gate after all gates run", () => {
 	const result = runFakeChecks("typecheck");
 	assert.equal(result.status, 1);
 	assert.match(result.stderr, /typecheck failed/);
-	assert.deepEqual(traceEntries(result.trace, "start"), expectedChecks);
-	assert.deepEqual(traceEntries(result.trace, "finish"), expectedChecks);
+	assert.deepEqual(traceEntries(result.trace, "start"), ["build", ...expectedChecks].sort());
+	assert.deepEqual(traceEntries(result.trace, "finish"), ["build", ...expectedChecks].sort());
+	assertBuildFinishedFirst(result.trace);
+});
+
+test("repository checks stop before consumer gates when the prerequisite build fails", () => {
+	const result = runFakeChecks("build");
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /build failed/);
+	assert.deepEqual(result.trace.trim().split("\n"), ["start:build", "finish:build"]);
 });
 
 function runFakeChecks(failingCheck = "") {
@@ -275,8 +324,19 @@ function runFakeChecks(failingCheck = "") {
 const check = process.argv.at(-1);
 const tracePath = process.env.FAKE_CHECK_TRACE;
 fs.appendFileSync(tracePath, \`start:\${check}\\n\`);
+if (check === "build") {
+\tfs.appendFileSync(tracePath, \`finish:\${check}\\n\`);
+\tif (check === process.env.FAKE_CHECK_FAILURE) process.exit(23);
+\tprocess.exit(0);
+}
+if (process.env.PI_EXTENSIONS_BUILD_READY !== "1") process.exit(71);
 const deadline = Date.now() + 2_000;
-while (fs.readFileSync(tracePath, "utf8").match(/^start:/gm)?.length !== 4) {
+while (
+\tfs
+\t\t.readFileSync(tracePath, "utf8")
+\t\t.split("\\n")
+\t\t.filter((line) => line.startsWith("start:") && line !== "start:build").length !== 4
+) {
 \tif (Date.now() > deadline) process.exit(70);
 \tawait new Promise((resolve) => setTimeout(resolve, 10));
 }
@@ -301,6 +361,15 @@ if (check === process.env.FAKE_CHECK_FAILURE) process.exit(23);
 		};
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
+	}
+}
+
+function assertBuildFinishedFirst(trace: string) {
+	const entries = trace.trim().split("\n");
+	const buildFinished = entries.indexOf("finish:build");
+	assert.notEqual(buildFinished, -1);
+	for (const check of expectedChecks) {
+		assert.ok(buildFinished < entries.indexOf(`start:${check}`));
 	}
 }
 

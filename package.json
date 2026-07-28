@@ -15,7 +15,7 @@
 		"lint": "biome lint .",
 		"biome:check": "biome check .",
 		"check:boundaries": "node ./scripts/check-extension-boundaries.mjs",
-		"typecheck": "npm --workspaces run typecheck",
+		"typecheck": "node ./scripts/run-typechecks.mjs",
 		"build": "npm --workspaces --if-present run build",
 		"test": "node ./scripts/run-tests.mjs",
 		"check": "node ./scripts/run-checks.mjs",

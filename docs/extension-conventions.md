@@ -113,7 +113,7 @@ compatible with Google providers. Give tools explicit names in descriptions and 
 
 Use the callback-provided theme and keybindings. For standard action, detail, settings, and
 multi-select flows, new extensions **SHOULD** declare screens and actions with
-`@narumitw/pi-extension-menu` instead of implementing another menu loop. Keep domain state,
+`@narumitw/pi-tui-kit` instead of implementing another menu loop. Keep domain state,
 transactional persistence, confirmations, session generation, and specialized UI extension-owned.
 When specialized UI is necessary, prefer Pi's `SelectList`, `SettingsList`, and `BorderedLoader`
 over rebuilding equivalent controls. Escape should cancel or close transient UI, and long-running
@@ -185,7 +185,7 @@ menu-only:
   or JSON result. **Verification:** `Test` for each claimed command mode plus `Review` of every
   unsupported-mode fallback.
 
-Use `@narumitw/pi-extension-menu` for standard multi-screen manager flows; it adapts declarative
+Use `@narumitw/pi-tui-kit` for standard multi-screen manager flows; it adapts declarative
 screens to TUI and RPC behavior without repeated `ctx.ui.select()` loops. For a one-off small action
 prompt, use `ctx.ui.select()`. Specialized selectors may use `SelectList`, and specialized settings
 editors may use `SettingsList`; do not repeatedly reopen `ctx.ui.select()` after each toggle, because
