@@ -49,6 +49,45 @@ test("shared-version discovery includes publishable library and extension worksp
 	}
 });
 
+test("shared major bumps advance internal workspace dependency ranges", () => {
+	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspace-ranges-"));
+	try {
+		writeJson(path.join(fixture, "package.json"), {
+			name: "fixture-root",
+			private: true,
+			version: "0.35.0",
+			workspaces: ["packages/*", "extensions/*"],
+		});
+		writeJson(path.join(fixture, "packages/menu/package.json"), {
+			name: "@fixture/menu",
+			version: "0.35.0",
+		});
+		writeJson(path.join(fixture, "extensions/consumer/package.json"), {
+			name: "@fixture/consumer",
+			version: "0.35.0",
+			dependencies: { "@fixture/menu": "<1" },
+		});
+		const fixtureScript = path.join(fixture, "scripts/bump-shared-version.mjs");
+		mkdirSync(path.dirname(fixtureScript), { recursive: true });
+		writeFileSync(fixtureScript, readFileSync(bumpScript, "utf8"));
+		const fixtureBin = path.join(fixture, "bin");
+		mkdirSync(fixtureBin, { recursive: true });
+		writeFileSync(path.join(fixtureBin, "npm"), "#!/usr/bin/env node\n", { mode: 0o755 });
+
+		execFileSync(process.execPath, [fixtureScript, "major"], {
+			cwd: fixture,
+			env: { ...process.env, PATH: `${fixtureBin}${path.delimiter}${process.env.PATH ?? ""}` },
+		});
+		const consumer = JSON.parse(
+			readFileSync(path.join(fixture, "extensions/consumer/package.json"), "utf8"),
+		);
+		assert.equal(consumer.version, "1.0.0");
+		assert.equal(consumer.dependencies["@fixture/menu"], "<2");
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
+});
+
 test("shared-version discovery skips workspace roots that are not present", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspaces-missing-"));
 	try {
