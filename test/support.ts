@@ -236,6 +236,7 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 			getApiKeyAndHeaders: async () => ({ ok: false, error: "missing" }),
 			getAvailable: () => [],
 			getAll: () => [],
+			isUsingOAuth: () => false,
 		},
 		...overrides,
 	};
