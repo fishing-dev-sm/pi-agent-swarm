@@ -191,6 +191,9 @@ defaults -> user settings -> trusted project overrides -> explicit runtime overr
   a pre-write snapshot. Keep queued writes in request order, await their durability boundary before a
   dependent reload or shutdown completes, and ensure a failed write does not poison subsequent reads
   or writes.
+- State concurrency scope precisely. An in-process promise queue does not coordinate separate Pi
+  processes; add a tested cross-process lock where that product workflow requires one, otherwise
+  document in-process ordering without claiming cross-process safety.
 - Return or retain storage errors for the command, lifecycle, or UI layer to report through a
   mode-appropriate channel; do not print from the persistence helper.
 - Reload settings on `session_start`, including starts caused by `/reload` and session replacement.
