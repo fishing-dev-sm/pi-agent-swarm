@@ -24,10 +24,11 @@ const SETTINGS_PUBLICATION_SOURCES = [
 	"extensions/pi-sync/src/config-file.ts",
 ] as const;
 
-test("settings publishers do not use hard links", () => {
+test("settings publishers do not use hard links or direct canonical copies", () => {
 	for (const file of SETTINGS_PUBLICATION_SOURCES) {
 		const source = readFileSync(file, "utf8");
 		assert.doesNotMatch(source, /\blinkSync\b|\b(?:fs\.)?link\s*\(/u, file);
+		assert.doesNotMatch(source, /\bcopyFile(?:Sync)?\s*\(/u, file);
 	}
 });
 
