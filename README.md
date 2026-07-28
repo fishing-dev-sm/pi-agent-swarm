@@ -58,7 +58,6 @@ pi -e npm:@narumitw/pi-goal \
 | [`pi-btw`](./extensions/pi-btw) | Ask a quick `/btw` side question without adding it to the main conversation. | `pi install npm:@narumitw/pi-btw` |
 | [`pi-caffeinate`](./extensions/pi-caffeinate) | Prevent system sleep while Pi processes a long-running prompt. | `pi install npm:@narumitw/pi-caffeinate` |
 | [`pi-goal`](./extensions/pi-goal) | Keep the agent working until a goal is verified complete; optionally enable an experimental ordered queue. | `pi install npm:@narumitw/pi-goal` |
-| [`pi-retry`](./extensions/pi-retry) | Recover from retryable provider errors, websocket limits, and stalled streams. | `pi install npm:@narumitw/pi-retry` |
 | [`pi-worktree`](./extensions/pi-worktree) | Create, switch, remove, and prune Git worktrees while carrying the Pi session into another workspace. | `pi install npm:@narumitw/pi-worktree` |
 
 ### Accounts and data
@@ -209,6 +208,7 @@ The following packages remain available as source references but are excluded fr
 - `pi-biome-lsp` and `pi-python-lsp` — replaced by [`pi-lsp`](./extensions/pi-lsp)
 - `pi-codex-accounts` — replaced by [`pi-accounts`](./extensions/pi-accounts)
 - `pi-codex-usage` — replaced by [`pi-usage`](./extensions/pi-usage)
+- `pi-retry` — replaced by Pi's built-in provider retry and timeout behavior
 - `pi-auto-thinking`
 - `pi-sidebar`
 - `pi-telegram-bot`
