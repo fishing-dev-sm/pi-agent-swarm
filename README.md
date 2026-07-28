@@ -2,7 +2,9 @@
 
 [![npm scope](https://img.shields.io/badge/npm-@narumitw-blue)](https://www.npmjs.com/org/narumitw) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-Independently installable [Pi Coding Agent](https://pi.dev) extensions for coding, research, browser automation, workflow management, observability, and terminal ergonomics.
+Independently installable [Pi Coding Agent](https://pi.dev) extensions and reusable extension
+libraries for coding, research, browser automation, workflow management, observability, and terminal
+ergonomics.
 
 Install only what you need. Every package is published separately under the `@narumitw` npm scope.
 
@@ -84,6 +86,16 @@ Choose either `pi-starship` or `pi-statusline`; do not enable both footer extens
 | --- | --- | --- |
 | [`pi-image-drop`](./extensions/pi-image-drop) | Stage an ordered, memory-only image batch in a private loopback page for the next Pi message. | `pi install npm:@narumitw/pi-image-drop` |
 
+## 🧱 Extension libraries
+
+| Package | Use it for | Install |
+| --- | --- | --- |
+| [`pi-extension-menu`](./packages/pi-extension-menu) | Declare typed action, detail, settings, and multi-select screens while sharing navigation, rendering, mode adaptation, and lifecycle behavior. | `npm install @narumitw/pi-extension-menu` |
+
+Libraries are runtime dependencies for extension authors, not standalone Pi extensions. New standard
+manager menus should use `@narumitw/pi-extension-menu`; extensions continue to own domain state,
+commands, settings persistence, confirmations, and specialized UI.
+
 ## 🧪 Experimental extensions
 
 > [!WARNING]
@@ -152,6 +164,9 @@ just pack goal
 # Experimental packages use the same recipes
 just try file-context
 just pack file-context
+
+# Libraries have dedicated pack recipes
+just pack-extension-menu
 ```
 
 Run `just --list` to see all development, install, pack, and publishing recipes.
@@ -165,13 +180,15 @@ Run `just --list` to see all development, install, pack, and publishing recipes.
 npm publish --workspace @narumitw/pi-new-extension --access public
 ```
 
-After the initial publication, the shared release workflow handles production and publishable experimental packages.
+After the initial publication, the shared release workflow handles libraries, production extensions,
+and publishable experimental packages.
 
 </details>
 
 ## 🗂️ Repository structure
 
 ```text
+packages/                Reusable publishable extension libraries
 extensions/              Production extension packages
 experimental/            Published experiments with visible stability warnings
 deprecated/              Reference packages excluded from active workspace scripts
@@ -180,7 +197,9 @@ scripts/                 Shared checks, tests, versioning, and release helpers
 test/                    Root integration and repository tests
 ```
 
-Each active package contains its own `package.json`, `README.md`, `LICENSE`, `tsconfig.json`, and TypeScript source under `src/`. Its `src/index.ts` is a thin Pi entrypoint; implementation stays in descriptive modules.
+Each active package contains its own `package.json`, `README.md`, `LICENSE`, `tsconfig.json`, and
+TypeScript source under `src/`. Extension `src/index.ts` files are thin Pi entrypoints; reusable
+libraries publish built ESM and declarations from `dist/`.
 
 <details>
 <summary>Deprecated packages</summary>

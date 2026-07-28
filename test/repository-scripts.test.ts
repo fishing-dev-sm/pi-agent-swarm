@@ -6,19 +6,24 @@ import path from "node:path";
 import test from "node:test";
 
 const repositoryRoot = process.cwd();
-const bumpScript = path.join(repositoryRoot, "scripts", "bump-shared-version.mjs");
-const checkScript = path.join(repositoryRoot, "scripts", "run-checks.mjs");
-const setPiVersionScript = path.join(repositoryRoot, "scripts", "set-pi-version.mjs");
+const boundaryScript = path.join(repositoryRoot, "scripts/check-extension-boundaries.mjs");
+const bumpScript = path.join(repositoryRoot, "scripts/bump-shared-version.mjs");
+const checkScript = path.join(repositoryRoot, "scripts/run-checks.mjs");
+const setPiVersionScript = path.join(repositoryRoot, "scripts/set-pi-version.mjs");
 const expectedChecks = ["biome:check", "check:boundaries", "test", "typecheck"];
 
-test("shared-version discovery includes publishable experimental workspaces", () => {
+test("shared-version discovery includes publishable library and extension workspaces", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspaces-"));
 	try {
 		writeJson(path.join(fixture, "package.json"), {
 			name: "fixture-root",
 			private: true,
 			version: "1.2.3",
-			workspaces: ["extensions/*", "experimental/*"],
+			workspaces: ["packages/*", "extensions/*", "experimental/*"],
+		});
+		writeJson(path.join(fixture, "packages/pi-extension-menu/package.json"), {
+			name: "@fixture/menu",
+			version: "1.2.3",
 		});
 		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
 			name: "@fixture/public",
@@ -37,6 +42,7 @@ test("shared-version discovery includes publishable experimental workspaces", ()
 			"experimental/pi-manual/package.json",
 			"extensions/pi-public/package.json",
 			"package.json",
+			"packages/pi-extension-menu/package.json",
 		]);
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
@@ -50,7 +56,7 @@ test("shared-version discovery skips workspace roots that are not present", () =
 			name: "fixture-root",
 			private: true,
 			version: "1.2.3",
-			workspaces: ["extensions/*", "experimental/*"],
+			workspaces: ["packages/*", "extensions/*", "experimental/*"],
 		});
 		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
 			name: "@fixture/public",
@@ -67,12 +73,16 @@ test("shared-version discovery skips workspace roots that are not present", () =
 	}
 });
 
-test("latest-Pi setup updates production and root experimental workspaces", () => {
+test("latest-Pi setup updates library, production, and experimental workspaces", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "pi-version-workspaces-"));
 	try {
 		writeJson(path.join(fixture, "package.json"), {
 			name: "fixture-root",
 			private: true,
+			devDependencies: { "@earendil-works/pi-coding-agent": "1.0.0" },
+		});
+		writeJson(path.join(fixture, "packages/pi-extension-menu/package.json"), {
+			name: "@fixture/menu",
 			devDependencies: { "@earendil-works/pi-coding-agent": "1.0.0" },
 		});
 		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
@@ -92,6 +102,12 @@ test("latest-Pi setup updates production and root experimental workspaces", () =
 			JSON.parse(readFileSync(path.join(fixture, "package.json"), "utf8")).devDependencies[
 				"@earendil-works/pi-coding-agent"
 			],
+			"9.9.9",
+		);
+		assert.equal(
+			JSON.parse(
+				readFileSync(path.join(fixture, "packages/pi-extension-menu/package.json"), "utf8"),
+			).devDependencies["@earendil-works/pi-coding-agent"],
 			"9.9.9",
 		);
 		assert.equal(
@@ -119,7 +135,7 @@ test("publish workflow selects changed tag packages and all manual recovery pack
 	assert.match(workflow, />> "\$GITHUB_STEP_SUMMARY"/);
 });
 
-test("experimental packages participate in automated and manual publishing", () => {
+test("libraries and extensions participate in automated and manual publishing", () => {
 	const selector = readFileSync(
 		path.join(repositoryRoot, "scripts/list-publish-workspaces.mjs"),
 		"utf8",
@@ -129,15 +145,69 @@ test("experimental packages participate in automated and manual publishing", () 
 		path.join(repositoryRoot, ".github/workflows/bump-version.yml"),
 		"utf8",
 	);
-	assert.match(selector, /const packageRoots = \["extensions", "experimental"\]/);
+	assert.match(selector, /const packageRoots = \["packages", "extensions", "experimental"\]/);
 	assert.match(justfile, /package_json="\.\/experimental\/pi-\$name\/package\.json"/);
 	assert.match(
 		justfile,
-		/for package_json in extensions\/\*\/package\.json experimental\/\*\/package\.json/,
+		/for package_json in packages\/\*\/package\.json extensions\/\*\/package\.json experimental\/\*\/package\.json/,
 	);
+	assert.match(bumpWorkflow, /packages\/\*\/package\.json/);
 	assert.match(bumpWorkflow, /experimental\/\*\/package\.json/);
 	assert.match(justfile, /^publish name:/m);
 	assert.doesNotMatch(justfile, /\botp\b|--otp/);
+});
+
+test("extension boundaries allow helper libraries but still reject extension dependencies", () => {
+	const fixture = mkdtempSync(path.join(tmpdir(), "pi-boundaries-"));
+	try {
+		writeJson(path.join(fixture, "package.json"), { name: "fixture", private: true });
+		writeJson(path.join(fixture, "tsconfig.json"), {
+			compilerOptions: {
+				target: "ES2022",
+				module: "NodeNext",
+				moduleResolution: "NodeNext",
+			},
+			include: ["extensions/**/*.ts"],
+		});
+		writeLibraryFixture(fixture, "pi-extension-menu", "@narumitw/pi-extension-menu");
+		writeExtensionFixture(fixture, "pi-alpha", "@narumitw/pi-alpha", {
+			"@narumitw/pi-extension-menu": "<1",
+		});
+		writeExtensionFixture(fixture, "pi-beta", "@narumitw/pi-beta", {});
+
+		const allowed = spawnSync(process.execPath, [boundaryScript], {
+			cwd: fixture,
+			encoding: "utf8",
+		});
+		assert.equal(allowed.status, 0, allowed.stderr);
+		assert.match(allowed.stdout, /1 libraries and 2 active extensions/);
+
+		const libraryPath = path.join(fixture, "packages/pi-extension-menu/package.json");
+		const library = JSON.parse(readFileSync(libraryPath, "utf8"));
+		library.pi = { extensions: ["./src/index.ts"] };
+		writeJson(libraryPath, library);
+		const invalidLibrary = spawnSync(process.execPath, [boundaryScript], {
+			cwd: fixture,
+			encoding: "utf8",
+		});
+		assert.equal(invalidLibrary.status, 1);
+		assert.match(invalidLibrary.stderr, /libraries must not declare pi\.extensions/);
+		delete library.pi;
+		writeJson(libraryPath, library);
+
+		const alphaPath = path.join(fixture, "extensions/pi-alpha/package.json");
+		const alpha = JSON.parse(readFileSync(alphaPath, "utf8"));
+		alpha.dependencies["@narumitw/pi-beta"] = "<1";
+		writeJson(alphaPath, alpha);
+		const rejected = spawnSync(process.execPath, [boundaryScript], {
+			cwd: fixture,
+			encoding: "utf8",
+		});
+		assert.equal(rejected.status, 1);
+		assert.match(rejected.stderr, /must not reference @narumitw\/pi-beta/);
+	} finally {
+		rmSync(fixture, { recursive: true, force: true });
+	}
 });
 
 test("repository checks start in parallel", () => {
@@ -168,8 +238,8 @@ const tracePath = process.env.FAKE_CHECK_TRACE;
 fs.appendFileSync(tracePath, \`start:\${check}\\n\`);
 const deadline = Date.now() + 2_000;
 while (fs.readFileSync(tracePath, "utf8").match(/^start:/gm)?.length !== 4) {
-	if (Date.now() > deadline) process.exit(70);
-	await new Promise((resolve) => setTimeout(resolve, 10));
+\tif (Date.now() > deadline) process.exit(70);
+\tawait new Promise((resolve) => setTimeout(resolve, 10));
 }
 fs.appendFileSync(tracePath, \`finish:\${check}\\n\`);
 if (check === process.env.FAKE_CHECK_FAILURE) process.exit(23);
@@ -201,6 +271,32 @@ function traceEntries(trace: string, event: string) {
 		.filter((line) => line.startsWith(`${event}:`))
 		.map((line) => line.slice(event.length + 1))
 		.sort();
+}
+
+function writeLibraryFixture(fixture: string, directory: string, name: string) {
+	writeJson(path.join(fixture, "packages", directory, "package.json"), {
+		name,
+		files: ["dist"],
+		main: "./dist/index.js",
+		types: "./dist/index.d.ts",
+		scripts: { build: "tsc" },
+	});
+}
+
+function writeExtensionFixture(
+	fixture: string,
+	directory: string,
+	name: string,
+	dependencies: Record<string, string>,
+) {
+	const root = path.join(fixture, "extensions", directory);
+	writeJson(path.join(root, "package.json"), {
+		name,
+		dependencies,
+		pi: { extensions: ["./src/index.ts"] },
+	});
+	mkdirSync(path.join(root, "src"), { recursive: true });
+	writeFileSync(path.join(root, "src/index.ts"), "export default function extension() {}\n");
 }
 
 function writeJson(filePath: string, value: unknown) {
