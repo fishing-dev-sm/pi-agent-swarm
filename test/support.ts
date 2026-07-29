@@ -189,10 +189,62 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 	const widgets = new Map<string, unknown>();
 	let footer: unknown;
 	let editorText = String(overrides.editorText ?? "");
+	const selectOverride = overrides.select as
+		| ((title: string, options: string[]) => Promise<string | undefined>)
+		| undefined;
+	const defaultCustom = async (factory: unknown) => {
+		if (!selectOverride) return undefined;
+		const harness = createCustomSelectorHarness(factory, 100);
+		const options: string[] = [];
+		for (let index = 0; index < 200; index += 1) {
+			const selected = selectedKitRow(harness.render());
+			if (!selected || options.includes(selected)) break;
+			options.push(selected);
+			harness.handleInput("tui.select.down");
+		}
+		for (let index = 0; index < options.length; index += 1) {
+			harness.handleInput("tui.select.up");
+		}
+		const selected = await selectOverride(harness.render().join("\n"), options);
+		if (selected === undefined) {
+			harness.handleInput("tui.select.cancel");
+			return harness.result;
+		}
+		const selectedIndex = Math.max(
+			0,
+			options.findIndex(
+				(option) =>
+					option === selected || option.startsWith(selected) || selected.startsWith(option),
+			),
+		);
+		for (let index = 0; index < selectedIndex; index += 1) {
+			harness.handleInput("tui.select.down");
+		}
+		harness.handleInput("tui.select.confirm");
+		if (harness.result !== undefined) return harness.result;
+		await harness.waitForPending();
+		await Promise.resolve();
+		if (harness.result !== undefined) return harness.result;
+		harness.handleInput("tui.select.cancel");
+		return harness.result;
+	};
+	const customOverride = overrides.custom as
+		| ((factory: unknown, options?: unknown) => Promise<unknown>)
+		| undefined;
+	const custom =
+		customOverride && selectOverride
+			? async (factory: unknown, options?: unknown) => {
+					const probe = createCustomSelectorHarness(factory, 100);
+					const standard = probe.isPiTuiKitScreen;
+					probe.dispose();
+					return standard ? defaultCustom(factory) : customOverride(factory, options);
+				}
+			: (customOverride ?? defaultCustom);
 
 	const ctx = {
 		cwd: overrides.cwd ?? process.cwd(),
-		hasUI: overrides.hasUI ?? false,
+		mode: overrides.mode ?? (overrides.hasUI ? "tui" : undefined),
+		hasUI: overrides.hasUI ?? (overrides.mode === "tui" || overrides.mode === "rpc"),
 		model: overrides.model,
 		ui: {
 			notify(message: string, level?: string) {
@@ -217,7 +269,7 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 			input: overrides.input ?? (async () => undefined),
 			select: overrides.select ?? (async () => undefined),
 			editor: overrides.editor ?? (async () => undefined),
-			custom: overrides.custom ?? (async () => undefined),
+			custom,
 		},
 		isIdle: overrides.isIdle ?? (() => true),
 		hasPendingMessages: overrides.hasPendingMessages ?? (() => false),
@@ -255,6 +307,16 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+function selectedKitRow(lines: readonly string[]): string | undefined {
+	const line = lines.find((candidate) => candidate.startsWith("→ ") || candidate.startsWith("› "));
+	if (!line) return undefined;
+	return line
+		.slice(2)
+		.replace(/^\[(?:x| |-)\]\s+/u, "")
+		.split(/\s{2,}/u)[0]
+		?.trim();
+}
+
 export function createCustomSelectorHarness(
 	factory: unknown,
 	width = 100,
@@ -265,6 +327,10 @@ export function createCustomSelectorHarness(
 ) {
 	if (typeof factory !== "function") throw new Error("Expected a custom component factory");
 	let result: unknown;
+	let resolveResult!: (value: unknown) => void;
+	const resultPromise = new Promise<unknown>((resolve) => {
+		resolveResult = resolve;
+	});
 	const component = (
 		factory as (...args: unknown[]) => {
 			render(width: number): string[];
@@ -307,6 +373,7 @@ export function createCustomSelectorHarness(
 		},
 		(value: unknown) => {
 			result = value;
+			resolveResult(value);
 		},
 	);
 	return {
@@ -332,8 +399,15 @@ export function createCustomSelectorHarness(
 		setFocused(focused: boolean) {
 			if ("focused" in component) (component as { focused: boolean }).focused = focused;
 		},
+		async waitForPending() {
+			await (component as { waitForPending?: () => Promise<void> }).waitForPending?.();
+		},
 		dispose() {
 			(component as { dispose?: () => void }).dispose?.();
+		},
+		resultPromise,
+		get isPiTuiKitScreen() {
+			return (component as { __piTuiKitScreen?: true }).__piTuiKitScreen === true;
 		},
 		get result() {
 			return result;
