@@ -396,8 +396,8 @@ export function createCustomSelectorHarness(
 			component.handleInput(inputData[data] ?? data);
 			return component.render(width);
 		},
-		render() {
-			return component.render(width);
+		render(renderWidth = width) {
+			return component.render(renderWidth);
 		},
 		invalidate() {
 			(component as { invalidate?: () => void }).invalidate?.();
