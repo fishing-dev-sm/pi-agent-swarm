@@ -24,6 +24,7 @@ type MockPiApi = {
 	registerCommand(name: string, command: unknown): void;
 	registerFlag(name: string, flag: unknown): void;
 	registerTool(tool: unknown): void;
+	registerEntryRenderer(customType: string, renderer: MockHandler): void;
 	registerProvider(name: string, config: unknown): void;
 	unregisterProvider(name: string): void;
 	on(name: string, handler: MockHandler): void;
@@ -53,6 +54,7 @@ export function createMockPi(
 	} = {},
 ) {
 	const commands = new Map<string, MockCommand>();
+	const entryRenderers = new Map<string, MockHandler>();
 	const flags = new Map<string, MockFlag>();
 	const events = new Map<string, MockHandler[]>();
 	const tools: MockTool[] = [];
@@ -104,6 +106,9 @@ export function createMockPi(
 		},
 		registerTool(tool: unknown) {
 			tools.push(tool as MockTool);
+		},
+		registerEntryRenderer(customType: string, renderer: MockHandler) {
+			entryRenderers.set(customType, renderer);
 		},
 		registerProvider(name: string, config: unknown) {
 			const previous = providers.get(name);
@@ -165,6 +170,7 @@ export function createMockPi(
 		pi: rawPi as never,
 		rawPi,
 		commands,
+		entryRenderers,
 		flags,
 		events,
 		eventBus,
