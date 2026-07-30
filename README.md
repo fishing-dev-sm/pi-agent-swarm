@@ -74,7 +74,7 @@ pi -e npm:@narumitw/pi-goal \
 | --- | --- | --- |
 | [`pi-github-pr`](./extensions/pi-github-pr) | Show current-branch pull request checks, reviews, and comment counts through the authenticated `gh` CLI. | `pi install npm:@narumitw/pi-github-pr` |
 | [`pi-langfuse`](./extensions/pi-langfuse) | Send agent runs, generations, token usage, costs, and tool activity to Langfuse. | `pi install npm:@narumitw/pi-langfuse` |
-| [`pi-stamp`](./extensions/pi-stamp) | Show configurable timestamps and date context after user and assistant messages in the TUI transcript. | `pi install npm:@narumitw/pi-stamp` |
+| [`pi-stamp`](./extensions/pi-stamp) | Show configurable timestamps with opt-in assistant metadata, response timing, and tool timing in the TUI transcript. | `pi install npm:@narumitw/pi-stamp` |
 | [`pi-starship`](./extensions/pi-starship) | Use a native Starship-style TOML footer with Pi-specific modules and no Starship binary dependency. | `pi install npm:@narumitw/pi-starship` |
 | [`pi-statusline`](./extensions/pi-statusline) | Show model, tools, Git state, context usage, tokens, cost, and time in a preset or JSON-configured footer. | `pi install npm:@narumitw/pi-statusline` |
 
