@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -50,23 +58,23 @@ test("shared-version discovery includes publishable library and extension worksp
 	}
 });
 
-test("shared major bumps advance internal workspace dependency ranges", () => {
+test("shared bumps preserve consumer-owned internal compatibility ranges", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspace-ranges-"));
 	try {
 		writeJson(path.join(fixture, "package.json"), {
 			name: "fixture-root",
 			private: true,
-			version: "0.35.0",
+			version: "0.40.0",
 			workspaces: ["packages/*", "extensions/*"],
 		});
 		writeJson(path.join(fixture, "packages/menu/package.json"), {
 			name: "@fixture/menu",
-			version: "0.35.0",
+			version: "0.40.0",
 		});
 		writeJson(path.join(fixture, "extensions/consumer/package.json"), {
 			name: "@fixture/consumer",
-			version: "0.35.0",
-			dependencies: { "@fixture/menu": "<1" },
+			version: "0.40.0",
+			dependencies: { "@fixture/menu": "^0.40.0" },
 		});
 		const fixtureScript = path.join(fixture, "scripts/bump-shared-version.mjs");
 		mkdirSync(path.dirname(fixtureScript), { recursive: true });
@@ -83,10 +91,31 @@ test("shared major bumps advance internal workspace dependency ranges", () => {
 			readFileSync(path.join(fixture, "extensions/consumer/package.json"), "utf8"),
 		);
 		assert.equal(consumer.version, "1.0.0");
-		assert.equal(consumer.dependencies["@fixture/menu"], "<2");
+		assert.equal(consumer.dependencies["@fixture/menu"], "^0.40.0");
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
+});
+
+test("pi-tui-kit consumers use a bounded compatible zero-major range", () => {
+	const consumers: string[] = [];
+	for (const packageRoot of ["extensions", "experimental"]) {
+		for (const entry of readdirSync(path.join(repositoryRoot, packageRoot), {
+			withFileTypes: true,
+		})) {
+			if (!entry.isDirectory()) continue;
+			const manifestPath = path.join(repositoryRoot, packageRoot, entry.name, "package.json");
+			if (!existsSync(manifestPath)) continue;
+			const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+			const range = manifest.dependencies?.["@narumitw/pi-tui-kit"];
+			if (range === undefined) continue;
+			consumers.push(manifest.name);
+			const match = /^\^0\.(\d+)\.(\d+)$/.exec(range);
+			assert.ok(match, `${manifest.name} must use a bounded ^0.minor.patch pi-tui-kit range`);
+			assert.ok(Number(match[1]) >= 40, `${manifest.name} must require pi-tui-kit 0.40 or newer`);
+		}
+	}
+	assert.ok(consumers.length > 0, "expected at least one pi-tui-kit consumer");
 });
 
 test("shared-version discovery skips workspace roots that are not present", () => {
