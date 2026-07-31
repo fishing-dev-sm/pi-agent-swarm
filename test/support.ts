@@ -198,6 +198,9 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 	const selectOverride = overrides.select as
 		| ((title: string, options: string[]) => Promise<string | undefined>)
 		| undefined;
+	const inputOverride = overrides.input as
+		| ((title: string, placeholder?: string) => Promise<unknown>)
+		| undefined;
 	const defaultCustom = async (factory: unknown) => {
 		if (!selectOverride) return undefined;
 		const harness = createCustomSelectorHarness(factory, 100);
@@ -211,7 +214,34 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 		for (let index = 0; index < options.length; index += 1) {
 			harness.handleInput("tui.select.up");
 		}
+		if (options.length === 0 && harness.isFocusable && inputOverride) {
+			for (let attempt = 0; attempt < 20; attempt += 1) {
+				const response = await inputOverride(harness.render().join("\n"), "");
+				if (isRecord(response) && response.kind === "closed") {
+					harness.handleInput("\u0003");
+					return harness.result;
+				}
+				if (response === undefined || (isRecord(response) && response.kind === "cancelled")) {
+					harness.handleInput("tui.select.cancel");
+					return harness.result;
+				}
+				const value =
+					isRecord(response) && response.kind === "submitted" ? response.value : response;
+				if (typeof value !== "string") throw new Error("Mock input must return a string or exit");
+				harness.setFocused(true);
+				if (attempt > 0) harness.handleInput("\u0015");
+				harness.handleInput(value);
+				harness.handleInput("tui.input.submit");
+				await harness.waitForPending();
+				if (harness.result !== undefined) return harness.result;
+			}
+			throw new Error("Mock input exceeded its retry limit");
+		}
 		const selected = await selectOverride(harness.render().join("\n"), options);
+		if (selected === "\u0003") {
+			harness.handleInput("\u0003");
+			return harness.result;
+		}
 		if (selected === undefined) {
 			harness.handleInput("tui.select.cancel");
 			return harness.result;
@@ -311,6 +341,10 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 			return editorText;
 		},
 	};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function selectedKitRow(lines: readonly string[]): string | undefined {
@@ -414,6 +448,9 @@ export function createCustomSelectorHarness(
 		resultPromise,
 		get isPiTuiKitScreen() {
 			return (component as { __piTuiKitScreen?: true }).__piTuiKitScreen === true;
+		},
+		get isFocusable() {
+			return "focused" in component;
 		},
 		get result() {
 			return result;
