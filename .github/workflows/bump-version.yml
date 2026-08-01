@@ -38,6 +38,14 @@ jobs:
         with:
           node-version: 24
 
+      - name: Set up repository-pinned npm
+        run: |
+          set -euo pipefail
+          package_manager="$(node -p 'require("./package.json").packageManager')"
+          [[ "$package_manager" == npm@* ]]
+          npm install --global "$package_manager"
+          test "$(npm --version)" = "${package_manager#npm@}"
+
       - name: Configure git author
         run: |
           git config user.name "github-actions[bot]"

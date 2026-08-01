@@ -188,6 +188,32 @@ test("latest-Pi setup updates library, production, and experimental workspaces",
 	}
 });
 
+test("release workflows install the repository-pinned npm before lockfile or registry work", () => {
+	for (const workflowPath of [
+		".github/workflows/bump-version.yml",
+		".github/workflows/publish.yml",
+	]) {
+		const workflow = readFileSync(path.join(repositoryRoot, workflowPath), "utf8");
+		const setup = workflow.indexOf(
+			'package_manager="$(node -p \'require("./package.json").packageManager\')"',
+		);
+		const install = workflow.indexOf('npm install --global "$package_manager"');
+		const verify = workflow.search(/test "\$\(npm --version\)" = "\$\{package_manager#npm@\}"/u);
+		const firstVersionSensitiveOperation = Math.min(
+			...[/node scripts\/bump-shared-version\.mjs/u, /run: npm ci/u]
+				.map((pattern) => workflow.search(pattern))
+				.filter((index) => index >= 0),
+		);
+		assert.ok(setup >= 0, `${workflowPath} must read packageManager`);
+		assert.ok(install > setup, `${workflowPath} must install packageManager`);
+		assert.ok(verify > install, `${workflowPath} must verify packageManager`);
+		assert.ok(
+			verify < firstVersionSensitiveOperation,
+			`${workflowPath} must pin npm before version-sensitive work`,
+		);
+	}
+});
+
 test("publish workflow selects changed tag packages and all manual recovery packages", () => {
 	const workflow = readFileSync(path.join(repositoryRoot, ".github/workflows/publish.yml"), "utf8");
 	assert.match(workflow, /fetch-depth: 0/);
