@@ -364,6 +364,7 @@ export function createCustomSelectorHarness(
 		matches(data: string, key: string): boolean;
 		getKeys(key: string): readonly string[];
 	},
+	terminalRows = 24,
 ) {
 	if (typeof factory !== "function") throw new Error("Expected a custom component factory");
 	let result: unknown;
@@ -371,13 +372,14 @@ export function createCustomSelectorHarness(
 	const resultPromise = new Promise<unknown>((resolve) => {
 		resolveResult = resolve;
 	});
+	const terminal = { rows: terminalRows };
 	const component = (
 		factory as (...args: unknown[]) => {
 			render(width: number): string[];
 			handleInput(data: string): void;
 		}
 	)(
-		{ requestRender() {} },
+		{ terminal, requestRender() {} },
 		{
 			fg(_color: string, text: string) {
 				return text;
@@ -432,6 +434,9 @@ export function createCustomSelectorHarness(
 		},
 		render(renderWidth = width) {
 			return component.render(renderWidth);
+		},
+		setTerminalRows(rows: number) {
+			terminal.rows = rows;
 		},
 		invalidate() {
 			(component as { invalidate?: () => void }).invalidate?.();
