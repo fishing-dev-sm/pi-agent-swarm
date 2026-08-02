@@ -4,7 +4,7 @@
 
 - This is a Node/TypeScript monorepo for independently installable Pi extensions, reusable publishable libraries, and published experimental packages.
 - Active package source lives under `extensions/<package>/src/`, `experimental/<package>/src/`, or `packages/<package>/src/`; each package owns its manifest, README, license, and TypeScript config.
-- `deprecated/` contains reference packages excluded from active workspace checks. Treat `third_party/` as upstream reference code: edit it only when the task targets it, and obey its nested `AGENTS.md` files.
+- `deprecated/` contains reference packages excluded from active workspace checks.
 - Root config owns shared tooling: `package.json`, `package-lock.json`, `biome.json`, `tsconfig.json`, `justfile`, and `.github/workflows/*`.
 - Do not edit `node_modules/`. Generate `package-lock.json` with the npm version declared by root `packageManager`; compare it with `npm --version` before dependency work.
 - Keep published contents aligned with each manifest's `files` list and `pi.extensions` entry.
