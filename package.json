@@ -22,6 +22,7 @@
 		"pack:btw": "npm --workspace @narumitw/pi-btw pack --dry-run",
 		"pack:caffeinate": "npm --workspace @narumitw/pi-caffeinate pack --dry-run",
 		"pack:chrome-devtools": "npm --workspace @narumitw/pi-chrome-devtools pack --dry-run",
+		"pack:codex-compact": "npm --workspace @narumitw/pi-codex-compact pack --dry-run",
 		"pack:accounts": "npm --workspace @narumitw/pi-accounts pack --dry-run",
 		"pack:analytics": "npm --workspace @narumitw/pi-analytics pack --dry-run",
 		"pack:usage": "npm --workspace @narumitw/pi-usage pack --dry-run",
