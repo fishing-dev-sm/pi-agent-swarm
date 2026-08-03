@@ -104,6 +104,7 @@ commands, settings persistence, confirmations, and specialized UI.
 | Package | Use it for | Install |
 | --- | --- | --- |
 | [`pi-analytics`](./experimental/pi-analytics) | Review private, content-free local metrics for model calls, skills, tools, response cycles, and observed provider reliability through `/analytics`. | `pi install npm:@narumitw/pi-analytics` |
+| [`pi-codex-compact`](./experimental/pi-codex-compact) | Use OpenAI Codex Remote Compaction V2 to persist and replay bounded opaque checkpoints, with `/codex-compact` manual controls and safe Pi-native fallback. | `pi install npm:@narumitw/pi-codex-compact` |
 | [`pi-file-context`](./experimental/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it by typing `@` at a word boundary or running `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
 | [`pi-jupyter`](./experimental/pi-jupyter) | Choose and preview saved Jupyter notebooks from one `/jupyter` current-state menu without running a kernel. | `pi install npm:@narumitw/pi-jupyter` |
 | [`pi-webui`](./experimental/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
