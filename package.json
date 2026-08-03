@@ -35,6 +35,7 @@
 		"pack:langfuse": "npm --workspace @narumitw/pi-langfuse pack --dry-run",
 		"pack:lsp": "npm --workspace @narumitw/pi-lsp pack --dry-run",
 		"pack:plan-mode": "npm --workspace @narumitw/pi-plan-mode pack --dry-run",
+		"pack:recall": "npm --workspace @narumitw/pi-recall pack --dry-run",
 		"pack:stamp": "npm --workspace @narumitw/pi-stamp pack --dry-run",
 		"pack:starship": "npm --workspace @narumitw/pi-starship pack --dry-run",
 		"pack:statusline": "npm --workspace @narumitw/pi-statusline pack --dry-run",
