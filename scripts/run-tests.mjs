@@ -2,6 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,7 +39,13 @@ if (testFiles.length === 0) {
 	process.exit(1);
 }
 
-run(process.execPath, ["--test", ...testFiles]);
+const canonicalTempDir = fs.realpathSync(os.tmpdir());
+run(process.execPath, ["--test", ...testFiles], {
+	...process.env,
+	TMPDIR: canonicalTempDir,
+	TMP: canonicalTempDir,
+	TEMP: canonicalTempDir,
+});
 
 function activeExtensionDirectories(directory = path.join(root, "extensions")) {
 	const directories = [];
@@ -70,8 +77,8 @@ function runNpm(args) {
 	run(command, commandArgs);
 }
 
-function run(command, args) {
-	const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
+function run(command, args, env = process.env) {
+	const result = spawnSync(command, args, { cwd: root, stdio: "inherit", env });
 	if (result.error) {
 		console.error(result.error.message);
 		process.exit(1);
