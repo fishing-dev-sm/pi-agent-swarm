@@ -76,18 +76,21 @@ async function measure(extensionEntries, benchmarkOptions) {
 			stdout += chunk;
 			if (firstResponseMs === undefined && hasSuccessfulCommandResponse(stdout)) {
 				firstResponseMs = performance.now() - startedAt;
-				child.stdin.end();
 			}
 		});
 		child.stderr.on("data", (chunk) => {
 			stderr += chunk;
 		});
 		child.stdin.end(`${JSON.stringify({ type: "get_commands" })}\n`);
-		const exit = await new Promise((resolveExit, reject) => {
-			child.once("error", reject);
-			child.once("exit", (code, signal) => resolveExit({ code, signal }));
-		});
-		clearTimeout(timeout);
+		let exit;
+		try {
+			exit = await new Promise((resolveExit, reject) => {
+				child.once("error", reject);
+				child.once("exit", (code, signal) => resolveExit({ code, signal }));
+			});
+		} finally {
+			clearTimeout(timeout);
+		}
 		if (exit.code !== 0 || firstResponseMs === undefined) {
 			throw new Error(
 				`Pi benchmark failed (code=${exit.code}, signal=${exit.signal ?? "none"}).\n${stderr}\n${stdout}`,
