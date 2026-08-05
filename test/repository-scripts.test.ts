@@ -303,6 +303,16 @@ test("extension boundaries allow helper libraries but still reject extension dep
 		assert.equal(allowed.status, 0, allowed.stderr);
 		assert.match(allowed.stdout, /1 libraries and 2 active extensions/);
 
+		const alphaEntrypoint = path.join(fixture, "extensions/pi-alpha/src/index.ts");
+		writeFileSync(alphaEntrypoint, 'export { default } from "../dist/extension.js";\n');
+		const outsideSource = spawnSync(process.execPath, [boundaryScript], {
+			cwd: fixture,
+			encoding: "utf8",
+		});
+		assert.equal(outsideSource.status, 1);
+		assert.match(outsideSource.stderr, /default export must stay inside its src directory/);
+		writeFileSync(alphaEntrypoint, 'export { default } from "./extension.js";\n');
+
 		const libraryPath = path.join(fixture, "packages/pi-tui-kit/package.json");
 		const library = JSON.parse(readFileSync(libraryPath, "utf8"));
 		library.pi = { extensions: ["./src/index.ts"] };
@@ -486,7 +496,8 @@ function writeExtensionFixture(
 		pi: { extensions: ["./src/index.ts"] },
 	});
 	mkdirSync(path.join(root, "src"), { recursive: true });
-	writeFileSync(path.join(root, "src/index.ts"), "export default function extension() {}\n");
+	writeFileSync(path.join(root, "src/index.ts"), 'export { default } from "./extension.js";\n');
+	writeFileSync(path.join(root, "src/extension.ts"), "export default function extension() {}\n");
 }
 
 function writeJson(filePath: string, value: unknown) {

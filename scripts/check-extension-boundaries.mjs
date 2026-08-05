@@ -139,9 +139,28 @@ function checkLibraryPackage(libraryPackage) {
 }
 
 function checkPiEntrypoint(extensionPackage) {
-	const entrypoint = path.join(extensionPackage.directory, "src", "index.ts");
+	const sourceDirectory = path.join(extensionPackage.directory, "src");
+	const entrypoint = path.join(sourceDirectory, "index.ts");
 	if (!fs.existsSync(entrypoint)) {
 		failures.push(`${relative(entrypoint)} must exist as the Pi extension entrypoint.`);
+	} else {
+		const specifier = defaultExportForwarderSpecifier(entrypoint);
+		if (!specifier) {
+			failures.push(
+				`${relative(entrypoint)} must forward its default export from a source module.`,
+			);
+		} else {
+			const target = path.resolve(path.dirname(entrypoint), specifier);
+			const relativeTarget = path.relative(sourceDirectory, target);
+			if (
+				!specifier.startsWith("./") ||
+				relativeTarget === ".." ||
+				relativeTarget.startsWith(`..${path.sep}`) ||
+				path.isAbsolute(relativeTarget)
+			) {
+				failures.push(`${relative(entrypoint)} default export must stay inside its src directory.`);
+			}
+		}
 	}
 
 	const entries = extensionPackage.packageJson.pi?.extensions;
@@ -195,6 +214,26 @@ function listSourceFiles(directory) {
 
 function isSourceFile(fileName) {
 	return SOURCE_FILE_SUFFIXES.some((suffix) => fileName.endsWith(suffix));
+}
+
+function defaultExportForwarderSpecifier(sourcePath) {
+	const project = compilerSnapshot.getDefaultProjectForFile(sourcePath);
+	const sourceFile = project?.program.getSourceFile(sourcePath);
+	if (!sourceFile) throw new Error(`TypeScript could not parse ${relative(sourcePath)}.`);
+
+	for (const statement of sourceFile.statements) {
+		if (
+			!isExportDeclaration(statement) ||
+			statement.exportClause?.kind !== SyntaxKind.NamedExports ||
+			!statement.moduleSpecifier
+		) {
+			continue;
+		}
+		if (statement.exportClause.elements.some((element) => element.name.text === "default")) {
+			return stringLiteralText(statement.moduleSpecifier);
+		}
+	}
+	return undefined;
 }
 
 function moduleSpecifiers(sourcePath) {
