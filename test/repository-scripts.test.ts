@@ -188,6 +188,33 @@ test("latest-Pi setup updates library, production, and experimental workspaces",
 	}
 });
 
+test("dependency updates pin tooling and verify a clean lockfile installation", () => {
+	const manifest = JSON.parse(readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
+	assert.match(manifest.packageManager, /^npm@\d/u);
+	assert.match(manifest.devDependencies["npm-check-updates"], /^\d+\.\d+\.\d+$/u);
+
+	const justfile = readFileSync(path.join(repositoryRoot, "justfile"), "utf8");
+	const pinnedNpm = justfile.indexOf("_require-pinned-npm:");
+	const cleanWorktree = justfile.indexOf("_require-clean-worktree:");
+	const updateLock = justfile.indexOf("update-lock:");
+	const updateNcu = justfile.indexOf("npm exec -- npm-check-updates", updateLock);
+	const generateLock = justfile.indexOf("npm install --package-lock-only", updateNcu);
+	const verifyUpdate = justfile.indexOf("verify-update:");
+	const cleanInstall = justfile.indexOf("npm ci", verifyUpdate);
+	const checks = justfile.indexOf("npm run check", cleanInstall);
+	const pack = justfile.indexOf("npm pack --workspaces --dry-run", checks);
+
+	assert.ok(pinnedNpm >= 0, "dependency updates must verify packageManager");
+	assert.ok(cleanWorktree > pinnedNpm, "dependency updates must reject a dirty worktree");
+	assert.ok(updateLock > cleanWorktree, "update-lock must follow its preflights");
+	assert.ok(updateNcu > updateLock, "update-lock must use the pinned npm-check-updates binary");
+	assert.ok(generateLock > updateNcu, "update-lock must regenerate package-lock.json");
+	assert.ok(verifyUpdate > generateLock, "verification must be independently rerunnable");
+	assert.ok(cleanInstall > verifyUpdate, "verification must start from npm ci");
+	assert.ok(checks > cleanInstall, "checks must run against the clean install");
+	assert.ok(pack > checks, "workspace pack smokes must run after checks");
+});
+
 test("release workflows install the repository-pinned npm before lockfile or registry work", () => {
 	for (const workflowPath of [
 		".github/workflows/bump-version.yml",
