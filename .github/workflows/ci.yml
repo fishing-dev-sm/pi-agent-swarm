@@ -14,7 +14,14 @@ concurrency:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    name: CI (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest
+          - self-hosted
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Check out repository
