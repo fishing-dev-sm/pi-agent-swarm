@@ -86,6 +86,24 @@ test("latest-Pi setup updates library, production, and experimental workspaces",
 	}
 });
 
+test("latest-Pi CI performs one lockfile-guided dependency installation", () => {
+	const workflowPath = ".github/workflows/ci.yml";
+	const workflow = readFileSync(path.join(repositoryRoot, workflowPath), "utf8");
+	const setLatest = workflow.indexOf("node scripts/set-pi-version.mjs latest");
+	const install = workflow.indexOf("npm install --no-save", setLatest);
+	const verify = workflow.indexOf('installed_version="$(node -p', install);
+	const installs = workflow.match(/^\s+npm (?:ci|install)[^\r\n]*$/gmu) ?? [];
+
+	assert.ok(setLatest >= 0, `${workflowPath} must select latest Pi before installation`);
+	assert.ok(install > setLatest, `${workflowPath} must install after selecting latest Pi`);
+	assert.ok(verify > install, `${workflowPath} must verify the installed Pi version`);
+	assert.deepEqual(
+		installs.map((line) => line.trim()),
+		["npm install --no-save"],
+	);
+	assert.doesNotMatch(workflow, /--package-lock=false/u);
+});
+
 test("dependency updates pin tooling and verify a clean lockfile installation", () => {
 	const manifest = JSON.parse(readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
 	assert.match(manifest.packageManager, /^npm@\d/u);
