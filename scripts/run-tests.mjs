@@ -18,12 +18,7 @@ const tsc = path.join(
 if (process.env.PI_EXTENSIONS_BUILD_READY !== "1") runNpm(["run", "build"]);
 fs.rmSync(outDir, { recursive: true, force: true });
 
-const activeExtensionRoots = [
-	path.join(root, "extensions"),
-	path.join(root, "experimental"),
-].filter((directory) => fs.existsSync(directory));
-const missingTests = activeExtensionRoots
-	.flatMap((directory) => activeExtensionDirectories(directory))
+const missingTests = activeExtensionDirectories(path.join(root, "packages"))
 	.filter((extensionDir) => !hasTestFile(path.join(extensionDir, "test")))
 	.map((extensionDir) => path.relative(root, extensionDir));
 if (missingTests.length > 0) {
@@ -47,15 +42,16 @@ run(process.execPath, ["--test", ...testFiles], {
 	TEMP: canonicalTempDir,
 });
 
-function activeExtensionDirectories(directory = path.join(root, "extensions")) {
+function activeExtensionDirectories(directory) {
 	const directories = [];
 	for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-		if (!entry.isDirectory() || entry.name === "node_modules") {
-			continue;
-		}
+		if (!entry.isDirectory() || entry.name === "node_modules") continue;
+
 		const entryPath = path.join(directory, entry.name);
-		if (fs.existsSync(path.join(entryPath, "package.json"))) {
-			directories.push(entryPath);
+		const manifestPath = path.join(entryPath, "package.json");
+		if (fs.existsSync(manifestPath)) {
+			const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+			if (manifest.pi?.extensions !== undefined) directories.push(entryPath);
 			continue;
 		}
 		directories.push(...activeExtensionDirectories(entryPath));

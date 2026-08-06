@@ -1,22 +1,23 @@
-name: Publish
+name: Version or publish packages
 
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
   id-token: write
 
 concurrency:
-  group: publish-${{ github.ref_name }}
+  group: changesets-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish packages to npm
+  release:
+    name: Create version PR or publish packages
     runs-on: ubuntu-latest
 
     steps:
@@ -46,95 +47,16 @@ jobs:
       - name: Validate packages
         run: npm run check
 
-      - name: Select packages to publish
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$EVENT_NAME" == "push" ]]; then
-            node scripts/list-publish-workspaces.mjs --release "$RELEASE_TAG" > /tmp/pi-workspaces.tsv
-          else
-            node scripts/list-publish-workspaces.mjs --all > /tmp/pi-workspaces.tsv
-          fi
-
-          if [[ -s /tmp/pi-workspaces.tsv ]]; then
-            echo "Packages selected for publishing:"
-            while IFS=$'\t' read -r package version; do
-              echo "- ${package}@${version}"
-            done < /tmp/pi-workspaces.tsv
-          else
-            echo "No packages were selected for publishing."
-          fi
-
-      - name: Publish new package versions
-        id: publish
+      - name: Create version pull request or publish to npm
+        id: changesets
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          version: npm run version-packages
+          publish: npm run publish-packages
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+          createGithubReleases: true
+          commitMode: github-api
         env:
           NPM_CONFIG_PROVENANCE: "true"
-        run: |
-          set -euo pipefail
-
-          : > /tmp/pi-published.tsv
-          : > /tmp/pi-skipped.tsv
-
-          while IFS=$'\t' read -r package version; do
-            if [[ -z "$package" || -z "$version" ]]; then
-              continue
-            fi
-
-            if npm view "${package}@${version}" version >/dev/null 2>&1; then
-              echo "${package}@${version} is already published; skipping."
-              printf '%s\t%s\n' "$package" "$version" >> /tmp/pi-skipped.tsv
-              continue
-            fi
-
-            echo "Publishing ${package}@${version}..."
-            npm --workspace "$package" publish --access public --loglevel verbose
-            printf '%s\t%s\n' "$package" "$version" >> /tmp/pi-published.tsv
-          done < /tmp/pi-workspaces.tsv
-
-      - name: Write publication summary
-        if: always()
-        env:
-          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
-        run: |
-          set -euo pipefail
-
-          {
-            echo "## npm publishing summary"
-            echo
-
-            case "$PUBLISH_OUTCOME" in
-              success) echo "Package publishing completed successfully. ✅" ;;
-              failure) echo "Package publishing failed; the versions listed below were published before the failure. ❌" ;;
-              *) echo "Package publishing did not run (outcome: ${PUBLISH_OUTCOME}). ⚠️" ;;
-            esac
-            echo
-
-            if [[ -s /tmp/pi-published.tsv ]]; then
-              echo "### Published packages"
-              echo
-              echo "| Package | Version |"
-              echo "| --- | --- |"
-              while IFS=$'\t' read -r package version; do
-                printf '| [%s](https://www.npmjs.com/package/%s) | `%s` |\n' "$package" "$package" "$version"
-              done < /tmp/pi-published.tsv
-            else
-              echo "### Published packages"
-              echo
-              echo "No packages were published."
-            fi
-
-            if [[ -s /tmp/pi-skipped.tsv ]]; then
-              echo
-              echo "<details>"
-              echo "<summary>Already published (skipped)</summary>"
-              echo
-              while IFS=$'\t' read -r package version; do
-                echo "- ${package}@${version}"
-              done < /tmp/pi-skipped.tsv
-              echo
-              echo "</details>"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"

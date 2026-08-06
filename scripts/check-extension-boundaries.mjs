@@ -37,16 +37,17 @@ const SOURCE_FILE_SUFFIXES = [
 ];
 
 const rootDirectory = process.cwd();
-const librariesDirectory = path.join(rootDirectory, "packages");
-const extensionsDirectory = path.join(rootDirectory, "extensions");
-const experimentalDirectory = path.join(rootDirectory, "experimental");
-const libraryPackages = findActiveExtensionPackages(librariesDirectory);
-const activePackages = [
-	...findActiveExtensionPackages(extensionsDirectory),
-	...findActiveExtensionPackages(experimentalDirectory),
-].sort((left, right) => left.name.localeCompare(right.name));
-const experimentalPackageCount = activePackages.filter(({ directory }) =>
-	directory.startsWith(`${experimentalDirectory}${path.sep}`),
+const rootPackage = readJson(path.join(rootDirectory, "package.json"));
+const packagesDirectory = path.join(rootDirectory, "packages");
+const workspacePackages = findWorkspacePackages(packagesDirectory);
+const activePackages = workspacePackages.filter(
+	({ packageJson }) => packageJson.pi?.extensions !== undefined,
+);
+const libraryPackages = workspacePackages.filter(
+	({ packageJson }) => packageJson.pi?.extensions === undefined,
+);
+const experimentalPackageCount = activePackages.filter(
+	({ packageJson }) => packageJson.piExtension?.lifecycle === "experimental",
 ).length;
 const libraryPackageNames = new Set(libraryPackages.map(({ name }) => name));
 const failures = [];
@@ -61,9 +62,11 @@ const compilerSnapshot = compilerApi.updateSnapshot({
 });
 
 try {
+	checkRootPiManifest();
 	for (const libraryPackage of libraryPackages) checkLibraryPackage(libraryPackage);
 	for (const extensionPackage of activePackages) {
 		checkPiEntrypoint(extensionPackage);
+		checkExtensionLifecycle(extensionPackage);
 		checkPackageDependencies(extensionPackage);
 		checkSourceImports(extensionPackage);
 	}
@@ -82,7 +85,7 @@ if (failures.length > 0) {
 	);
 }
 
-function findActiveExtensionPackages(directory) {
+function findWorkspacePackages(directory) {
 	const packages = [];
 	if (!fs.existsSync(directory)) return packages;
 
@@ -94,7 +97,7 @@ function findActiveExtensionPackages(directory) {
 		const entryPath = path.join(directory, entry.name);
 		const packagePath = path.join(entryPath, "package.json");
 		if (!fs.existsSync(packagePath)) {
-			packages.push(...findActiveExtensionPackages(entryPath));
+			packages.push(...findWorkspacePackages(entryPath));
 			continue;
 		}
 
@@ -114,10 +117,31 @@ function findActiveExtensionPackages(directory) {
 	return packages.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function checkLibraryPackage(libraryPackage) {
-	if (libraryPackage.packageJson.pi?.extensions !== undefined) {
+function checkRootPiManifest() {
+	const expectedEntries = activePackages
+		.filter(({ packageJson }) => packageJson.piExtension?.lifecycle === "stable")
+		.map(
+			({ directory }) =>
+				`./${relative(path.join(directory, "src", "index.ts"))
+					.split(path.sep)
+					.join("/")}`,
+		)
+		.sort();
+	const actualEntries = rootPackage.pi?.extensions;
+	if (
+		!Array.isArray(actualEntries) ||
+		JSON.stringify([...actualEntries].sort()) !== JSON.stringify(expectedEntries)
+	) {
 		failures.push(
-			`${relative(libraryPackage.packagePath)} libraries must not declare pi.extensions.`,
+			`package.json pi.extensions must list every stable package entrypoint and no experimental entrypoints: ${JSON.stringify(expectedEntries)}.`,
+		);
+	}
+}
+
+function checkLibraryPackage(libraryPackage) {
+	if (libraryPackage.packageJson.piExtension !== undefined) {
+		failures.push(
+			`${relative(libraryPackage.packagePath)} libraries must not declare piExtension metadata.`,
 		);
 	}
 	if (!libraryPackage.packageJson.scripts?.build) {
@@ -167,6 +191,15 @@ function checkPiEntrypoint(extensionPackage) {
 	if (!Array.isArray(entries) || entries.length !== 1 || entries[0] !== "./src/index.ts") {
 		failures.push(
 			`${relative(extensionPackage.packagePath)} pi.extensions must be ["./src/index.ts"].`,
+		);
+	}
+}
+
+function checkExtensionLifecycle(extensionPackage) {
+	const lifecycle = extensionPackage.packageJson.piExtension?.lifecycle;
+	if (lifecycle !== "stable" && lifecycle !== "experimental") {
+		failures.push(
+			`${relative(extensionPackage.packagePath)} piExtension.lifecycle must be "stable" or "experimental".`,
 		);
 	}
 }

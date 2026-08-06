@@ -3,25 +3,25 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { settingsFilePath as caffeinateSettingsPath } from "../extensions/pi-caffeinate/src/settings.js";
-import { settingsFilePath as chromeDevtoolsSettingsPath } from "../extensions/pi-chrome-devtools/src/settings.js";
-import { settingsFilePath as firecrawlSettingsPath } from "../extensions/pi-firecrawl/src/settings.js";
-import { googleGenaiConfigPath } from "../extensions/pi-google-genai/src/config.js";
-import { langfuseConfigPath } from "../extensions/pi-langfuse/src/config.js";
+import { settingsFilePath as caffeinateSettingsPath } from "../packages/pi-caffeinate/src/settings.js";
+import { settingsFilePath as chromeDevtoolsSettingsPath } from "../packages/pi-chrome-devtools/src/settings.js";
+import { settingsFilePath as firecrawlSettingsPath } from "../packages/pi-firecrawl/src/settings.js";
+import { googleGenaiConfigPath } from "../packages/pi-google-genai/src/config.js";
+import { langfuseConfigPath } from "../packages/pi-langfuse/src/config.js";
 
 const SETTINGS_PUBLICATION_SOURCES = [
-	"experimental/pi-webui/src/settings.ts",
-	"extensions/pi-accounts/src/account-store.ts",
-	"extensions/pi-caffeinate/src/settings.ts",
-	"extensions/pi-chrome-devtools/src/settings.ts",
-	"extensions/pi-firecrawl/src/settings.ts",
-	"extensions/pi-google-genai/src/config.ts",
-	"extensions/pi-lsp/src/adapters.ts",
-	"extensions/pi-plan-mode/src/settings.ts",
-	"extensions/pi-starship/src/config.ts",
-	"extensions/pi-statusline/src/settings.ts",
-	"extensions/pi-subagents/src/settings.ts",
-	"extensions/pi-sync/src/config-file.ts",
+	"packages/pi-webui/src/settings.ts",
+	"packages/pi-accounts/src/account-store.ts",
+	"packages/pi-caffeinate/src/settings.ts",
+	"packages/pi-chrome-devtools/src/settings.ts",
+	"packages/pi-firecrawl/src/settings.ts",
+	"packages/pi-google-genai/src/config.ts",
+	"packages/pi-lsp/src/adapters.ts",
+	"packages/pi-plan-mode/src/settings.ts",
+	"packages/pi-starship/src/config.ts",
+	"packages/pi-statusline/src/settings.ts",
+	"packages/pi-subagents/src/settings.ts",
+	"packages/pi-sync/src/config-file.ts",
 ] as const;
 
 test("settings publishers do not use hard links or direct canonical copies", () => {
@@ -33,7 +33,7 @@ test("settings publishers do not use hard links or direct canonical copies", () 
 });
 
 test("pi-sync publishes a complete, durable temporary inode", () => {
-	const source = readFileSync("extensions/pi-sync/src/config-file.ts", "utf8");
+	const source = readFileSync("packages/pi-sync/src/config-file.ts", "utf8");
 	assert.doesNotMatch(source, /\bcopyFile\s*\(/u);
 	assert.match(source, /await publishedHandle\.sync\(\)/u);
 });
