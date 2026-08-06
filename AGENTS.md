@@ -19,7 +19,7 @@ Run commands from the repository root unless noted otherwise.
 - Run all active tests: `npm test`
 - Format with Biome: `npm run format` or `just format`
 - Typecheck all workspaces: `npm run typecheck`
-- Preview an extension package: `just pack <unscoped-name>`; preview the library with `just pack-tui-kit`
+- Preview any package: `just pack <unscoped-name>`
 - Try a local extension without installing: `just try <unscoped-name>`
 - Inspect available recipes before adding or documenting workflow commands: `just --list`
 
@@ -52,7 +52,7 @@ Run commands from the repository root unless noted otherwise.
 
 - Active extension tests live under `packages/<package>/test/*.test.ts` and run with `npm test`; archived tests under `deprecated/` are excluded.
 - Use `npm run check` as the CI-equivalent local gate; it runs Biome, boundary checks, workspace typechecks, and tests.
-- For package metadata or publishing changes, also run `just pack <unscoped-name>` (or the library's dedicated pack recipe) and inspect the tarball contents.
+- For package metadata or publishing changes, also run `just pack <unscoped-name>` and inspect the tarball contents.
 - For Pi runtime behavior, prefer `just try <unscoped-name>` or the equivalent explicit `pi -e` path before publishing.
 
 ## Publishing and release safety
@@ -61,7 +61,7 @@ Run commands from the repository root unless noted otherwise.
 - Every publishable package versions independently through Changesets. A pull request that changes published package behavior must add release intent with `npm run changeset`; repository-only documentation, tests, tooling, and path migrations may omit it.
 - Publishable experimental packages use the same Changesets version-PR and publishing workflow as stable packages; preserve their experimental warning in user-facing documentation and runtime behavior.
 - `just npm-public <package>` only changes visibility for an existing package. If a brand-new scoped package still returns 404, its first approved publication must use `npm publish --workspace <package> --access public`.
-- The `publish.yml` workflow creates or updates an independent version PR, then publishes merged versions with package-specific tags and GitHub releases. `just publish-all` is recovery-only and still requires explicit approval.
+- The `publish.yml` workflow creates or updates an independent version PR, then publishes merged versions with package-specific tags and GitHub releases. Initial publication remains a manually approved exception.
 - Publish a new `pi-tui-kit` API before raising a consumer's reviewed compatibility floor; do not release an unpublished Kit API and its first consumer together.
 
 ## Git and PR guidance

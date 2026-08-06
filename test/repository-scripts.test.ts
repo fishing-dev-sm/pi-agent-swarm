@@ -132,8 +132,9 @@ test("Changesets config keeps every package independently versioned", () => {
 	assert.equal(config.baseBranch, "main");
 	assert.equal(config.bumpVersionsWithWorkspaceProtocolOnly, true);
 	assert.match(justfile, /^changeset:/m);
-	assert.match(justfile, /^publish-all:/m);
-	assert.doesNotMatch(justfile, /^publish-(?!all:)[a-z]|^publish name:|^bump /m);
+	assert.match(justfile, /^changeset-status:/m);
+	assert.doesNotMatch(justfile, /^version-packages:|^publish-|^bump /m);
+	assert.doesNotMatch(justfile, /^(?:(?:pack|install)-[a-z0-9]|try-(?!all:)[a-z0-9])/m);
 	assert.equal(existsSync(path.join(repositoryRoot, ".github/workflows/bump-version.yml")), false);
 	assert.equal(existsSync(path.join(repositoryRoot, ".github/workflows/release.yml")), false);
 });
