@@ -6,7 +6,6 @@ import test from "node:test";
 import { settingsFilePath as caffeinateSettingsPath } from "../packages/pi-caffeinate/src/settings.js";
 import { settingsFilePath as chromeDevtoolsSettingsPath } from "../packages/pi-chrome-devtools/src/settings.js";
 import { settingsFilePath as firecrawlSettingsPath } from "../packages/pi-firecrawl/src/settings.js";
-import { googleGenaiConfigPath } from "../packages/pi-google-genai/src/config.js";
 import { langfuseConfigPath } from "../packages/pi-langfuse/src/config.js";
 
 const SETTINGS_PUBLICATION_SOURCES = [
@@ -15,7 +14,6 @@ const SETTINGS_PUBLICATION_SOURCES = [
 	"packages/pi-caffeinate/src/settings.ts",
 	"packages/pi-chrome-devtools/src/settings.ts",
 	"packages/pi-firecrawl/src/settings.ts",
-	"packages/pi-google-genai/src/config.ts",
 	"packages/pi-lsp/src/adapters.ts",
 	"packages/pi-plan-mode/src/settings.ts",
 	"packages/pi-starship/src/config.ts",
@@ -46,7 +44,6 @@ test("settings paths use Pi tilde expansion", () => {
 		assert.equal(caffeinateSettingsPath(), join(agentDir, "pi-caffeinate.json"));
 		assert.equal(chromeDevtoolsSettingsPath(), join(agentDir, "pi-chrome-devtools.json"));
 		assert.equal(firecrawlSettingsPath(), join(agentDir, "pi-firecrawl.json"));
-		assert.equal(googleGenaiConfigPath(), join(agentDir, "pi-google-genai.json"));
 		assert.equal(langfuseConfigPath(), join(agentDir, "pi-langfuse.json"));
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
