@@ -67,7 +67,9 @@ Run commands from the repository root unless noted otherwise.
 
 ## Git and PR guidance
 
-- Recent history uses Conventional Commits such as `feat: ...`, `fix: ...`, and `chore(release): ...`; keep commit messages grounded in the actual diff.
+- Before drafting or creating a commit, inspect the selected diff and keep one coherent intent; split unrelated changes.
+- Use `<type>[scope][!]: <description>` grounded in the diff. Prefer `feat`, `fix`, `refactor`, or `docs`; omit scope, body, and footers unless useful.
+- When committing, stage only intended paths, recheck the index, reject empty commits, then verify and report the commit ID and remaining changes.
 - For PRs or handoff notes, include the commands run and any publish/visibility checks performed.
 
 ## MEMORY.md
