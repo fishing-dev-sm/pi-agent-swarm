@@ -28,6 +28,7 @@ Run commands from the repository root unless noted otherwise.
 - Root TypeScript uses `module`/`moduleResolution: NodeNext`, `target: ES2022`, `strict: true`, and `noEmit: true`; publishable libraries emit through package-owned build configuration.
 - Biome is authoritative: tabs, 100-column line width, double quotes, semicolons, and recommended lint rules.
 - Keep extension packages small. Add dependencies only when they solve a current extension need.
+- When a Pi core package provides the required function, use that function.
 - Check `node_modules` for external API types; don't guess.
 - Never remove or downgrade code to fix type errors from outdated dependencies; upgrade the dependency instead.
 - Treat each extension package as independently installable and semantically self-contained. Do not import or depend on another extension package, and do not hard-code assumptions about another extension’s package or tool names, argument schemas or actions, settings, event channels, installation state, version, or runtime behavior, whether repository-owned or external. Keep policy in the extension that owns the affected behavior. Share capabilities only through Pi’s public, extension-neutral APIs or reusable non-extension libraries that do not coordinate specific extensions. Consume shared Pi surfaces only generically, without extension-specific branching, and ensure the extension remains functional when all other extensions are absent.
