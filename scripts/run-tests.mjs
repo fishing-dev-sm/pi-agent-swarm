@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { changedFilesSince, selectAffectedTests } from "./select-affected-tests.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "node_modules", ".cache", "pi-extensions-test");
@@ -15,9 +16,6 @@ const tsc = path.join(
 	process.platform === "win32" ? "tsc.cmd" : "tsc",
 );
 
-if (process.env.PI_EXTENSIONS_BUILD_READY !== "1") runNpm(["run", "build"]);
-fs.rmSync(outDir, { recursive: true, force: true });
-
 const missingTests = activeExtensionDirectories(path.join(root, "packages"))
 	.filter((extensionDir) => !hasTestFile(path.join(extensionDir, "test")))
 	.map((extensionDir) => path.relative(root, extensionDir));
@@ -26,11 +24,25 @@ if (missingTests.length > 0) {
 	process.exit(1);
 }
 
+const selection = testSelection();
+if (selection.mode === "skip") {
+	console.log(`Skipping tests: ${selection.reason}.`);
+	process.exit(0);
+}
+console.log(
+	selection.mode === "full"
+		? `Running the full test suite: ${selection.reason}.`
+		: `Running affected tests for ${selection.workspaceDirectories.join(", ") || "root only"}: ${selection.reason}.`,
+);
+
+if (process.env.PI_EXTENSIONS_BUILD_READY !== "1") runNpm(["run", "build"]);
+fs.rmSync(outDir, { recursive: true, force: true });
 run(tsc, ["-p", "tsconfig.test.json"]);
 
-const testFiles = findFiles(outDir, ".test.js");
+const compiledTestFiles = findFiles(outDir, ".test.js");
+const testFiles = compiledTestFiles.filter((testFile) => selectedTestFile(testFile, selection));
 if (testFiles.length === 0) {
-	console.error("No compiled test files found.");
+	console.error("No selected compiled test files found.");
 	process.exit(1);
 }
 
@@ -41,6 +53,41 @@ run(process.execPath, ["--test", ...testFiles], {
 	TMP: canonicalTempDir,
 	TEMP: canonicalTempDir,
 });
+
+function testSelection() {
+	const base = process.env.PI_EXTENSIONS_TEST_BASE;
+	if (!base) {
+		return {
+			mode: "full",
+			includeRootTests: true,
+			workspaceDirectories: [],
+			reason: "no affected-test base was provided",
+		};
+	}
+
+	try {
+		const changedFiles = changedFilesSince(root, base);
+		return selectAffectedTests(root, changedFiles);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.warn(`Could not select affected tests (${message}); falling back to the full suite.`);
+		return {
+			mode: "full",
+			includeRootTests: true,
+			workspaceDirectories: [],
+			reason: "affected-test selection failed",
+		};
+	}
+}
+
+function selectedTestFile(testFile, selection) {
+	if (selection.mode === "full") return true;
+	const relativePath = path.relative(outDir, testFile).split(path.sep).join("/");
+	if (selection.includeRootTests && relativePath.startsWith("test/")) return true;
+	return selection.workspaceDirectories.some((directoryName) =>
+		relativePath.startsWith(`packages/${directoryName}/test/`),
+	);
+}
 
 function activeExtensionDirectories(directory) {
 	const directories = [];
