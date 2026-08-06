@@ -56,9 +56,11 @@ Run commands from the repository root unless noted otherwise.
 ## Publishing and release safety
 
 - Require explicit user approval before publishing, changing npm visibility, creating version tags, or dispatching release workflows.
-- Publishable experimental packages follow the same shared version-bump, `publish-all`, and GitHub publishing workflows as production packages; preserve their experimental warning in user-facing documentation and runtime behavior.
+- Every publishable package versions independently through Changesets. A pull request that changes published package behavior must add release intent with `npm run changeset`; repository-only documentation, tests, tooling, and path migrations may omit it.
+- Publishable experimental packages use the same Changesets version-PR and publishing workflow as stable packages; preserve their experimental warning in user-facing documentation and runtime behavior.
 - `just npm-public <package>` only changes visibility for an existing package. If a brand-new scoped package still returns 404, its first approved publication must use `npm publish --workspace <package> --access public`.
-- Use `just bump <package> patch|minor|major` for a no-tag workspace bump. The GitHub `bump-version` workflow bumps all package versions together and tags `v*.*.*`.
+- The `publish.yml` workflow creates or updates an independent version PR, then publishes merged versions with package-specific tags and GitHub releases. `just publish-all` is recovery-only and still requires explicit approval.
+- Publish a new `pi-tui-kit` API before raising a consumer's reviewed compatibility floor; do not release an unpublished Kit API and its first consumer together.
 
 ## Git and PR guidance
 

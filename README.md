@@ -171,7 +171,9 @@ just pack file-context
 just pack-tui-kit
 ```
 
-Run `just --list` to see all development, install, pack, and publishing recipes.
+Run `just --list` to see all development, install, pack, and release recipes. Pull requests that
+change published package behavior should add release intent with `npm run changeset`; packages version
+independently.
 
 <details>
 <summary>Publishing a new scoped package</summary>
@@ -182,10 +184,31 @@ Run `just --list` to see all development, install, pack, and publishing recipes.
 npm publish --workspace @narumitw/pi-new-extension --access public
 ```
 
-After the initial publication, the shared release workflow handles libraries, production extensions,
-and publishable experimental packages.
+After the initial publication, Changesets handles stable extensions, experimental extensions, and
+libraries through independent package versions.
 
 </details>
+
+## 🦋 Releases
+
+A behavior-changing package pull request records its affected packages and SemVer bumps with:
+
+```bash
+npm run changeset
+```
+
+After changesets reach `main`, the release workflow creates or updates one version pull request. That
+pull request changes only selected package versions, dependency ranges where configured, changelogs,
+and the lockfile. Merging it publishes the new versions with npm provenance and creates
+package-specific tags and GitHub releases such as `@narumitw/pi-goal@0.50.0`.
+
+Repository-only documentation, tests, tooling, and path migrations may omit a changeset. Use
+`npm run changeset:status` to inspect pending releases. `just publish-all` is recovery-only and still
+requires explicit publication approval.
+
+`@narumitw/pi-tui-kit` remains independently versioned. Publish a new Kit API before raising an
+extension's compatibility floor to consume it; do not release an unpublished Kit API and its first
+consumer together.
 
 ## 🗂️ Repository structure
 

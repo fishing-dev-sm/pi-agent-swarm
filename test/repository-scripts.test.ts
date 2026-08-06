@@ -15,87 +15,10 @@ import test from "node:test";
 
 const repositoryRoot = process.cwd();
 const boundaryScript = path.join(repositoryRoot, "scripts/check-extension-boundaries.mjs");
-const bumpScript = path.join(repositoryRoot, "scripts/bump-shared-version.mjs");
 const checkScript = path.join(repositoryRoot, "scripts/run-checks.mjs");
 const runTypechecksScript = path.join(repositoryRoot, "scripts/run-typechecks.mjs");
 const setPiVersionScript = path.join(repositoryRoot, "scripts/set-pi-version.mjs");
 const expectedChecks = ["biome:check", "check:boundaries", "test", "typecheck"];
-
-test("shared-version discovery includes every publishable package workspace", () => {
-	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspaces-"));
-	try {
-		writeJson(path.join(fixture, "package.json"), {
-			name: "fixture-root",
-			private: true,
-			version: "1.2.3",
-			workspaces: ["packages/*"],
-		});
-		writeJson(path.join(fixture, "packages/pi-tui-kit/package.json"), {
-			name: "@fixture/menu",
-			version: "1.2.3",
-		});
-		writeJson(path.join(fixture, "packages/pi-public/package.json"), {
-			name: "@fixture/public",
-			version: "1.2.3",
-		});
-		writeJson(path.join(fixture, "packages/pi-manual/package.json"), {
-			name: "@fixture/manual-experiment",
-			version: "0.0.0",
-		});
-
-		const output = execFileSync(process.execPath, [bumpScript, "--list-packages"], {
-			cwd: fixture,
-			encoding: "utf8",
-		});
-		assert.deepEqual(JSON.parse(output), [
-			"package.json",
-			"packages/pi-manual/package.json",
-			"packages/pi-public/package.json",
-			"packages/pi-tui-kit/package.json",
-		]);
-	} finally {
-		rmSync(fixture, { recursive: true, force: true });
-	}
-});
-
-test("shared bumps preserve consumer-owned internal compatibility ranges", () => {
-	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspace-ranges-"));
-	try {
-		writeJson(path.join(fixture, "package.json"), {
-			name: "fixture-root",
-			private: true,
-			version: "0.40.0",
-			workspaces: ["packages/*"],
-		});
-		writeJson(path.join(fixture, "packages/menu/package.json"), {
-			name: "@fixture/menu",
-			version: "0.40.0",
-		});
-		writeJson(path.join(fixture, "packages/consumer/package.json"), {
-			name: "@fixture/consumer",
-			version: "0.40.0",
-			dependencies: { "@fixture/menu": "^0.40.0" },
-		});
-		const fixtureScript = path.join(fixture, "scripts/bump-shared-version.mjs");
-		mkdirSync(path.dirname(fixtureScript), { recursive: true });
-		writeFileSync(fixtureScript, readFileSync(bumpScript, "utf8"));
-		const fixtureBin = path.join(fixture, "bin");
-		mkdirSync(fixtureBin, { recursive: true });
-		writeFileSync(path.join(fixtureBin, "npm"), "#!/usr/bin/env node\n", { mode: 0o755 });
-
-		execFileSync(process.execPath, [fixtureScript, "major"], {
-			cwd: fixture,
-			env: { ...process.env, PATH: `${fixtureBin}${path.delimiter}${process.env.PATH ?? ""}` },
-		});
-		const consumer = JSON.parse(
-			readFileSync(path.join(fixture, "packages/consumer/package.json"), "utf8"),
-		);
-		assert.equal(consumer.version, "1.0.0");
-		assert.equal(consumer.dependencies["@fixture/menu"], "^0.40.0");
-	} finally {
-		rmSync(fixture, { recursive: true, force: true });
-	}
-});
 
 test("pi-tui-kit consumers use a bounded compatible zero-major range", () => {
 	const consumers: string[] = [];
@@ -115,30 +38,6 @@ test("pi-tui-kit consumers use a bounded compatible zero-major range", () => {
 		assert.ok(Number(match[1]) >= 40, `${manifest.name} must require pi-tui-kit 0.40 or newer`);
 	}
 	assert.ok(consumers.length > 0, "expected at least one pi-tui-kit consumer");
-});
-
-test("shared-version discovery skips workspace roots that are not present", () => {
-	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspaces-missing-"));
-	try {
-		writeJson(path.join(fixture, "package.json"), {
-			name: "fixture-root",
-			private: true,
-			version: "1.2.3",
-			workspaces: ["packages/*"],
-		});
-		writeJson(path.join(fixture, "packages/pi-public/package.json"), {
-			name: "@fixture/public",
-			version: "1.2.3",
-		});
-
-		const output = execFileSync(process.execPath, [bumpScript, "--list-packages"], {
-			cwd: fixture,
-			encoding: "utf8",
-		});
-		assert.deepEqual(JSON.parse(output), ["package.json", "packages/pi-public/package.json"]);
-	} finally {
-		rmSync(fixture, { recursive: true, force: true });
-	}
 });
 
 test("latest-Pi setup updates library, production, and experimental workspaces", () => {
@@ -214,64 +113,91 @@ test("dependency updates pin tooling and verify a clean lockfile installation", 
 	assert.ok(pack > checks, "workspace pack smokes must run after checks");
 });
 
-test("release workflows install the repository-pinned npm before lockfile or registry work", () => {
-	for (const workflowPath of [
-		".github/workflows/bump-version.yml",
-		".github/workflows/publish.yml",
-	]) {
-		const workflow = readFileSync(path.join(repositoryRoot, workflowPath), "utf8");
-		const setup = workflow.indexOf(
-			'package_manager="$(node -p \'require("./package.json").packageManager\')"',
-		);
-		const install = workflow.indexOf('npm install --global "$package_manager"');
-		const verify = workflow.search(/test "\$\(npm --version\)" = "\$\{package_manager#npm@\}"/u);
-		const firstVersionSensitiveOperation = Math.min(
-			...[/node scripts\/bump-shared-version\.mjs/u, /run: npm ci/u]
-				.map((pattern) => workflow.search(pattern))
-				.filter((index) => index >= 0),
-		);
-		assert.ok(setup >= 0, `${workflowPath} must read packageManager`);
-		assert.ok(install > setup, `${workflowPath} must install packageManager`);
-		assert.ok(verify > install, `${workflowPath} must verify packageManager`);
-		assert.ok(
-			verify < firstVersionSensitiveOperation,
-			`${workflowPath} must pin npm before version-sensitive work`,
-		);
-	}
-});
-
-test("publish workflow selects changed tag packages and all manual recovery packages", () => {
-	const workflow = readFileSync(path.join(repositoryRoot, ".github/workflows/publish.yml"), "utf8");
-	assert.match(workflow, /fetch-depth: 0/);
-	assert.match(workflow, /EVENT_NAME: \$\{\{ github\.event_name \}\}/);
-	assert.match(workflow, /RELEASE_TAG: \$\{\{ github\.ref_name \}\}/);
-	assert.match(workflow, /list-publish-workspaces\.mjs --release "\$RELEASE_TAG"/);
-	assert.match(workflow, /list-publish-workspaces\.mjs --all/);
-	assert.match(workflow, /npm view "\$\{package\}@\$\{version\}" version/);
-	assert.match(workflow, /NPM_CONFIG_PROVENANCE: "true"/);
-	assert.match(workflow, /printf '%s\\t%s\\n'.*>> \/tmp\/pi-published\.tsv/);
-	assert.match(workflow, /if: always\(\)/);
-	assert.match(workflow, /PUBLISH_OUTCOME: \$\{\{ steps\.publish\.outcome \}\}/);
-	assert.match(workflow, />> "\$GITHUB_STEP_SUMMARY"/);
-});
-
-test("all active packages participate in automated and manual publishing", () => {
-	const selector = readFileSync(
-		path.join(repositoryRoot, "scripts/list-publish-workspaces.mjs"),
-		"utf8",
+test("Changesets config keeps every package independently versioned", () => {
+	const manifest = JSON.parse(readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
+	const config = JSON.parse(
+		readFileSync(path.join(repositoryRoot, ".changeset/config.json"), "utf8"),
 	);
 	const justfile = readFileSync(path.join(repositoryRoot, "justfile"), "utf8");
-	const bumpWorkflow = readFileSync(
-		path.join(repositoryRoot, ".github/workflows/bump-version.yml"),
-		"utf8",
+
+	assert.equal(manifest.devDependencies["@changesets/cli"], "2.31.1");
+	assert.equal(
+		manifest.scripts["version-packages"],
+		"changeset version && npm install --package-lock-only --ignore-scripts",
 	);
-	assert.match(selector, /const packageRoots = \["packages"\]/);
-	assert.match(justfile, /package_json="\.\/packages\/pi-\$name\/package\.json"/);
-	assert.match(justfile, /for package_json in packages\/\*\/package\.json/);
-	assert.match(bumpWorkflow, /packages\/\*\/package\.json/);
-	assert.doesNotMatch(bumpWorkflow, /(extensions|experimental)\/\*\/package\.json/);
-	assert.match(justfile, /^publish name:/m);
-	assert.doesNotMatch(justfile, /\botp\b|--otp/);
+	assert.equal(manifest.scripts["publish-packages"], "changeset publish");
+	assert.deepEqual(config.fixed, []);
+	assert.deepEqual(config.linked, []);
+	assert.equal(config.access, "public");
+	assert.equal(config.baseBranch, "main");
+	assert.equal(config.bumpVersionsWithWorkspaceProtocolOnly, true);
+	assert.match(justfile, /^changeset:/m);
+	assert.match(justfile, /^publish-all:/m);
+	assert.doesNotMatch(justfile, /^publish-(?!all:)[a-z]|^publish name:|^bump /m);
+	assert.equal(existsSync(path.join(repositoryRoot, ".github/workflows/bump-version.yml")), false);
+	assert.equal(existsSync(path.join(repositoryRoot, ".github/workflows/release.yml")), false);
+});
+
+test("Changesets workflow pins tooling, validates, versions, and trusted-publishes", () => {
+	const workflowPath = ".github/workflows/publish.yml";
+	const workflow = readFileSync(path.join(repositoryRoot, workflowPath), "utf8");
+	const setup = workflow.indexOf(
+		'package_manager="$(node -p \'require("./package.json").packageManager\')"',
+	);
+	const install = workflow.indexOf('npm install --global "$package_manager"');
+	const verify = workflow.search(/test "\$\(npm --version\)" = "\$\{package_manager#npm@\}"/u);
+	const cleanInstall = workflow.indexOf("run: npm ci");
+	const check = workflow.indexOf("run: npm run check", cleanInstall);
+	const action = workflow.indexOf("changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d");
+
+	assert.ok(setup >= 0, `${workflowPath} must read packageManager`);
+	assert.ok(install > setup, `${workflowPath} must install packageManager`);
+	assert.ok(verify > install, `${workflowPath} must verify packageManager`);
+	assert.ok(cleanInstall > verify, `${workflowPath} must pin npm before npm ci`);
+	assert.ok(check > cleanInstall, `${workflowPath} must validate the clean install`);
+	assert.ok(action > check, `${workflowPath} must validate before Changesets`);
+	assert.match(workflow, /branches:\n\s+- main/);
+	assert.match(workflow, /fetch-depth: 0/);
+	assert.match(workflow, /contents: write/);
+	assert.match(workflow, /pull-requests: write/);
+	assert.match(workflow, /id-token: write/);
+	assert.match(workflow, /github-token: \$\{\{ secrets\.PAT_TOKEN \}\}/);
+	assert.match(workflow, /version: npm run version-packages/);
+	assert.match(workflow, /publish: npm run publish-packages/);
+	assert.match(workflow, /createGithubReleases: true/);
+	assert.match(workflow, /commitMode: github-api/);
+	assert.match(workflow, /NPM_CONFIG_PROVENANCE: "true"/);
+});
+
+test("flat workspaces classify stable and experimental extensions explicitly", () => {
+	const rootManifest = JSON.parse(readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
+	assert.deepEqual(rootManifest.workspaces, ["packages/*"]);
+
+	const packagesRoot = path.join(repositoryRoot, "packages");
+	const stableEntries: string[] = [];
+	let extensionCount = 0;
+	let experimentalCount = 0;
+	let libraryCount = 0;
+	for (const entry of readdirSync(packagesRoot, { withFileTypes: true })) {
+		if (!entry.isDirectory()) continue;
+		const manifestPath = path.join(packagesRoot, entry.name, "package.json");
+		if (!existsSync(manifestPath)) continue;
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+		if (manifest.pi?.extensions === undefined) {
+			libraryCount += 1;
+			assert.equal(manifest.piExtension, undefined);
+			continue;
+		}
+		extensionCount += 1;
+		assert.ok(["stable", "experimental"].includes(manifest.piExtension?.lifecycle));
+		if (manifest.piExtension.lifecycle === "experimental") experimentalCount += 1;
+		else stableEntries.push(`./packages/${entry.name}/src/index.ts`);
+	}
+
+	assert.equal(extensionCount, 25);
+	assert.equal(experimentalCount, 6);
+	assert.equal(libraryCount, 1);
+	assert.deepEqual([...rootManifest.pi.extensions].sort(), stableEntries.sort());
 });
 
 test("extension boundaries allow helper libraries but still reject extension dependencies", () => {

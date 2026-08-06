@@ -140,6 +140,14 @@ interactive work should expose cancellation.
 - **MUST:** Keep each extension independently installable, with its own runtime dependencies and
   package metadata. **Verification:** `Review` of package metadata and a `Smoke` npm pack dry run for
   dependency or publishing changes.
+- **MUST:** Version every publishable package independently through Changesets. Pull requests that
+  change published behavior must record the affected packages and SemVer bumps; repository-only
+  documentation, tests, tooling, and path migrations may omit a changeset. Keep Changesets `fixed`
+  and `linked` groups empty. **Verification:** `Review` of release intent and the Changesets status,
+  version PR, or package-specific release as applicable.
+- **MUST:** Publish a new `pi-tui-kit` API before an extension raises its compatibility floor to use
+  that API; do not release an unpublished Kit API and its first consumer together.
+  **Verification:** `Review` of npm availability and the consumer dependency floor.
 - **MUST:** Keep package contents aligned with the manifest's `files` list and include required
   notices and licenses. **Verification:** `Smoke` with `npm pack --workspace <name> --dry-run --json`
   for package or publishing changes.
