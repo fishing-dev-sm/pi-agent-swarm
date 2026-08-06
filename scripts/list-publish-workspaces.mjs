@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 
 const releaseTagPattern = /^v(\d+)\.(\d+)\.(\d+)$/;
-const packageRoots = ["packages", "extensions", "experimental"];
+const packageRoots = ["packages"];
 const [mode, ...args] = process.argv.slice(2);
 
 let releaseCommit;

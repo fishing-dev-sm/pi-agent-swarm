@@ -39,44 +39,44 @@ pi -e npm:@narumitw/pi-goal \
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-lsp`](./extensions/pi-lsp) | Language-server diagnostics and code actions across JavaScript, TypeScript, Python, Rust, Go, Ruby, C/C++, JVM, .NET, Swift, shell, infrastructure formats, and more. | `pi install npm:@narumitw/pi-lsp` |
-| [`pi-plan-mode`](./extensions/pi-plan-mode) | Codex-like, read-only `/plan` collaboration before implementation begins. | `pi install npm:@narumitw/pi-plan-mode` |
-| [`pi-subagents`](./extensions/pi-subagents) | Delegate isolated work in single, parallel, or chained execution modes. | `pi install npm:@narumitw/pi-subagents` |
+| [`pi-lsp`](./packages/pi-lsp) | Language-server diagnostics and code actions across JavaScript, TypeScript, Python, Rust, Go, Ruby, C/C++, JVM, .NET, Swift, shell, infrastructure formats, and more. | `pi install npm:@narumitw/pi-lsp` |
+| [`pi-plan-mode`](./packages/pi-plan-mode) | Codex-like, read-only `/plan` collaboration before implementation begins. | `pi install npm:@narumitw/pi-plan-mode` |
+| [`pi-subagents`](./packages/pi-subagents) | Delegate isolated work in single, parallel, or chained execution modes. | `pi install npm:@narumitw/pi-subagents` |
 
 ### Browser and research
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-chrome-devtools`](./extensions/pi-chrome-devtools) | Inspect tabs, navigate pages, evaluate JavaScript, and capture screenshots through Chrome DevTools Protocol. | `pi install npm:@narumitw/pi-chrome-devtools` |
-| [`pi-firecrawl`](./extensions/pi-firecrawl) | Scrape pages, crawl websites, discover URLs, and search the web with Firecrawl. | `pi install npm:@narumitw/pi-firecrawl` |
-| [`pi-google-genai`](./extensions/pi-google-genai) | Ground agent work with Google Search, Google Maps, and URL context. | `pi install npm:@narumitw/pi-google-genai` |
+| [`pi-chrome-devtools`](./packages/pi-chrome-devtools) | Inspect tabs, navigate pages, evaluate JavaScript, and capture screenshots through Chrome DevTools Protocol. | `pi install npm:@narumitw/pi-chrome-devtools` |
+| [`pi-firecrawl`](./packages/pi-firecrawl) | Scrape pages, crawl websites, discover URLs, and search the web with Firecrawl. | `pi install npm:@narumitw/pi-firecrawl` |
+| [`pi-google-genai`](./packages/pi-google-genai) | Ground agent work with Google Search, Google Maps, and URL context. | `pi install npm:@narumitw/pi-google-genai` |
 
 ### Task and workspace workflows
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-btw`](./extensions/pi-btw) | Ask a quick `/btw` side question without adding it to the main conversation. | `pi install npm:@narumitw/pi-btw` |
-| [`pi-caffeinate`](./extensions/pi-caffeinate) | Prevent system sleep while Pi processes a long-running prompt. | `pi install npm:@narumitw/pi-caffeinate` |
-| [`pi-goal`](./extensions/pi-goal) | Keep the agent working until a goal is verified complete; optionally enable an experimental ordered queue. | `pi install npm:@narumitw/pi-goal` |
-| [`pi-worktree`](./extensions/pi-worktree) | Create, switch, remove, and prune Git worktrees while carrying the Pi session into another workspace. | `pi install npm:@narumitw/pi-worktree` |
+| [`pi-btw`](./packages/pi-btw) | Ask a quick `/btw` side question without adding it to the main conversation. | `pi install npm:@narumitw/pi-btw` |
+| [`pi-caffeinate`](./packages/pi-caffeinate) | Prevent system sleep while Pi processes a long-running prompt. | `pi install npm:@narumitw/pi-caffeinate` |
+| [`pi-goal`](./packages/pi-goal) | Keep the agent working until a goal is verified complete; optionally enable an experimental ordered queue. | `pi install npm:@narumitw/pi-goal` |
+| [`pi-worktree`](./packages/pi-worktree) | Create, switch, remove, and prune Git worktrees while carrying the Pi session into another workspace. | `pi install npm:@narumitw/pi-worktree` |
 
 ### Accounts and data
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-accounts`](./extensions/pi-accounts) | Switch named OpenAI Codex, Anthropic, and GitHub Copilot subscription OAuth accounts with `/account`. | `pi install npm:@narumitw/pi-accounts` |
-| [`pi-usage`](./extensions/pi-usage) | View current-account Codex subscription limits or OpenRouter API-key spend limits with `/usage`. | `pi install npm:@narumitw/pi-usage` |
-| [`pi-sync`](./extensions/pi-sync) | Sync allowlisted Pi settings and optional sessions through Cloudflare R2 or S3-compatible storage. | `pi install npm:@narumitw/pi-sync` |
+| [`pi-accounts`](./packages/pi-accounts) | Switch named OpenAI Codex, Anthropic, and GitHub Copilot subscription OAuth accounts with `/account`. | `pi install npm:@narumitw/pi-accounts` |
+| [`pi-usage`](./packages/pi-usage) | View current-account Codex subscription limits or OpenRouter API-key spend limits with `/usage`. | `pi install npm:@narumitw/pi-usage` |
+| [`pi-sync`](./packages/pi-sync) | Sync allowlisted Pi settings and optional sessions through Cloudflare R2 or S3-compatible storage. | `pi install npm:@narumitw/pi-sync` |
 
 ### Status and observability
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-github-pr`](./extensions/pi-github-pr) | Show current-branch pull request checks, reviews, and comment counts through the authenticated `gh` CLI. | `pi install npm:@narumitw/pi-github-pr` |
-| [`pi-langfuse`](./extensions/pi-langfuse) | Send agent runs, generations, token usage, costs, and tool activity to Langfuse. | `pi install npm:@narumitw/pi-langfuse` |
-| [`pi-stamp`](./extensions/pi-stamp) | Show configurable timestamps with opt-in assistant metadata, response timing, and tool timing in the TUI transcript. | `pi install npm:@narumitw/pi-stamp` |
-| [`pi-starship`](./extensions/pi-starship) | Use a native Starship-style TOML footer with Pi-specific modules and no Starship binary dependency. | `pi install npm:@narumitw/pi-starship` |
-| [`pi-statusline`](./extensions/pi-statusline) | Show model, tools, Git state, context usage, tokens, cost, and time in a preset or JSON-configured footer. | `pi install npm:@narumitw/pi-statusline` |
+| [`pi-github-pr`](./packages/pi-github-pr) | Show current-branch pull request checks, reviews, and comment counts through the authenticated `gh` CLI. | `pi install npm:@narumitw/pi-github-pr` |
+| [`pi-langfuse`](./packages/pi-langfuse) | Send agent runs, generations, token usage, costs, and tool activity to Langfuse. | `pi install npm:@narumitw/pi-langfuse` |
+| [`pi-stamp`](./packages/pi-stamp) | Show configurable timestamps with opt-in assistant metadata, response timing, and tool timing in the TUI transcript. | `pi install npm:@narumitw/pi-stamp` |
+| [`pi-starship`](./packages/pi-starship) | Use a native Starship-style TOML footer with Pi-specific modules and no Starship binary dependency. | `pi install npm:@narumitw/pi-starship` |
+| [`pi-statusline`](./packages/pi-statusline) | Show model, tools, Git state, context usage, tokens, cost, and time in a preset or JSON-configured footer. | `pi install npm:@narumitw/pi-statusline` |
 
 Choose either `pi-starship` or `pi-statusline`; do not enable both footer extensions together.
 
@@ -84,7 +84,7 @@ Choose either `pi-starship` or `pi-statusline`; do not enable both footer extens
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-image-drop`](./extensions/pi-image-drop) | Stage an ordered, memory-only image batch in a private loopback page for the next Pi message. | `pi install npm:@narumitw/pi-image-drop` |
+| [`pi-image-drop`](./packages/pi-image-drop) | Stage an ordered, memory-only image batch in a private loopback page for the next Pi message. | `pi install npm:@narumitw/pi-image-drop` |
 
 ## 🧱 Extension libraries
 
@@ -103,11 +103,11 @@ commands, settings persistence, confirmations, and specialized UI.
 
 | Package | Use it for | Install |
 | --- | --- | --- |
-| [`pi-analytics`](./experimental/pi-analytics) | Review private, content-free local metrics for model calls, skills, tools, response cycles, and observed provider reliability through `/analytics`. | `pi install npm:@narumitw/pi-analytics` |
-| [`pi-codex-compact`](./experimental/pi-codex-compact) | Use OpenAI Codex Remote Compaction V2 to persist and replay bounded opaque checkpoints, with `/codex-compact` manual controls and safe Pi-native fallback. | `pi install npm:@narumitw/pi-codex-compact` |
-| [`pi-file-context`](./experimental/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it by typing `@` at a word boundary or running `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
-| [`pi-jupyter`](./experimental/pi-jupyter) | Choose and preview saved Jupyter notebooks from one `/jupyter` current-state menu without running a kernel. | `pi install npm:@narumitw/pi-jupyter` |
-| [`pi-webui`](./experimental/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
+| [`pi-analytics`](./packages/pi-analytics) | Review private, content-free local metrics for model calls, skills, tools, response cycles, and observed provider reliability through `/analytics`. | `pi install npm:@narumitw/pi-analytics` |
+| [`pi-codex-compact`](./packages/pi-codex-compact) | Use OpenAI Codex Remote Compaction V2 to persist and replay bounded opaque checkpoints, with `/codex-compact` manual controls and safe Pi-native fallback. | `pi install npm:@narumitw/pi-codex-compact` |
+| [`pi-file-context`](./packages/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it by typing `@` at a word boundary or running `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
+| [`pi-jupyter`](./packages/pi-jupyter) | Choose and preview saved Jupyter notebooks from one `/jupyter` current-state menu without running a kernel. | `pi install npm:@narumitw/pi-jupyter` |
+| [`pi-webui`](./packages/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
 
 ## 🔧 Advanced installation
 
@@ -120,7 +120,7 @@ Install the repository as one Pi package:
 pi install git:github.com/narumiruna/pi-extensions
 ```
 
-The repository root auto-discovers every production extension under `extensions/`, so this enables all of them. Experimental packages under `experimental/` are not auto-discovered by the root Git package.
+The repository root Pi manifest explicitly lists every stable extension under `packages/`, so this enables all of them. Packages marked with the experimental lifecycle are intentionally excluded from the root Git package.
 
 To load only selected extensions, replace the installed package entry in `~/.pi/agent/settings.json` with a resource filter:
 
@@ -130,15 +130,15 @@ To load only selected extensions, replace the installed package entry in `~/.pi/
     {
       "source": "git:github.com/narumiruna/pi-extensions",
       "extensions": [
-        "extensions/pi-accounts/src/index.ts",
-        "extensions/pi-usage/src/index.ts"
+        "packages/pi-accounts/src/index.ts",
+        "packages/pi-usage/src/index.ts"
       ]
     }
   ]
 }
 ```
 
-Filters use resource paths relative to the repository root. A package directory such as `extensions/pi-accounts` is not enough; select its `src/index.ts` entrypoint.
+Filters use resource paths relative to the repository root. A package directory such as `packages/pi-accounts` is not enough; select its `src/index.ts` entrypoint.
 
 Restart Pi or run `/reload` after changing the filter. Update the checkout later with:
 
@@ -190,9 +190,7 @@ and publishable experimental packages.
 ## 🗂️ Repository structure
 
 ```text
-packages/                Reusable publishable extension libraries
-extensions/              Production extension packages
-experimental/            Published experiments with visible stability warnings
+packages/                Stable extensions, experimental extensions, and reusable libraries
 deprecated/              Reference packages excluded from active workspace scripts
 docs/                    Repository conventions and plans
 scripts/                 Shared checks, tests, versioning, and release helpers
@@ -200,17 +198,17 @@ test/                    Root integration and repository tests
 ```
 
 Each active package contains its own `package.json`, `README.md`, `LICENSE`, `tsconfig.json`, and
-TypeScript source under `src/`. Extension `src/index.ts` files are thin Pi entrypoints; reusable
-libraries publish built ESM and declarations from `dist/`.
+TypeScript source under `src/`. Extension `src/index.ts` files are thin Pi entrypoints and declare a
+stable or experimental lifecycle; reusable libraries publish built ESM and declarations from `dist/`.
 
 <details>
 <summary>Deprecated packages</summary>
 
 The following packages remain available as source references but are excluded from active workspace scripts:
 
-- `pi-biome-lsp` and `pi-python-lsp` — replaced by [`pi-lsp`](./extensions/pi-lsp)
-- `pi-codex-accounts` — replaced by [`pi-accounts`](./extensions/pi-accounts)
-- `pi-codex-usage` — replaced by [`pi-usage`](./extensions/pi-usage)
+- `pi-biome-lsp` and `pi-python-lsp` — replaced by [`pi-lsp`](./packages/pi-lsp)
+- `pi-codex-accounts` — replaced by [`pi-accounts`](./packages/pi-accounts)
+- `pi-codex-usage` — replaced by [`pi-usage`](./packages/pi-usage)
 - `pi-retry` — replaced by Pi's built-in provider retry and timeout behavior
 - `pi-auto-thinking`
 - `pi-sidebar`

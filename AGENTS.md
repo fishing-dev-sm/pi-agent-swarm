@@ -3,7 +3,7 @@
 ## Project structure
 
 - This is a Node/TypeScript monorepo for independently installable Pi extensions, reusable publishable libraries, and published experimental packages.
-- Active package source lives under `extensions/<package>/src/`, `experimental/<package>/src/`, or `packages/<package>/src/`; each package owns its manifest, README, license, and TypeScript config.
+- All active package source lives under `packages/<package>/src/`; each package owns its manifest, README, license, and TypeScript config. Extension manifests declare `piExtension.lifecycle` as `stable` or `experimental`; reusable libraries omit it.
 - `deprecated/` contains reference packages excluded from active workspace checks.
 - Root config owns shared tooling: `package.json`, `package-lock.json`, `biome.json`, `tsconfig.json`, `justfile`, and `.github/workflows/*`.
 - Do not edit `node_modules/`. Generate `package-lock.json` with the npm version declared by root `packageManager`; compare it with `npm --version` before dependency work.
@@ -29,10 +29,10 @@ Run commands from the repository root unless noted otherwise.
 - Biome is authoritative: tabs, 100-column line width, double quotes, semicolons, and recommended lint rules.
 - Keep extension packages small. Add dependencies only when they solve a current extension need.
 - Treat each extension package as independently installable and semantically self-contained. Do not import or depend on another extension package, and do not hard-code assumptions about another extension’s package or tool names, argument schemas or actions, settings, event channels, installation state, version, or runtime behavior, whether repository-owned or external. Keep policy in the extension that owns the affected behavior. Share capabilities only through Pi’s public, extension-neutral APIs or reusable non-extension libraries that do not coordinate specific extensions. Consume shared Pi surfaces only generically, without extension-specific branching, and ensure the extension remains functional when all other extensions are absent.
-- Every active extension package exposes Pi through a thin `src/index.ts` default-export forwarding entrypoint, and its `package.json` declares exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules. Publishable libraries under `packages/` emit JavaScript and declarations and must not declare `pi.extensions`. Run `npm run check:boundaries` to enforce these boundaries.
+- Every active extension package exposes Pi through a thin `src/index.ts` default-export forwarding entrypoint, and its `package.json` declares exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules. Publishable libraries emit JavaScript and declarations and must not declare `pi.extensions` or `piExtension`. Run `npm run check:boundaries` to enforce these boundaries.
 - Production extensions include source in `pi.extensions`, publish `files`, and root workspace-aware scripts/recipes when users need them. New standard action/detail/settings/multi-select menus should use `@narumitw/pi-tui-kit`; keep domain state, persistence, confirmations, and specialized UI extension-owned.
 - Write extension READMEs in English; preserve the emoji title, npm/Pi/license badges, standard emoji section headings, and `## 🗂️ Package layout` during readability passes.
-- Standalone experimental extension packages must live under `experimental/`, show a user-facing warning, remain covered by root checks, and participate in shared versioning and publishing unless marked `private`. An opt-in experimental feature may remain inside a production package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
+- Standalone experimental extension packages live under `packages/`, declare `"piExtension": { "lifecycle": "experimental" }`, show a user-facing warning, remain covered by root checks, and participate in publishing unless marked `private`. An opt-in experimental feature may remain inside a stable package only when its default behavior stays compatible, configuration explicitly gates it, and enabling it shows a warning.
 - Source files over 1,000 lines require decomposition along responsibility boundaries or a documented justification. Generated, vendored, migration, snapshot, and primarily declarative files may justify remaining intact; do not split them mechanically.
 
 ## Extension change gates
@@ -48,7 +48,7 @@ Run commands from the repository root unless noted otherwise.
 
 ## Testing and verification
 
-- Active extension tests live under `extensions/<package>/test/*.test.ts` or `experimental/<package>/test/*.test.ts` and run with `npm test`; archived tests under `deprecated/` are excluded.
+- Active extension tests live under `packages/<package>/test/*.test.ts` and run with `npm test`; archived tests under `deprecated/` are excluded.
 - Use `npm run check` as the CI-equivalent local gate; it runs Biome, boundary checks, workspace typechecks, and tests.
 - For package metadata or publishing changes, also run `just pack <unscoped-name>` (or the library's dedicated pack recipe) and inspect the tarball contents.
 - For Pi runtime behavior, prefer `just try <unscoped-name>` or the equivalent explicit `pi -e` path before publishing.

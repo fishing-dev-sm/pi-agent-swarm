@@ -21,24 +21,24 @@ const runTypechecksScript = path.join(repositoryRoot, "scripts/run-typechecks.mj
 const setPiVersionScript = path.join(repositoryRoot, "scripts/set-pi-version.mjs");
 const expectedChecks = ["biome:check", "check:boundaries", "test", "typecheck"];
 
-test("shared-version discovery includes publishable library and extension workspaces", () => {
+test("shared-version discovery includes every publishable package workspace", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "pi-workspaces-"));
 	try {
 		writeJson(path.join(fixture, "package.json"), {
 			name: "fixture-root",
 			private: true,
 			version: "1.2.3",
-			workspaces: ["packages/*", "extensions/*", "experimental/*"],
+			workspaces: ["packages/*"],
 		});
 		writeJson(path.join(fixture, "packages/pi-tui-kit/package.json"), {
 			name: "@fixture/menu",
 			version: "1.2.3",
 		});
-		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
+		writeJson(path.join(fixture, "packages/pi-public/package.json"), {
 			name: "@fixture/public",
 			version: "1.2.3",
 		});
-		writeJson(path.join(fixture, "experimental/pi-manual/package.json"), {
+		writeJson(path.join(fixture, "packages/pi-manual/package.json"), {
 			name: "@fixture/manual-experiment",
 			version: "0.0.0",
 		});
@@ -48,9 +48,9 @@ test("shared-version discovery includes publishable library and extension worksp
 			encoding: "utf8",
 		});
 		assert.deepEqual(JSON.parse(output), [
-			"experimental/pi-manual/package.json",
-			"extensions/pi-public/package.json",
 			"package.json",
+			"packages/pi-manual/package.json",
+			"packages/pi-public/package.json",
 			"packages/pi-tui-kit/package.json",
 		]);
 	} finally {
@@ -65,13 +65,13 @@ test("shared bumps preserve consumer-owned internal compatibility ranges", () =>
 			name: "fixture-root",
 			private: true,
 			version: "0.40.0",
-			workspaces: ["packages/*", "extensions/*"],
+			workspaces: ["packages/*"],
 		});
 		writeJson(path.join(fixture, "packages/menu/package.json"), {
 			name: "@fixture/menu",
 			version: "0.40.0",
 		});
-		writeJson(path.join(fixture, "extensions/consumer/package.json"), {
+		writeJson(path.join(fixture, "packages/consumer/package.json"), {
 			name: "@fixture/consumer",
 			version: "0.40.0",
 			dependencies: { "@fixture/menu": "^0.40.0" },
@@ -88,7 +88,7 @@ test("shared bumps preserve consumer-owned internal compatibility ranges", () =>
 			env: { ...process.env, PATH: `${fixtureBin}${path.delimiter}${process.env.PATH ?? ""}` },
 		});
 		const consumer = JSON.parse(
-			readFileSync(path.join(fixture, "extensions/consumer/package.json"), "utf8"),
+			readFileSync(path.join(fixture, "packages/consumer/package.json"), "utf8"),
 		);
 		assert.equal(consumer.version, "1.0.0");
 		assert.equal(consumer.dependencies["@fixture/menu"], "^0.40.0");
@@ -99,21 +99,20 @@ test("shared bumps preserve consumer-owned internal compatibility ranges", () =>
 
 test("pi-tui-kit consumers use a bounded compatible zero-major range", () => {
 	const consumers: string[] = [];
-	for (const packageRoot of ["extensions", "experimental"]) {
-		for (const entry of readdirSync(path.join(repositoryRoot, packageRoot), {
-			withFileTypes: true,
-		})) {
-			if (!entry.isDirectory()) continue;
-			const manifestPath = path.join(repositoryRoot, packageRoot, entry.name, "package.json");
-			if (!existsSync(manifestPath)) continue;
-			const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-			const range = manifest.dependencies?.["@narumitw/pi-tui-kit"];
-			if (range === undefined) continue;
-			consumers.push(manifest.name);
-			const match = /^\^0\.(\d+)\.(\d+)$/.exec(range);
-			assert.ok(match, `${manifest.name} must use a bounded ^0.minor.patch pi-tui-kit range`);
-			assert.ok(Number(match[1]) >= 40, `${manifest.name} must require pi-tui-kit 0.40 or newer`);
-		}
+	for (const entry of readdirSync(path.join(repositoryRoot, "packages"), {
+		withFileTypes: true,
+	})) {
+		if (!entry.isDirectory()) continue;
+		const manifestPath = path.join(repositoryRoot, "packages", entry.name, "package.json");
+		if (!existsSync(manifestPath)) continue;
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+		if (manifest.pi?.extensions === undefined) continue;
+		const range = manifest.dependencies?.["@narumitw/pi-tui-kit"];
+		if (range === undefined) continue;
+		consumers.push(manifest.name);
+		const match = /^\^0\.(\d+)\.(\d+)$/.exec(range);
+		assert.ok(match, `${manifest.name} must use a bounded ^0.minor.patch pi-tui-kit range`);
+		assert.ok(Number(match[1]) >= 40, `${manifest.name} must require pi-tui-kit 0.40 or newer`);
 	}
 	assert.ok(consumers.length > 0, "expected at least one pi-tui-kit consumer");
 });
@@ -125,9 +124,9 @@ test("shared-version discovery skips workspace roots that are not present", () =
 			name: "fixture-root",
 			private: true,
 			version: "1.2.3",
-			workspaces: ["packages/*", "extensions/*", "experimental/*"],
+			workspaces: ["packages/*"],
 		});
-		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
+		writeJson(path.join(fixture, "packages/pi-public/package.json"), {
 			name: "@fixture/public",
 			version: "1.2.3",
 		});
@@ -136,7 +135,7 @@ test("shared-version discovery skips workspace roots that are not present", () =
 			cwd: fixture,
 			encoding: "utf8",
 		});
-		assert.deepEqual(JSON.parse(output), ["extensions/pi-public/package.json", "package.json"]);
+		assert.deepEqual(JSON.parse(output), ["package.json", "packages/pi-public/package.json"]);
 	} finally {
 		rmSync(fixture, { recursive: true, force: true });
 	}
@@ -154,11 +153,11 @@ test("latest-Pi setup updates library, production, and experimental workspaces",
 			name: "@fixture/menu",
 			devDependencies: { "@earendil-works/pi-coding-agent": "1.0.0" },
 		});
-		writeJson(path.join(fixture, "extensions/pi-public/package.json"), {
+		writeJson(path.join(fixture, "packages/pi-public/package.json"), {
 			name: "@fixture/public",
 			devDependencies: { "@earendil-works/pi-tui": "1.0.0" },
 		});
-		writeJson(path.join(fixture, "experimental/pi-manual/package.json"), {
+		writeJson(path.join(fixture, "packages/pi-manual/package.json"), {
 			name: "@fixture/manual-experiment",
 			devDependencies: { "@earendil-works/pi-ai": "1.0.0" },
 		});
@@ -179,7 +178,7 @@ test("latest-Pi setup updates library, production, and experimental workspaces",
 			"9.9.9",
 		);
 		assert.equal(
-			JSON.parse(readFileSync(path.join(fixture, "experimental/pi-manual/package.json"), "utf8"))
+			JSON.parse(readFileSync(path.join(fixture, "packages/pi-manual/package.json"), "utf8"))
 				.devDependencies["@earendil-works/pi-ai"],
 			"9.9.9",
 		);
@@ -256,7 +255,7 @@ test("publish workflow selects changed tag packages and all manual recovery pack
 	assert.match(workflow, />> "\$GITHUB_STEP_SUMMARY"/);
 });
 
-test("libraries and extensions participate in automated and manual publishing", () => {
+test("all active packages participate in automated and manual publishing", () => {
 	const selector = readFileSync(
 		path.join(repositoryRoot, "scripts/list-publish-workspaces.mjs"),
 		"utf8",
@@ -266,14 +265,11 @@ test("libraries and extensions participate in automated and manual publishing", 
 		path.join(repositoryRoot, ".github/workflows/bump-version.yml"),
 		"utf8",
 	);
-	assert.match(selector, /const packageRoots = \["packages", "extensions", "experimental"\]/);
-	assert.match(justfile, /package_json="\.\/experimental\/pi-\$name\/package\.json"/);
-	assert.match(
-		justfile,
-		/for package_json in packages\/\*\/package\.json extensions\/\*\/package\.json experimental\/\*\/package\.json/,
-	);
+	assert.match(selector, /const packageRoots = \["packages"\]/);
+	assert.match(justfile, /package_json="\.\/packages\/pi-\$name\/package\.json"/);
+	assert.match(justfile, /for package_json in packages\/\*\/package\.json/);
 	assert.match(bumpWorkflow, /packages\/\*\/package\.json/);
-	assert.match(bumpWorkflow, /experimental\/\*\/package\.json/);
+	assert.doesNotMatch(bumpWorkflow, /(extensions|experimental)\/\*\/package\.json/);
 	assert.match(justfile, /^publish name:/m);
 	assert.doesNotMatch(justfile, /\botp\b|--otp/);
 });
@@ -281,14 +277,20 @@ test("libraries and extensions participate in automated and manual publishing", 
 test("extension boundaries allow helper libraries but still reject extension dependencies", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "pi-boundaries-"));
 	try {
-		writeJson(path.join(fixture, "package.json"), { name: "fixture", private: true });
+		writeJson(path.join(fixture, "package.json"), {
+			name: "fixture",
+			private: true,
+			pi: {
+				extensions: ["./packages/pi-alpha/src/index.ts", "./packages/pi-beta/src/index.ts"],
+			},
+		});
 		writeJson(path.join(fixture, "tsconfig.json"), {
 			compilerOptions: {
 				target: "ES2022",
 				module: "NodeNext",
 				moduleResolution: "NodeNext",
 			},
-			include: ["extensions/**/*.ts"],
+			include: ["packages/**/*.ts"],
 		});
 		writeLibraryFixture(fixture, "pi-tui-kit", "@narumitw/pi-tui-kit");
 		writeExtensionFixture(fixture, "pi-alpha", "@narumitw/pi-alpha", {
@@ -303,7 +305,7 @@ test("extension boundaries allow helper libraries but still reject extension dep
 		assert.equal(allowed.status, 0, allowed.stderr);
 		assert.match(allowed.stdout, /1 libraries and 2 active extensions/);
 
-		const alphaEntrypoint = path.join(fixture, "extensions/pi-alpha/src/index.ts");
+		const alphaEntrypoint = path.join(fixture, "packages/pi-alpha/src/index.ts");
 		writeFileSync(alphaEntrypoint, 'export { default } from "../dist/extension.js";\n');
 		const outsideSource = spawnSync(process.execPath, [boundaryScript], {
 			cwd: fixture,
@@ -315,18 +317,18 @@ test("extension boundaries allow helper libraries but still reject extension dep
 
 		const libraryPath = path.join(fixture, "packages/pi-tui-kit/package.json");
 		const library = JSON.parse(readFileSync(libraryPath, "utf8"));
-		library.pi = { extensions: ["./src/index.ts"] };
+		library.piExtension = { lifecycle: "stable" };
 		writeJson(libraryPath, library);
 		const invalidLibrary = spawnSync(process.execPath, [boundaryScript], {
 			cwd: fixture,
 			encoding: "utf8",
 		});
 		assert.equal(invalidLibrary.status, 1);
-		assert.match(invalidLibrary.stderr, /libraries must not declare pi\.extensions/);
-		delete library.pi;
+		assert.match(invalidLibrary.stderr, /libraries must not declare piExtension metadata/);
+		delete library.piExtension;
 		writeJson(libraryPath, library);
 
-		const alphaPath = path.join(fixture, "extensions/pi-alpha/package.json");
+		const alphaPath = path.join(fixture, "packages/pi-alpha/package.json");
 		const alpha = JSON.parse(readFileSync(alphaPath, "utf8"));
 		alpha.dependencies["@narumitw/pi-beta"] = "<1";
 		writeJson(alphaPath, alpha);
@@ -489,11 +491,12 @@ function writeExtensionFixture(
 	name: string,
 	dependencies: Record<string, string>,
 ) {
-	const root = path.join(fixture, "extensions", directory);
+	const root = path.join(fixture, "packages", directory);
 	writeJson(path.join(root, "package.json"), {
 		name,
 		dependencies,
 		pi: { extensions: ["./src/index.ts"] },
+		piExtension: { lifecycle: "stable" },
 	});
 	mkdirSync(path.join(root, "src"), { recursive: true });
 	writeFileSync(path.join(root, "src/index.ts"), 'export { default } from "./extension.js";\n');

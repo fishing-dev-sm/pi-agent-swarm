@@ -1,15 +1,36 @@
 {
 	"name": "pi-extensions",
-	"version": "0.49.5",
+	"version": "0.0.0",
 	"private": true,
 	"packageManager": "npm@12.0.2",
 	"description": "Monorepo for @narumitw pi extension packages.",
 	"type": "module",
 	"workspaces": [
-		"packages/*",
-		"extensions/*",
-		"experimental/*"
+		"packages/*"
 	],
+	"pi": {
+		"extensions": [
+			"./packages/pi-accounts/src/index.ts",
+			"./packages/pi-btw/src/index.ts",
+			"./packages/pi-caffeinate/src/index.ts",
+			"./packages/pi-chrome-devtools/src/index.ts",
+			"./packages/pi-firecrawl/src/index.ts",
+			"./packages/pi-github-pr/src/index.ts",
+			"./packages/pi-goal/src/index.ts",
+			"./packages/pi-google-genai/src/index.ts",
+			"./packages/pi-image-drop/src/index.ts",
+			"./packages/pi-langfuse/src/index.ts",
+			"./packages/pi-lsp/src/index.ts",
+			"./packages/pi-plan-mode/src/index.ts",
+			"./packages/pi-stamp/src/index.ts",
+			"./packages/pi-starship/src/index.ts",
+			"./packages/pi-statusline/src/index.ts",
+			"./packages/pi-subagents/src/index.ts",
+			"./packages/pi-sync/src/index.ts",
+			"./packages/pi-usage/src/index.ts",
+			"./packages/pi-worktree/src/index.ts"
+		]
+	},
 	"scripts": {
 		"format": "biome format --write .",
 		"lint": "biome lint .",

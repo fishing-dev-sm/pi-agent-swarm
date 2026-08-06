@@ -29,16 +29,16 @@ test("canonical releases select changed publishable extensions in deterministic 
 			{ directory: "pi-zulu", name: "@fixture/zulu" },
 			{ directory: "pi-alpha", name: "@fixture/alpha" },
 			{ directory: "pi-private", name: "@fixture/private", private: true },
-			{ directory: "pi-experiment", name: "@fixture/experiment", root: "experimental" },
+			{ directory: "pi-experiment", name: "@fixture/experiment" },
 			{ directory: "pi-legacy", name: "@fixture/legacy", root: "deprecated" },
 		],
 		(repository) => {
 			tag(repository, "v1.0.0");
 			write(repository, "README.md", "root-only change\n");
-			write(repository, "extensions/pi-zulu/src/index.ts", "export const zulu = 1;\n");
-			write(repository, "extensions/pi-zulu/test/index.test.ts", "// second zulu path\n");
-			write(repository, "extensions/pi-private/src/index.ts", "private change\n");
-			write(repository, "experimental/pi-experiment/src/index.ts", "experimental change\n");
+			write(repository, "packages/pi-zulu/src/index.ts", "export const zulu = 1;\n");
+			write(repository, "packages/pi-zulu/test/index.test.ts", "// second zulu path\n");
+			write(repository, "packages/pi-private/src/index.ts", "private change\n");
+			write(repository, "packages/pi-experiment/src/index.ts", "experimental change\n");
 			write(repository, "deprecated/pi-legacy/src/index.ts", "legacy change\n");
 			addPackage(repository, { directory: "pi-middle", name: "@fixture/middle" });
 			refreshLockfile(repository);
@@ -80,7 +80,7 @@ test("release selection omits deleted and unchanged packages", () => {
 		],
 		(repository) => {
 			tag(repository, "v1.0.0");
-			rmSync(path.join(repository, "extensions/pi-deleted"), { recursive: true });
+			rmSync(path.join(repository, "packages/pi-deleted"), { recursive: true });
 			refreshLockfile(repository);
 			commit(repository, "chore: remove deleted extension");
 			createRelease(repository, "v1.1.0");
@@ -96,7 +96,7 @@ test("first and nonstandard releases safely select every publishable package", (
 			{ directory: "pi-beta", name: "@fixture/beta" },
 			{ directory: "pi-alpha", name: "@fixture/alpha" },
 			{ directory: "pi-private", name: "@fixture/private", private: true },
-			{ directory: "pi-experiment", name: "@fixture/experiment", root: "experimental" },
+			{ directory: "pi-experiment", name: "@fixture/experiment" },
 		],
 		(repository) => {
 			createRelease(repository, "v1.0.0");
@@ -115,7 +115,7 @@ test("first and nonstandard releases safely select every publishable package", (
 		],
 		(repository) => {
 			tag(repository, "v1.0.0");
-			write(repository, "extensions/pi-alpha/src/index.ts", "export const alpha = 1;\n");
+			write(repository, "packages/pi-alpha/src/index.ts", "export const alpha = 1;\n");
 			commit(repository, "feat: manually tagged change");
 			tag(repository, "v1.1.0");
 
@@ -135,7 +135,7 @@ test("a release-shaped commit with extra source changes falls back to all packag
 		],
 		(repository) => {
 			tag(repository, "v1.0.0");
-			write(repository, "extensions/pi-alpha/src/index.ts", "export const alpha = 1;\n");
+			write(repository, "packages/pi-alpha/src/index.ts", "export const alpha = 1;\n");
 			createRelease(repository, "v1.1.0");
 
 			assert.deepEqual(select(repository, "--release", "v1.1.0"), [
@@ -149,7 +149,7 @@ test("a release-shaped commit with extra source changes falls back to all packag
 test("a package introduced inside the release commit falls back to all packages", () => {
 	withRepository([{ directory: "pi-alpha", name: "@fixture/alpha" }], (repository) => {
 		tag(repository, "v1.0.0");
-		writeJson(repository, "extensions/pi-new/package.json", {
+		writeJson(repository, "packages/pi-new/package.json", {
 			name: "@fixture/new",
 			version: "0.0.0",
 		});
@@ -187,7 +187,7 @@ test("all-packages mode includes experimental packages and excludes private and 
 			{ directory: "pi-zulu", name: "@fixture/zulu" },
 			{ directory: "pi-alpha", name: "@fixture/alpha" },
 			{ directory: "pi-private", name: "@fixture/private", private: true },
-			{ directory: "pi-experiment", name: "@fixture/experiment", root: "experimental" },
+			{ directory: "pi-experiment", name: "@fixture/experiment" },
 			{ directory: "pi-legacy", name: "@fixture/legacy", root: "deprecated" },
 		],
 		(repository) => {
@@ -204,7 +204,7 @@ type PackageFixture = {
 	directory: string;
 	name: string;
 	private?: boolean;
-	root?: "packages" | "experimental" | "deprecated";
+	root?: "packages" | "deprecated";
 	dependencies?: Record<string, string>;
 };
 
@@ -216,7 +216,7 @@ function withRepository(packages: PackageFixture[], run: (repository: string) =>
 			name: "fixture-root",
 			version: "0.0.0",
 			private: true,
-			workspaces: ["packages/*", "extensions/*", "experimental/*"],
+			workspaces: ["packages/*"],
 		});
 		for (const packageFixture of packages) addPackage(repository, packageFixture);
 		refreshLockfile(repository);
@@ -228,7 +228,7 @@ function withRepository(packages: PackageFixture[], run: (repository: string) =>
 }
 
 function addPackage(repository: string, packageFixture: PackageFixture) {
-	const packageRoot = packageFixture.root ?? "extensions";
+	const packageRoot = packageFixture.root ?? "packages";
 	writeJson(repository, `${packageRoot}/${packageFixture.directory}/package.json`, {
 		name: packageFixture.name,
 		version: "0.0.0",
@@ -263,7 +263,7 @@ function refreshLockfile(repository: string) {
 			workspaces: rootPackage.workspaces,
 		},
 	};
-	for (const workspaceRoot of ["packages", "extensions", "experimental"]) {
+	for (const workspaceRoot of ["packages"]) {
 		const rootPath = path.join(repository, workspaceRoot);
 		if (!existsSync(rootPath)) continue;
 		for (const directory of readdirPackageDirectories(rootPath)) {
@@ -295,7 +295,7 @@ function readdirPackageDirectories(root: string) {
 }
 
 function publishablePackagePaths(repository: string) {
-	return ["packages", "extensions", "experimental"].flatMap((workspaceRoot) =>
+	return ["packages"].flatMap((workspaceRoot) =>
 		listPackageDirectories(repository, workspaceRoot)
 			.map((directory) => path.join(repository, workspaceRoot, directory, "package.json"))
 			.filter((packagePath) => readJson(packagePath).private !== true),

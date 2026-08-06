@@ -47,7 +47,7 @@ For example:
   `PI_CODING_AGENT_DIR` directly.
 - Use `CONFIG_DIR_NAME` instead of hard-coding `.pi`.
 - Check `ctx.isProjectTrusted()` before honoring project settings.
-- Do not place mutable settings under an `extensions/` source directory.
+- Do not place mutable settings under an installed package's source directory.
 - Do not add `-config` or `-settings` to a new active filename.
 - Use variants such as `.local` or state filenames only when they describe a concrete storage
   semantic. Credential sensitivity changes permissions and migration handling, not the basename.

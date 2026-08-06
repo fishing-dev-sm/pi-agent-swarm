@@ -123,15 +123,17 @@ interactive work should expose cancellation.
 
 ### Package layout and boundaries
 
-- **MUST:** Keep active production extensions under `extensions/<package>/`, reusable publishable
-  libraries under `packages/<package>/`, experiments under `experimental/<package>/`, and deprecated
-  references under `deprecated/<package>/`. **Verification:** `Review` of package locations and
-  lifecycle moves.
+- **MUST:** Keep every active extension and reusable publishable library under
+  `packages/<package>/`, and deprecated references under `deprecated/<package>/`. Give each extension
+  explicit `piExtension.lifecycle` metadata with value `stable` or `experimental`; omit that metadata
+  from libraries. The private root Pi manifest must list every stable extension entrypoint and no
+  experimental entrypoint so direct Git installation preserves the lifecycle boundary.
+  **Verification:** `Validator` via `npm run check:boundaries` plus `Review` of lifecycle moves.
 - **MUST:** Give every active extension a thin `src/index.ts` default-export forwarder and declare
   exactly `"pi": { "extensions": ["./src/index.ts"] }`; keep implementation in descriptive modules.
-  Reusable libraries must not declare `pi.extensions` and must publish built JavaScript plus
-  declarations. **Verification:** `Validator` via `npm run check:boundaries` and a clean-build
-  package smoke.
+  Reusable libraries must not declare `pi.extensions` or `piExtension` and must publish built
+  JavaScript plus declarations. **Verification:** `Validator` via `npm run check:boundaries` and a
+  clean-build package smoke.
 - **MUST:** Keep extension packages free of extension-to-extension dependencies. Extensions may
   depend on publishable helper libraries under `packages/`.
   **Verification:** `Validator` via `npm run check:boundaries`.
@@ -271,8 +273,8 @@ fragile regular expressions. Until then, label the real verification method hone
 
 ## New extension checklist
 
-- [ ] Place the package in the correct active or experimental directory and keep it independently
-      installable.
+- [ ] Place the package under `packages/`, declare the correct extension lifecycle when applicable,
+      and keep it independently installable.
 - [ ] Add the thin `src/index.ts` forwarder and canonical `pi.extensions` manifest entry.
 - [ ] Separate factory registration from session-owned startup and idempotent shutdown cleanup.
 - [ ] Choose the primary command and no-argument behavior from the extension's product role; use a
