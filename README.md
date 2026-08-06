@@ -167,8 +167,8 @@ just pack goal
 just try file-context
 just pack file-context
 
-# Libraries have dedicated pack recipes
-just pack-tui-kit
+# Libraries use the same generic pack recipe
+just pack tui-kit
 ```
 
 Run `just --list` to see all development, install, pack, and release recipes. Pull requests that
@@ -203,8 +203,8 @@ and the lockfile. Merging it publishes the new versions with npm provenance and 
 package-specific tags and GitHub releases such as `@narumitw/pi-goal@0.50.0`.
 
 Repository-only documentation, tests, tooling, and path migrations may omit a changeset. Use
-`npm run changeset:status` to inspect pending releases. `just publish-all` is recovery-only and still
-requires explicit publication approval.
+`npm run changeset:status` to inspect pending releases. Versioning and publication run through the
+release workflow; initial publication remains the manually approved exception described above.
 
 `@narumitw/pi-tui-kit` remains independently versioned. Publish a new Kit API before raising an
 extension's compatibility floor to consume it; do not release an unpublished Kit API and its first
