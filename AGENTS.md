@@ -18,7 +18,6 @@
 - Never edit `node_modules/`.
 - Read `node_modules/` to confirm external API types and usage instead of guessing.
 - Keep published files aligned with each manifest's `files` list and `pi.extensions` entry.
-- Keep plans current under `docs/plans/` and follow `docs/plans/README.md` before archiving them.
 
 ## Commands
 
