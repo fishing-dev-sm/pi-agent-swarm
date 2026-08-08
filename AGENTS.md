@@ -32,6 +32,16 @@ Run commands from the repository root unless a command says otherwise.
 - Run `just try <unscoped-name>` to test a local extension in Pi.
 - Run `just --list` before adding or documenting a workflow command.
 
+## Tooling and dependency safety
+
+- Do not run root checks and the `pi-tui-kit` build or check concurrently because both clear `packages/pi-tui-kit/dist`.
+- Rebuild `pi-tui-kit` before consumer tests because consumers resolve its built output.
+- After raising a consumer's Kit floor, run root `npm install` and verify the resolved consumer version before typechecking.
+- Keep imported Pi packages as root devDependencies so tests compiled beneath root `node_modules/.cache` resolve the intended versions.
+- Prefer Pi AI root exports; use a variable-specifier dynamic import only when a required subpath has no root export because official Pi can misresolve static `@earendil-works/pi-ai/api/*` imports.
+- Treat Pi's user and project managed npm roots as separate install scopes because deduplication is guaranteed only within one root.
+- Never use `npm audit fix --force`; if it alters Pi dependencies, restore every workspace manifest and the lockfile, then use targeted patched upgrades or overrides.
+
 ## Code and package rules
 
 - Root TypeScript uses NodeNext modules, ES2022, strict mode, and no emit.
@@ -83,6 +93,22 @@ Run commands from the repository root unless a command says otherwise.
 - When review finds one convention failure, inspect the whole pull-request diff for the same failure class.
 - Name the guides, audits, checks, smokes, deviations, and unverified paths in the handoff.
 
+## Runtime and lifecycle constraints
+
+- Do not call Pi action methods such as `getThinkingLevel()` during extension factory load; defer them until `session_start` or later.
+- Treat `agent_end` as a run boundary and `agent_settled` as the idle boundary for retries, final cleanup, and next-item activation.
+- Treat `pi.appendEntry()` as branch persistence only; inject compaction-sensitive model contracts through one canonical `context` hook block after the original handoff disappears.
+- Key headless session-owned resources by `sessionManager`, not `ctx.ui`, because headless runners can share one no-op UI object.
+
+## TUI and rendering safety
+
+- Treat model IDs, session text, paths, and pasted search text as untrusted terminal input.
+- Strip terminal controls at the display boundary without mutating raw payloads, and sanitize before path splitting, filtering, wrapping, or truncation.
+- Do not use `wrapTextWithAnsi` for exact code or text previews because it trims whitespace at word-wrap boundaries; use cell-aware hard wrapping or horizontal scrolling.
+- Use `Editor.getExpandedText()` when moving a draft outside an editor because `getText()` can retain large-paste markers.
+- Initialize a theme and dispose the loader harness in tests that construct `BorderedLoader`.
+- Capture evidence inside mocked `ctx.ui.custom()` callbacks and assert after command completion because callback assertions can be caught as menu errors.
+
 ## Testing and verification
 
 - Keep active tests under `packages/<package>/test/*.test.ts` and run them with `npm test`.
@@ -90,6 +116,13 @@ Run commands from the repository root unless a command says otherwise.
 - Use `npm run check` as the CI-equivalent gate for Biome, boundaries, typechecks, and tests.
 - Run `just pack <unscoped-name>` and inspect the tarball after package metadata or publishing changes.
 - Run `just try <unscoped-name>` or an equivalent `pi -e` command for Pi runtime behavior when practical.
+- Start subprocess timing deadlines only after a child readiness handshake.
+- Synchronize concurrent HTTP tests on a server-observable response or callback instead of a fixed sleep after `fetch()`.
+- Set `PI_CODING_AGENT_DIR` before importing an extension in lifecycle tests and use fresh imports for module-cached paths.
+- Disable `commit.gpgsign` only through command-scoped Git configuration when root tests cannot reach a signing agent.
+- Keep worktrees outside the repository because root Biome checks reject nested worktrees with another `biome.json`.
+- Put generated-path ignores in the root `.gitignore`; never blanket-ignore `src/`.
+- For relevant live-provider smokes, stop after one clear external or entitlement failure and fall back to deterministic tests unless the user asks to retry.
 
 ## Publishing and release safety
 
@@ -114,10 +147,11 @@ Run commands from the repository root unless a command says otherwise.
 - Stage only intended paths, recheck the index, reject empty commits, and report the commit ID and remaining changes.
 - Include checks and publish or visibility evidence in pull-request or handoff notes.
 
-## MEMORY.md
+## Working preferences
 
-- `MEMORY.md` is not loaded automatically.
-- Read it at the start of repository work and let current evidence override it.
-- Keep entries short, reusable, and verified.
-- Use exactly `## GOTCHA`, `## TASTE`, and `## CONVENTIONS` as its top-level sections.
-- Add a note only when a verified discovery will help future work.
+- Prefer `gh --json` for GitHub issue and pull-request links; use web tools only when `gh` cannot expose the required content.
+- Keep a predecessor extension active while its successor soaks and deprecate it only after an explicit follow-up decision.
+- Create, verify, and archive an executable repository plan for non-trivial implementation work.
+- Keep package versions out of long-lived guidance and derive them from manifests, lockfiles, or workflows.
+- Keep `just` recipes straightforward, require a clean worktree for dependency maintenance, and prefer Git-based recovery over embedded rollback logic.
+- Make `just` install recipes verify registry visibility first and fall back to the local workspace only when that fixes the current install path.
