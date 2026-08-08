@@ -58,7 +58,6 @@ Run commands from the repository root unless a command says otherwise.
 - Add root workspace scripts or recipes when users need them.
 - Use `@narumitw/pi-tui-kit` for new standard action, detail, settings, and multi-select menus.
 - Keep domain state, persistence, confirmations, and specialized UI inside the owning extension.
-- Write extension READMEs in English.
 - Preserve each README's emoji title, npm badge, Pi badge, license badge, standard emoji sections, and `## 🗂️ Package layout`.
 - Keep standalone experimental extensions under `packages/` with `"piExtension": { "lifecycle": "experimental" }`.
 - Show a user-facing warning for experimental extensions and features.
