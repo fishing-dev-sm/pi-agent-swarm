@@ -40,7 +40,6 @@ Run commands from the repository root unless a command says otherwise.
 - Keep imported Pi packages as root devDependencies so tests compiled beneath root `node_modules/.cache` resolve the intended versions.
 - Prefer Pi AI root exports; use a variable-specifier dynamic import only when a required subpath has no root export because official Pi can misresolve static `@earendil-works/pi-ai/api/*` imports.
 - Treat Pi's user and project managed npm roots as separate install scopes because deduplication is guaranteed only within one root.
-- Normalize npm 12 `npm pack --workspaces --dry-run --json` output with `Object.values()` before auditing every tarball.
 - Never use `npm audit fix --force`; if it alters Pi dependencies, restore every workspace manifest and the lockfile, then use targeted patched upgrades or overrides.
 
 ## Code and package rules
@@ -117,12 +116,8 @@ Run commands from the repository root unless a command says otherwise.
 - Use `npm run check` as the CI-equivalent gate for Biome, boundaries, typechecks, and tests.
 - Run `just pack <unscoped-name>` and inspect the tarball after package metadata or publishing changes.
 - Run `just try <unscoped-name>` or an equivalent `pi -e` command for Pi runtime behavior when practical.
-- Avoid parameter properties in direct-source tests because Node's strip-only TypeScript loader rejects them.
-- Compile NodeNext sources before direct execution when local imports use `./module.js`; Node does not remap them to `.ts` files.
-- Pass a compiled focused test's realpath when `node --test` rejects a path beneath `node_modules/.cache`.
 - Start subprocess timing deadlines only after a child readiness handshake.
 - Synchronize concurrent HTTP tests on a server-observable response or callback instead of a fixed sleep after `fetch()`.
-- Compare canonical realpaths on macOS, where temporary paths can differ between `/var/...` and `/private/var/...`.
 - Set `PI_CODING_AGENT_DIR` before importing an extension in lifecycle tests and use fresh imports for module-cached paths.
 - Disable `commit.gpgsign` only through command-scoped Git configuration when root tests cannot reach a signing agent.
 - Keep worktrees outside the repository because root Biome checks reject nested worktrees with another `biome.json`.
