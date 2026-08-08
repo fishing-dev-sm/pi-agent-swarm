@@ -9,7 +9,7 @@
 - All active package source lives under `packages/<package>/src/`; each package owns its manifest, README, license, and TypeScript config. Extension manifests declare `piExtension.lifecycle` as `stable` or `experimental`; reusable libraries omit it.
 - `deprecated/` contains reference packages excluded from active workspace checks.
 - Root config owns shared tooling: `package.json`, `package-lock.json`, `biome.json`, `tsconfig.json`, `justfile`, and `.github/workflows/*`.
-- Do not edit `node_modules/`. Generate `package-lock.json` with the npm version declared by root `packageManager`; compare it with `npm --version` before dependency work.
+- Do not edit `node_modules/`, read it for external API types and usage; don't guess.
 - Keep published contents aligned with each manifest's `files` list and `pi.extensions` entry.
 - Keep executable plans current under `docs/plans/` and archive them only after every task and completion check has evidence, as defined by `docs/plans/README.md`.
 
