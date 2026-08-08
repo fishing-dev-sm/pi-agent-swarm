@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 import { settingsFilePath as caffeinateSettingsPath } from "../packages/pi-caffeinate/src/settings.js";
 import { settingsFilePath as chromeDevtoolsSettingsPath } from "../packages/pi-chrome-devtools/src/settings.js";
 import { settingsFilePath as firecrawlSettingsPath } from "../packages/pi-firecrawl/src/settings.js";

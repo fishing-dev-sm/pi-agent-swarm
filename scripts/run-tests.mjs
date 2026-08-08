@@ -15,6 +15,7 @@ const tsc = path.join(
 	".bin",
 	process.platform === "win32" ? "tsc.cmd" : "tsc",
 );
+const vitest = path.join(root, "node_modules", "vitest", "vitest.mjs");
 
 const missingTests = activeExtensionDirectories(path.join(root, "packages"))
 	.filter((extensionDir) => !hasTestFile(path.join(extensionDir, "test")))
@@ -39,15 +40,18 @@ if (process.env.PI_EXTENSIONS_BUILD_READY !== "1") runNpm(["run", "build"]);
 fs.rmSync(outDir, { recursive: true, force: true });
 run(tsc, ["-p", "tsconfig.test.json"]);
 
-const compiledTestFiles = findFiles(outDir, ".test.js");
-const testFiles = compiledTestFiles.filter((testFile) => selectedTestFile(testFile, selection));
+const sourceTestFiles = [
+	...findFiles(path.join(root, "test"), ".test.ts"),
+	...findFiles(path.join(root, "packages"), ".test.ts"),
+];
+const testFiles = sourceTestFiles.filter((testFile) => selectedTestFile(testFile, selection));
 if (testFiles.length === 0) {
-	console.error("No selected compiled test files found.");
+	console.error("No selected test files found.");
 	process.exit(1);
 }
 
 const canonicalTempDir = fs.realpathSync(os.tmpdir());
-run(process.execPath, ["--test", ...testFiles], {
+run(process.execPath, [vitest, "run", ...testFiles], {
 	...process.env,
 	TMPDIR: canonicalTempDir,
 	TMP: canonicalTempDir,
@@ -82,7 +86,7 @@ function testSelection() {
 
 function selectedTestFile(testFile, selection) {
 	if (selection.mode === "full") return true;
-	const relativePath = path.relative(outDir, testFile).split(path.sep).join("/");
+	const relativePath = path.relative(root, testFile).split(path.sep).join("/");
 	if (selection.includeRootTests && relativePath.startsWith("test/")) return true;
 	return selection.workspaceDirectories.some((directoryName) =>
 		relativePath.startsWith(`packages/${directoryName}/test/`),

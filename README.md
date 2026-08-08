@@ -152,8 +152,11 @@ From the repository root:
 
 ```bash
 npm install
+npm test
 npm run check
 ```
+
+`npm test` typechecks the test sources and runs the root and workspace suites with Vitest.
 
 Use the generic Just recipes with an unscoped extension name:
 
