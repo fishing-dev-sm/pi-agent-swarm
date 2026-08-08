@@ -1,5 +1,8 @@
 # Repository Guidelines
 
+- Keep documents and conversations concise and clear.
+- Explain things simply enough for a child to understand.
+
 ## Project structure
 
 - This is a Node/TypeScript monorepo for independently installable Pi extensions, reusable publishable libraries, and published experimental packages.
