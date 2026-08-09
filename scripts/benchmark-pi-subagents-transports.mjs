@@ -178,6 +178,7 @@ async function startRpc(invocation, agentDir) {
 		],
 		{
 			cwd: process.cwd(),
+			detached: process.platform !== "win32",
 			stdio: ["pipe", "pipe", "pipe"],
 			shell: false,
 			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
@@ -188,6 +189,7 @@ async function startRpc(invocation, agentDir) {
 	const pending = new Map();
 	const eventWaiters = new Map();
 	let stderr = "";
+	let closed = false;
 	proc.stdout.on("data", (chunk) => {
 		buffer += chunk.toString("utf8");
 		while (true) {
@@ -224,13 +226,14 @@ async function startRpc(invocation, agentDir) {
 		eventWaiters.clear();
 	};
 	proc.once("error", (error) => rejectPending(error));
-	proc.once("close", (code, signal) =>
+	proc.once("close", (code, signal) => {
+		closed = true;
 		rejectPending(
 			new Error(
 				`RPC benchmark process exited (code=${code ?? "null"}, signal=${signal ?? "null"}): ${stderr}`,
 			),
-		),
-	);
+		);
+	});
 	const request = (type, payload = {}) =>
 		new Promise((resolve, reject) => {
 			const id = `benchmark_${++nextId}`;
@@ -273,23 +276,35 @@ async function startRpc(invocation, agentDir) {
 			waiters.push(entry);
 			eventWaiters.set(type, waiters);
 		});
-	const stop = async () => {
-		if (proc.exitCode !== null || proc.signalCode !== null) return;
-		proc.stdin.end();
-		proc.kill("SIGTERM");
-		let timer;
+	const signalGroup = (signal) => {
+		if (process.platform !== "win32" && proc.pid) {
+			try {
+				process.kill(-proc.pid, signal);
+				return;
+			} catch {
+				// Fall back to the immediate process below.
+			}
+		}
 		try {
-			await Promise.race([
-				new Promise((resolve) => proc.once("close", resolve)),
-				new Promise((resolve) => {
-					timer = setTimeout(() => {
-						proc.kill("SIGKILL");
-						resolve();
-					}, 1_000);
-				}),
-			]);
+			proc.kill(signal);
+		} catch {
+			// The process may already be closed.
+		}
+	};
+	const stop = async () => {
+		if (closed) return;
+		proc.stdin.end();
+		signalGroup("SIGTERM");
+		const escalation = setTimeout(() => {
+			if (!closed) signalGroup("SIGKILL");
+		}, 1_000);
+		try {
+			await new Promise((resolve) => {
+				if (closed) resolve();
+				else proc.once("close", resolve);
+			});
 		} finally {
-			if (timer) clearTimeout(timer);
+			clearTimeout(escalation);
 		}
 	};
 	try {
