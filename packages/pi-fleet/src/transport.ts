@@ -1,52 +1,78 @@
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, lstat, open, readdir, readFile, rm } from "node:fs/promises";
-import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { basename, dirname, resolve } from "node:path";
+import { chmod, lstat, open, opendir, rm } from "node:fs/promises";
+import { createServer, type Server, type Socket } from "node:net";
+import { basename, dirname, join, resolve } from "node:path";
 import {
+	createSignedEndpointManifest,
 	createSignedFrame,
 	FixedWindowRateLimiter,
 	FLEET_PROTOCOL_VERSION,
+	type FleetAckCode,
+	type FleetAckPayload,
 	type FleetGroup,
+	type FleetLocalPeerDescription,
 	type FleetMessage,
 	type FleetPeerDescription,
 	JsonLineDecoder,
-	MAX_FRAME_BYTES,
 	ReplayWindow,
+	type SignedEndpointManifest,
 	type SignedFleetFrame,
 	validateMessage,
+	validateMessageTiming,
 	validatePeerDescription,
+	verifySignedEndpointManifest,
 	verifySignedFrame,
 } from "./protocol.js";
 import {
 	assertOwnedPath,
+	cleanupStaleRuntimeEntries,
 	createEndpointPaths,
-	type EndpointManifest,
 	type EndpointPaths,
+	endpointIdFromManifestName,
 	ensureGroupRuntimeDirectory,
 	MAX_MANIFEST_BYTES,
+	MAX_RUNTIME_SCAN_ENTRIES,
 	publishManifest,
 	randomEndpointId,
 	removeOwnedEndpoint,
 } from "./runtime-directory.js";
+import {
+	closeSocketServer,
+	isDeadEndpointError,
+	listenSocketServer,
+	readBoundedHandleUtf8,
+	readBoundedUtf8,
+	requestFrame,
+	writeFrame,
+} from "./transport-io.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 2_000;
+const DEFAULT_DISCOVERY_DEADLINE_MS = 2_000;
+const DEFAULT_DISCOVERY_PROBE_TIMEOUT_MS = 500;
 const MAX_DISCOVERY_MANIFESTS = 64;
+const MAX_DISCOVERY_CONCURRENCY = 16;
+const MAX_DISCOVERY_ISSUES = 32;
 const MAX_PENDING_CONNECTIONS = 32;
+const MAX_INFLIGHT_DELIVERIES = 8;
 const MESSAGE_DEDUP_CAPACITY = 1_024;
 const MESSAGE_DEDUP_TTL_MS = 10 * 60_000;
 const FRAME_REPLAY_CAPACITY = 2_048;
 const FRAME_REPLAY_TTL_MS = 2 * 60_000;
 const MAX_REQUESTS_PER_MINUTE = 60;
+const MAX_TOTAL_REQUESTS_PER_MINUTE = 240;
+const RATE_WINDOW_MS = 60_000;
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/u;
-const SAFE_ENDPOINT_SOCKET = /^[A-Za-z0-9_-]{8,64}\.sock$/u;
 
 export interface FleetTransportOptions {
 	group: FleetGroup;
-	peer: FleetPeerDescription;
+	peer: FleetLocalPeerDescription;
 	baseDirectory?: string;
+	endpointId?: string;
 	requestTimeoutMs?: number;
-	onMessage(message: FleetMessage): Promise<void> | void;
+	discoveryDeadlineMs?: number;
+	discoveryProbeTimeoutMs?: number;
+	onMessage(message: FleetMessage, signal: AbortSignal): Promise<void> | void;
 	seenMessageIds?: readonly string[];
 	kickoffConsumed?: boolean;
 	now?: () => number;
@@ -55,14 +81,45 @@ export interface FleetTransportOptions {
 export interface FleetDeliveryAck {
 	accepted: boolean;
 	duplicate: boolean;
+	code?: FleetAckCode;
 	error?: string;
+	retryAfterMs?: number;
+}
+
+export type FleetDiscoveryIssueCode =
+	| "deadline_exceeded"
+	| "identity_conflict"
+	| "invalid_manifest"
+	| "peer_unreachable"
+	| "protocol_error"
+	| "scan_saturated";
+
+export interface FleetDiscoveryIssue {
+	code: FleetDiscoveryIssueCode;
+	sessionId?: string;
+	endpointId?: string;
+}
+
+export interface FleetDiscoveryResult {
+	peers: FleetPeerDescription[];
+	issues: FleetDiscoveryIssue[];
+	scannedEntries: number;
+	saturated: boolean;
 }
 
 interface ManifestRecord {
-	manifest: EndpointManifest;
+	manifest: SignedEndpointManifest;
 	manifestPath: string;
+	socketPath: string;
 	raw: string;
 	socketIdentity?: { dev: bigint; ino: bigint };
+}
+
+interface ManifestReadResult {
+	records: ManifestRecord[];
+	issues: FleetDiscoveryIssue[];
+	scannedEntries: number;
+	saturated: boolean;
 }
 
 export class FleetTransport {
@@ -71,19 +128,27 @@ export class FleetTransport {
 	private startPromise?: Promise<void>;
 	private stopPromise?: Promise<void>;
 	private stopped = false;
+	private ownsEndpointFiles = false;
 	private readonly lifecycle = new AbortController();
 	private readonly sockets = new Set<Socket>();
 	private readonly pendingTasks = new Set<Promise<void>>();
 	private readonly frameReplay = new ReplayWindow(FRAME_REPLAY_CAPACITY, FRAME_REPLAY_TTL_MS);
 	private readonly responseReplay = new ReplayWindow(FRAME_REPLAY_CAPACITY, FRAME_REPLAY_TTL_MS);
 	private readonly messageDedup = new ReplayWindow(MESSAGE_DEDUP_CAPACITY, MESSAGE_DEDUP_TTL_MS);
-	private readonly rateLimiter = new FixedWindowRateLimiter(
+	private readonly senderRateLimiter = new FixedWindowRateLimiter(
 		MAX_REQUESTS_PER_MINUTE,
-		60_000,
+		RATE_WINDOW_MS,
 		MAX_DISCOVERY_MANIFESTS,
 	);
+	private readonly totalRateLimiter = new FixedWindowRateLimiter(
+		MAX_TOTAL_REQUESTS_PER_MINUTE,
+		RATE_WINDOW_MS,
+		1,
+	);
+	private readonly peer: FleetPeerDescription;
 	private kickoffConsumed = false;
 	private kickoffPending = false;
+	private inflightDeliveries = 0;
 	private readonly pendingMessageIds = new Set<string>();
 	private readonly now: () => number;
 
@@ -92,13 +157,23 @@ export class FleetTransport {
 			throw new Error("Pi Fleet local transport requires a POSIX platform");
 		}
 		if (options.group.secret.length !== 32) throw new Error("Pi Fleet group secret is invalid");
+		if (options.requestTimeoutMs !== undefined) {
+			assertPositiveDuration(options.requestTimeoutMs, "Pi Fleet request timeout");
+		}
+		if (options.discoveryDeadlineMs !== undefined) {
+			assertPositiveDuration(options.discoveryDeadlineMs, "Pi Fleet discovery deadline");
+		}
+		if (options.discoveryProbeTimeoutMs !== undefined) {
+			assertPositiveDuration(options.discoveryProbeTimeoutMs, "Pi Fleet discovery probe timeout");
+		}
 		if (!SAFE_SESSION_ID.test(options.peer.sessionId)) {
 			throw new Error("Pi Fleet local session id is invalid");
 		}
 		if (options.peer.protocolVersion !== FLEET_PROTOCOL_VERSION) {
 			throw new Error("Pi Fleet local protocol version is invalid");
 		}
-		validatePeerDescription(options.peer);
+		const endpointId = options.endpointId ?? randomEndpointId();
+		this.peer = validatePeerDescription({ ...options.peer, endpointId });
 		this.now = options.now ?? Date.now;
 		this.kickoffConsumed = options.kickoffConsumed === true;
 		for (const id of options.seenMessageIds ?? []) {
@@ -107,15 +182,15 @@ export class FleetTransport {
 	}
 
 	setAcceptsRequests(value: boolean): void {
-		this.options.peer.acceptsRequests = value;
+		this.peer.acceptsRequests = value;
 	}
 
 	get peerDescription(): FleetPeerDescription {
-		return { ...this.options.peer };
+		return { ...this.peer };
 	}
 
 	get endpointManifest(): (EndpointPaths & { peer: FleetPeerDescription }) | undefined {
-		return this.paths ? { ...this.paths, peer: { ...this.options.peer } } : undefined;
+		return this.paths ? { ...this.paths, peer: { ...this.peer } } : undefined;
 	}
 
 	async start(signal?: AbortSignal): Promise<void> {
@@ -131,35 +206,108 @@ export class FleetTransport {
 		return this.startPromise;
 	}
 
-	async listPeers(signal?: AbortSignal): Promise<FleetPeerDescription[]> {
+	async discover(
+		signal?: AbortSignal,
+		deadlineMs = this.options.discoveryDeadlineMs ?? DEFAULT_DISCOVERY_DEADLINE_MS,
+	): Promise<FleetDiscoveryResult> {
 		this.assertStarted();
 		throwIfAborted(signal, "Pi Fleet peer discovery aborted");
-		const manifests = await this.readManifests(signal);
-		const peers: FleetPeerDescription[] = [];
-		for (const record of manifests) {
-			throwIfAborted(signal, "Pi Fleet peer discovery aborted");
-			if (record.manifest.sessionId === this.options.peer.sessionId) continue;
-			try {
-				const response = await this.request(
-					record,
-					record.manifest.sessionId,
-					{ kind: "describe" },
-					signal,
-				);
-				if (response.payload.kind !== "description") {
-					throw new Error("Pi Fleet peer returned an invalid description response");
+		assertPositiveDuration(deadlineMs, "Pi Fleet discovery deadline");
+		const deadline = deadlineSignal(deadlineMs, "Pi Fleet peer discovery deadline exceeded");
+		const operationSignal = combineSignals(signal, this.lifecycle.signal, deadline.signal);
+		try {
+			const manifestResult = await this.readManifests(operationSignal);
+			const issues = [...manifestResult.issues];
+			const discovered: Array<{ peer: FleetPeerDescription; record: ManifestRecord }> = [];
+			let cursor = 0;
+			const worker = async () => {
+				while (cursor < manifestResult.records.length && !operationSignal.aborted) {
+					const index = cursor;
+					cursor += 1;
+					const record = manifestResult.records[index];
+					if (!record || record.manifest.endpointId === this.peer.endpointId) continue;
+					try {
+						const response = await this.request(
+							record,
+							{ kind: "describe" },
+							operationSignal,
+							this.options.discoveryProbeTimeoutMs ?? DEFAULT_DISCOVERY_PROBE_TIMEOUT_MS,
+						);
+						if (response.payload.kind !== "description") {
+							throw new Error("Pi Fleet peer returned an invalid description response");
+						}
+						assertDescriptionMatchesManifest(response.payload.peer, record);
+						if (response.payload.peer.sessionId === this.peer.sessionId) {
+							addIssue(issues, {
+								code: "identity_conflict",
+								sessionId: this.peer.sessionId,
+								endpointId: response.payload.peer.endpointId,
+							});
+							continue;
+						}
+						discovered.push({ peer: response.payload.peer, record });
+					} catch (error) {
+						if (signal?.aborted || this.lifecycle.signal.aborted) throw error;
+						if (deadline.signal.aborted) break;
+						if (isDeadEndpointError(error)) {
+							addIssue(issues, {
+								code: "peer_unreachable",
+								sessionId: record.manifest.sessionId,
+								endpointId: record.manifest.endpointId,
+							});
+							await this.removeStaleRecord(record);
+						} else if (!isAbortError(error)) {
+							addIssue(issues, {
+								code: "protocol_error",
+								sessionId: record.manifest.sessionId,
+								endpointId: record.manifest.endpointId,
+							});
+						}
+					}
 				}
-				if (response.payload.peer.sessionId !== record.manifest.sessionId) {
-					throw new Error("Pi Fleet peer identity does not match its endpoint manifest");
-				}
-				peers.push(response.payload.peer);
-			} catch (error) {
-				if (isAbortError(error)) throw error;
-				if (isDeadEndpointError(error)) await this.removeStaleRecord(record);
+			};
+			await Promise.all(
+				Array.from(
+					{
+						length: Math.min(MAX_DISCOVERY_CONCURRENCY, manifestResult.records.length),
+					},
+					() => worker(),
+				),
+			);
+			if (signal?.aborted || this.lifecycle.signal.aborted) {
+				throw abortError("Pi Fleet peer discovery aborted");
 			}
+			if (deadline.signal.aborted) addIssue(issues, { code: "deadline_exceeded" });
+			const peers: FleetPeerDescription[] = [];
+			const bySession = new Map<
+				string,
+				Array<{ peer: FleetPeerDescription; record: ManifestRecord }>
+			>();
+			for (const item of discovered) {
+				const matches = bySession.get(item.peer.sessionId) ?? [];
+				matches.push(item);
+				bySession.set(item.peer.sessionId, matches);
+			}
+			for (const [sessionId, matches] of bySession) {
+				if (matches.length === 1 && matches[0]) {
+					peers.push(matches[0].peer);
+					continue;
+				}
+				addIssue(issues, { code: "identity_conflict", sessionId });
+			}
+			return {
+				peers: peers.sort((left, right) => left.sessionId.localeCompare(right.sessionId)),
+				issues,
+				scannedEntries: manifestResult.scannedEntries,
+				saturated: manifestResult.saturated,
+			};
+		} finally {
+			deadline.dispose();
 		}
-		throwIfAborted(signal, "Pi Fleet peer discovery aborted");
-		return peers.sort((left, right) => left.sessionId.localeCompare(right.sessionId));
+	}
+
+	async listPeers(signal?: AbortSignal, deadlineMs?: number): Promise<FleetPeerDescription[]> {
+		return (await this.discover(signal, deadlineMs)).peers;
 	}
 
 	async send(
@@ -169,33 +317,41 @@ export class FleetTransport {
 	): Promise<FleetDeliveryAck> {
 		this.assertStarted();
 		throwIfAborted(signal, "Pi Fleet message send aborted");
-		if (!SAFE_SESSION_ID.test(targetSessionId))
+		if (!SAFE_SESSION_ID.test(targetSessionId)) {
 			throw new Error("Pi Fleet target session id is invalid");
+		}
 		const message = validateMessage(value);
-		if (message.fromSessionId !== this.options.peer.sessionId) {
+		validateMessageTiming(message, this.now());
+		if (message.fromSessionId !== this.peer.sessionId) {
 			throw new Error("Pi Fleet message sender does not match the local session");
 		}
 		if (message.toSessionId !== targetSessionId) {
 			throw new Error("Pi Fleet message target does not match the selected session");
 		}
-		const manifests = await this.readManifests(signal);
+		const manifestResult = await this.readManifests(signal);
 		throwIfAborted(signal, "Pi Fleet message send aborted");
-		const record = manifests.find(({ manifest }) => manifest.sessionId === targetSessionId);
-		if (!record) throw new Error(`Pi Fleet session ${targetSessionId} is unavailable`);
-		const response = await this.request(
-			record,
-			targetSessionId,
-			{ kind: "message", message },
-			signal,
+		const candidates = manifestResult.records.filter(
+			({ manifest }) => manifest.sessionId === targetSessionId,
 		);
+		if (candidates.length === 0) {
+			throw new Error(`Pi Fleet session ${targetSessionId} is unavailable`);
+		}
+		const record =
+			candidates.length === 1
+				? candidates[0]
+				: await this.resolveUniqueTarget(targetSessionId, candidates, signal);
+		if (!record) throw new Error(`Pi Fleet session ${targetSessionId} is unavailable`);
+		let response: SignedFleetFrame;
+		try {
+			response = await this.request(record, { kind: "message", message }, signal);
+		} catch (error) {
+			if (isDeadEndpointError(error)) await this.removeStaleRecord(record);
+			throw error;
+		}
 		if (response.payload.kind !== "ack") {
 			throw new Error("Pi Fleet peer returned an invalid delivery acknowledgement");
 		}
-		return {
-			accepted: response.payload.accepted,
-			duplicate: response.payload.duplicate === true,
-			...(response.payload.error ? { error: response.payload.error } : {}),
-		};
+		return deliveryAck(response.payload);
 	}
 
 	async stop(): Promise<void> {
@@ -214,33 +370,50 @@ export class FleetTransport {
 		const directory = await ensureGroupRuntimeDirectory(this.options.group.id, {
 			...(this.options.baseDirectory ? { baseDirectory: this.options.baseDirectory } : {}),
 		});
+		await cleanupStaleRuntimeEntries(directory, this.now());
 		throwIfAborted(signal, "Pi Fleet transport start aborted");
-		const paths = createEndpointPaths(directory, randomEndpointId());
-		await removeOwnedEndpoint(paths);
+		const paths = createEndpointPaths(directory, this.peer.endpointId);
+		await assertEndpointPathsAvailable(paths);
 		const server = createServer((socket) => this.acceptSocket(socket));
 		this.server = server;
 		this.paths = paths;
-		await listen(server, paths.socketPath, signal);
+		await listenSocketServer(server, paths.socketPath, signal);
+		this.ownsEndpointFiles = true;
 		await chmod(paths.socketPath, 0o600);
 		throwIfAborted(signal, "Pi Fleet transport start aborted");
-		await publishManifest(paths.manifestPath, {
-			protocolVersion: FLEET_PROTOCOL_VERSION,
-			sessionId: this.options.peer.sessionId,
-			endpointPath: paths.socketPath,
-			pid: this.options.peer.pid,
-		});
+		await publishManifest(
+			paths.manifestPath,
+			createSignedEndpointManifest(
+				{
+					groupId: this.options.group.id,
+					endpointId: this.peer.endpointId,
+					sessionId: this.peer.sessionId,
+					socketName: basename(paths.socketPath),
+					pid: this.peer.pid,
+					publishedAt: this.now(),
+				},
+				this.options.group.secret,
+			),
+		);
 		throwIfAborted(signal, "Pi Fleet transport start aborted");
 	}
 
 	private acceptSocket(socket: Socket): void {
-		if (this.stopped || this.sockets.size >= MAX_PENDING_CONNECTIONS) {
+		if (
+			this.stopped ||
+			this.sockets.size >= MAX_PENDING_CONNECTIONS ||
+			this.pendingTasks.size >= MAX_PENDING_CONNECTIONS
+		) {
 			socket.destroy();
 			return;
 		}
 		this.sockets.add(socket);
-		socket.setTimeout(this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS, () =>
-			socket.destroy(),
-		);
+		const connection = new AbortController();
+		const timer = setTimeout(() => {
+			connection.abort();
+			socket.destroy();
+		}, this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+		timer.unref();
 		let handled = false;
 		const decoder = new JsonLineDecoder({
 			onValue: (value) => {
@@ -249,7 +422,7 @@ export class FleetTransport {
 					return;
 				}
 				handled = true;
-				const task = this.handleIncoming(socket, value);
+				const task = this.handleIncoming(socket, value, connection.signal);
 				this.pendingTasks.add(task);
 				void task.then(
 					() => this.pendingTasks.delete(task),
@@ -263,92 +436,132 @@ export class FleetTransport {
 		);
 		socket.on("end", () => decoder.finish());
 		socket.on("error", () => undefined);
-		socket.on("close", () => this.sockets.delete(socket));
+		socket.on("close", () => {
+			clearTimeout(timer);
+			connection.abort();
+			this.sockets.delete(socket);
+		});
 	}
 
-	private async handleIncoming(socket: Socket, value: unknown): Promise<void> {
+	private async handleIncoming(socket: Socket, value: unknown, signal: AbortSignal): Promise<void> {
 		try {
+			const now = this.now();
 			const frame = verifySignedFrame(value, this.options.group.secret, {
 				expectedGroupId: this.options.group.id,
-				expectedTargetSessionId: this.options.peer.sessionId,
-				now: this.now(),
+				expectedTargetSessionId: this.peer.sessionId,
+				expectedTargetEndpointId: this.peer.endpointId,
+				now,
 				replay: this.frameReplay,
 			});
-			if (!this.rateLimiter.accept(frame.senderSessionId, this.now())) {
+			const totalAccepted = this.totalRateLimiter.accept("all", now);
+			const senderAccepted = this.senderRateLimiter.accept(frame.senderSessionId, now);
+			if (!totalAccepted || !senderAccepted) {
+				const retryAfterMs = Math.max(
+					totalAccepted ? 0 : this.totalRateLimiter.retryAfterMs("all", now),
+					senderAccepted ? 0 : this.senderRateLimiter.retryAfterMs(frame.senderSessionId, now),
+				);
 				await this.respond(socket, frame, {
 					kind: "ack",
-					accepted: false,
+					status: "busy",
+					code: "rate_limited",
 					error: "Target session rate limit exceeded",
+					retryAfterMs,
 				});
 				return;
 			}
 			if (frame.payload.kind === "describe") {
-				await this.respond(socket, frame, { kind: "description", peer: this.options.peer });
+				await this.respond(socket, frame, { kind: "description", peer: this.peer });
 				return;
 			}
 			if (frame.payload.kind !== "message") throw new Error("Unsupported Pi Fleet request payload");
 			const message = frame.payload.message;
+			validateMessageTiming(message, now);
 			if (
 				message.fromSessionId !== frame.senderSessionId ||
-				message.toSessionId !== this.options.peer.sessionId
+				message.toSessionId !== this.peer.sessionId
 			) {
 				throw new Error("Pi Fleet message identity does not match its authenticated frame");
 			}
-			const duplicate = this.messageDedup.has(message.id, this.now());
-			if (duplicate) {
-				await this.respond(socket, frame, { kind: "ack", accepted: true, duplicate: true });
+			if (this.messageDedup.has(message.id, now)) {
+				await this.respond(socket, frame, { kind: "ack", status: "duplicate" });
 				return;
 			}
 			const policyError = this.messagePolicyError(message);
 			if (policyError) {
-				await this.respond(socket, frame, {
-					kind: "ack",
-					accepted: false,
-					error: policyError,
-				});
+				await this.respond(socket, frame, policyError);
 				return;
 			}
-			if (this.pendingMessageIds.has(message.id)) {
+			if (
+				this.pendingMessageIds.has(message.id) ||
+				this.inflightDeliveries >= MAX_INFLIGHT_DELIVERIES
+			) {
 				await this.respond(socket, frame, {
 					kind: "ack",
-					accepted: false,
-					error: "Target session is still delivering this message",
+					status: "busy",
+					code: "target_busy",
+					error: this.pendingMessageIds.has(message.id)
+						? "Target session is still delivering this message"
+						: "Target session has too many in-flight deliveries",
 				});
 				return;
 			}
 			this.pendingMessageIds.add(message.id);
+			this.inflightDeliveries += 1;
 			if (message.mode === "kickoff") this.kickoffPending = true;
 			try {
-				await this.options.onMessage(message);
+				const deliverySignal = combineSignals(signal, this.lifecycle.signal);
+				await raceWithSignal(
+					Promise.resolve(this.options.onMessage(message, deliverySignal)),
+					deliverySignal,
+					"Pi Fleet message delivery aborted",
+				);
 				this.messageDedup.record(message.id, this.now());
 				if (message.mode === "kickoff") this.kickoffConsumed = true;
 			} catch {
+				if (signal.aborted || this.lifecycle.signal.aborted) throw abortError("Delivery aborted");
 				await this.respond(socket, frame, {
 					kind: "ack",
-					accepted: false,
+					status: "rejected",
+					code: "delivery_failed",
 					error: "Target session rejected the message",
 				});
 				return;
 			} finally {
 				this.pendingMessageIds.delete(message.id);
+				this.inflightDeliveries -= 1;
 				if (message.mode === "kickoff") this.kickoffPending = false;
 			}
-			await this.respond(socket, frame, { kind: "ack", accepted: true, duplicate: false });
+			await this.respond(socket, frame, { kind: "ack", status: "accepted" });
 		} catch {
 			socket.destroy();
 		}
 	}
 
-	private messagePolicyError(message: FleetMessage): string | undefined {
-		if (message.mode === "request" && !this.options.peer.acceptsRequests) {
-			return "Target session does not allow agent requests";
+	private messagePolicyError(message: FleetMessage): FleetAckPayload | undefined {
+		if (message.mode === "request" && !this.peer.acceptsRequests) {
+			return {
+				kind: "ack",
+				status: "rejected",
+				code: "requests_disabled",
+				error: "Target session does not allow agent requests",
+			};
 		}
 		if (message.mode === "kickoff") {
-			if (!this.options.peer.launchId || message.launchId !== this.options.peer.launchId) {
-				return "Launch kickoff does not match the target session";
+			if (!this.peer.launchId || message.launchId !== this.peer.launchId) {
+				return {
+					kind: "ack",
+					status: "rejected",
+					code: "launch_mismatch",
+					error: "Launch kickoff does not match the target session",
+				};
 			}
 			if (this.kickoffConsumed || this.kickoffPending) {
-				return "Launch kickoff has already been consumed";
+				return {
+					kind: "ack",
+					status: "rejected",
+					code: "kickoff_consumed",
+					error: "Launch kickoff has already been consumed",
+				};
 			}
 		}
 		return undefined;
@@ -364,7 +577,9 @@ export class FleetTransport {
 				groupId: this.options.group.id,
 				requestId: request.requestId,
 				targetSessionId: request.senderSessionId,
-				senderSessionId: this.options.peer.sessionId,
+				targetEndpointId: request.senderEndpointId,
+				senderSessionId: this.peer.sessionId,
+				senderEndpointId: this.peer.endpointId,
 				issuedAt: this.now(),
 				nonce: randomId("nonce"),
 				payload,
@@ -375,32 +590,63 @@ export class FleetTransport {
 		socket.end();
 	}
 
-	private async readManifests(signal?: AbortSignal): Promise<ManifestRecord[]> {
+	private async readManifests(signal?: AbortSignal): Promise<ManifestReadResult> {
 		const paths = this.paths;
 		if (!paths) throw new Error("Pi Fleet transport is not started");
 		throwIfAborted(signal, "Pi Fleet peer discovery aborted");
-		const entries = (await readdir(paths.directory, { withFileTypes: true }))
-			.filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-			.sort((left, right) => left.name.localeCompare(right.name))
-			.slice(0, MAX_DISCOVERY_MANIFESTS);
 		const records: ManifestRecord[] = [];
-		for (const entry of entries) {
-			throwIfAborted(signal, "Pi Fleet peer discovery aborted");
-			try {
-				records.push(await readManifest(paths.directory, resolve(paths.directory, entry.name)));
-			} catch {
-				// Untrusted or concurrently removed manifests are ignored.
+		const issues: FleetDiscoveryIssue[] = [];
+		let scannedEntries = 0;
+		let saturated = false;
+		const directory = await opendir(paths.directory);
+		try {
+			for await (const entry of directory) {
+				throwIfAborted(signal, "Pi Fleet peer discovery aborted");
+				if (scannedEntries >= MAX_RUNTIME_SCAN_ENTRIES) {
+					saturated = true;
+					addIssue(issues, { code: "scan_saturated" });
+					break;
+				}
+				scannedEntries += 1;
+				if (!entry.isFile()) continue;
+				const endpointId = endpointIdFromManifestName(entry.name);
+				if (!endpointId) {
+					if (entry.name.endsWith(".json")) addIssue(issues, { code: "invalid_manifest" });
+					continue;
+				}
+				if (records.length >= MAX_DISCOVERY_MANIFESTS) {
+					saturated = true;
+					addIssue(issues, { code: "scan_saturated" });
+					continue;
+				}
+				try {
+					records.push(
+						await readManifest(
+							paths.directory,
+							resolve(paths.directory, entry.name),
+							endpointId,
+							this.options.group,
+						),
+					);
+				} catch {
+					addIssue(issues, { code: "invalid_manifest", endpointId });
+				}
 			}
+		} finally {
+			await directory.close().catch(() => undefined);
 		}
 		throwIfAborted(signal, "Pi Fleet peer discovery aborted");
-		return records;
+		records.sort((left, right) =>
+			left.manifest.endpointId.localeCompare(right.manifest.endpointId),
+		);
+		return { records, issues, scannedEntries, saturated };
 	}
 
 	private async request(
 		record: ManifestRecord,
-		targetSessionId: string,
 		payload: SignedFleetFrame["payload"],
 		signal?: AbortSignal,
+		timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
 	): Promise<SignedFleetFrame> {
 		throwIfAborted(signal, "Pi Fleet request aborted");
 		const requestId = randomId("req");
@@ -408,46 +654,78 @@ export class FleetTransport {
 			{
 				groupId: this.options.group.id,
 				requestId,
-				targetSessionId,
-				senderSessionId: this.options.peer.sessionId,
+				targetSessionId: record.manifest.sessionId,
+				targetEndpointId: record.manifest.endpointId,
+				senderSessionId: this.peer.sessionId,
+				senderEndpointId: this.peer.endpointId,
 				issuedAt: this.now(),
 				nonce: randomId("nonce"),
 				payload,
 			},
 			this.options.group.secret,
 		);
-		const value = await requestFrame(
-			record.manifest.endpointPath,
-			frame,
-			signal,
-			this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-		);
+		const value = await requestFrame(record.socketPath, frame, signal, timeoutMs);
 		throwIfAborted(signal, "Pi Fleet request aborted");
 		const response = verifySignedFrame(value, this.options.group.secret, {
 			expectedGroupId: this.options.group.id,
-			expectedTargetSessionId: this.options.peer.sessionId,
+			expectedTargetSessionId: this.peer.sessionId,
+			expectedTargetEndpointId: this.peer.endpointId,
 			now: this.now(),
 			replay: this.responseReplay,
 		});
-		if (response.requestId !== requestId || response.senderSessionId !== targetSessionId) {
+		if (
+			response.requestId !== requestId ||
+			response.senderSessionId !== record.manifest.sessionId ||
+			response.senderEndpointId !== record.manifest.endpointId
+		) {
 			throw new Error("Pi Fleet response identity does not match its request");
 		}
 		return response;
 	}
 
+	private async resolveUniqueTarget(
+		targetSessionId: string,
+		candidates: ManifestRecord[],
+		signal?: AbortSignal,
+	): Promise<ManifestRecord | undefined> {
+		const live: ManifestRecord[] = [];
+		await Promise.all(
+			candidates.map(async (record) => {
+				try {
+					const response = await this.request(
+						record,
+						{ kind: "describe" },
+						signal,
+						this.options.discoveryProbeTimeoutMs ?? DEFAULT_DISCOVERY_PROBE_TIMEOUT_MS,
+					);
+					if (response.payload.kind !== "description") return;
+					assertDescriptionMatchesManifest(response.payload.peer, record);
+					live.push(record);
+				} catch (error) {
+					if (isAbortError(error)) throw error;
+					if (isDeadEndpointError(error)) await this.removeStaleRecord(record);
+				}
+			}),
+		);
+		if (live.length > 1) {
+			throw new Error(`Pi Fleet session ${targetSessionId} has conflicting live endpoints`);
+		}
+		return live[0];
+	}
+
 	private async removeStaleRecord(record: ManifestRecord): Promise<void> {
 		try {
-			const current = await readFile(record.manifestPath, "utf8");
+			const current = await readBoundedUtf8(record.manifestPath, MAX_MANIFEST_BYTES);
 			if (current !== record.raw) return;
 			await rm(record.manifestPath, { force: true });
 			if (record.socketIdentity) {
-				const info = await lstat(record.manifest.endpointPath).catch(() => undefined);
+				const info = await lstat(record.socketPath, { bigint: true }).catch(() => undefined);
 				if (
 					info?.isSocket() &&
-					BigInt(info.dev) === record.socketIdentity.dev &&
-					BigInt(info.ino) === record.socketIdentity.ino
+					info.dev === record.socketIdentity.dev &&
+					info.ino === record.socketIdentity.ino
 				) {
-					await rm(record.manifest.endpointPath, { force: true });
+					await rm(record.socketPath, { force: true });
 				}
 			}
 		} catch {
@@ -466,17 +744,39 @@ export class FleetTransport {
 		this.server = undefined;
 		for (const socket of this.sockets) socket.destroy();
 		this.sockets.clear();
-		if (server) await closeServer(server);
+		if (server) await closeSocketServer(server);
 		await Promise.allSettled([...this.pendingTasks]);
 		this.pendingTasks.clear();
 		this.pendingMessageIds.clear();
 		this.kickoffPending = false;
-		if (this.paths) await removeOwnedEndpoint(this.paths);
+		this.inflightDeliveries = 0;
+		const paths = this.paths;
+		if (paths && this.ownsEndpointFiles) await removeOwnedEndpoint(paths);
+		this.ownsEndpointFiles = false;
 		this.paths = undefined;
 	}
 }
 
-async function readManifest(directory: string, manifestPath: string): Promise<ManifestRecord> {
+async function assertEndpointPathsAvailable(paths: EndpointPaths): Promise<void> {
+	for (const path of [paths.manifestPath, paths.socketPath]) {
+		try {
+			await lstat(path);
+			throw new Error("Pi Fleet endpoint identity is already in use");
+		} catch (error) {
+			if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+				continue;
+			}
+			throw error;
+		}
+	}
+}
+
+async function readManifest(
+	directory: string,
+	manifestPath: string,
+	endpointId: string,
+	group: FleetGroup,
+): Promise<ManifestRecord> {
 	assertOwnedPath(directory, manifestPath, ".json");
 	const handle = await open(manifestPath, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
@@ -490,175 +790,73 @@ async function readManifest(directory: string, manifestPath: string): Promise<Ma
 		if ((Number(info.mode) & 0o777) !== 0o600) {
 			throw new Error("Pi Fleet endpoint manifest permissions are not private");
 		}
-		const raw = await handle.readFile("utf8");
-		const value = JSON.parse(raw) as unknown;
-		if (!isRecord(value)) throw new Error("Pi Fleet endpoint manifest is invalid");
-		if (value.protocolVersion !== FLEET_PROTOCOL_VERSION) {
-			throw new Error("Pi Fleet endpoint protocol version is unsupported");
-		}
-		if (typeof value.sessionId !== "string" || !SAFE_SESSION_ID.test(value.sessionId)) {
-			throw new Error("Pi Fleet endpoint session id is invalid");
-		}
-		if (
-			typeof value.endpointPath !== "string" ||
-			dirname(resolve(value.endpointPath)) !== resolve(directory) ||
-			!SAFE_ENDPOINT_SOCKET.test(basename(value.endpointPath))
-		) {
+		const raw = await readBoundedHandleUtf8(handle, MAX_MANIFEST_BYTES);
+		const manifest = verifySignedEndpointManifest(JSON.parse(raw) as unknown, group.secret, {
+			expectedGroupId: group.id,
+			expectedEndpointId: endpointId,
+		});
+		const socketPath = join(directory, manifest.socketName);
+		if (dirname(resolve(socketPath)) !== resolve(directory)) {
 			throw new Error("Pi Fleet endpoint socket path is invalid");
 		}
-		if (typeof value.pid !== "number" || !Number.isSafeInteger(value.pid) || value.pid < 1) {
-			throw new Error("Pi Fleet endpoint process id is invalid");
-		}
-		const socketInfo = await lstat(value.endpointPath).catch(() => undefined);
+		const socketInfo = await lstat(socketPath, { bigint: true }).catch(() => undefined);
 		if (socketInfo) {
-			if (!socketInfo.isSocket()) {
-				throw new Error("Pi Fleet endpoint path is not a Unix socket");
-			}
-			if (typeof process.getuid === "function" && socketInfo.uid !== process.getuid()) {
+			if (!socketInfo.isSocket()) throw new Error("Pi Fleet endpoint path is not a Unix socket");
+			if (typeof process.getuid === "function" && Number(socketInfo.uid) !== process.getuid()) {
 				throw new Error("Pi Fleet endpoint socket has another owner");
 			}
-			if ((socketInfo.mode & 0o777) !== 0o600) {
+			if ((Number(socketInfo.mode) & 0o777) !== 0o600) {
 				throw new Error("Pi Fleet endpoint socket permissions are not private");
 			}
 		}
 		return {
-			manifest: {
-				protocolVersion: FLEET_PROTOCOL_VERSION,
-				sessionId: value.sessionId,
-				endpointPath: value.endpointPath,
-				pid: value.pid,
-			},
+			manifest,
 			manifestPath,
+			socketPath,
 			raw,
-			...(socketInfo
-				? { socketIdentity: { dev: BigInt(socketInfo.dev), ino: BigInt(socketInfo.ino) } }
-				: {}),
+			...(socketInfo ? { socketIdentity: { dev: socketInfo.dev, ino: socketInfo.ino } } : {}),
 		};
 	} finally {
 		await handle.close();
 	}
 }
 
-function requestFrame(
-	endpointPath: string,
-	frame: SignedFleetFrame,
-	signal: AbortSignal | undefined,
-	timeoutMs: number,
-): Promise<unknown> {
-	return new Promise((resolvePromise, rejectPromise) => {
-		let settled = false;
-		let received = false;
-		const socket = createConnection(endpointPath);
-		const finish = (error?: Error, value?: unknown) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			socket.destroy();
-			if (error) rejectPromise(error);
-			else resolvePromise(value);
-		};
-		const decoder = new JsonLineDecoder({
-			onValue: (value) => {
-				if (received) {
-					finish(new Error("Pi Fleet peer returned multiple response frames"));
-					return;
-				}
-				received = true;
-				finish(undefined, value);
-			},
-			onError: (error) => finish(error),
-		});
-		const timer = setTimeout(
-			() => finish(new FleetEndpointError("ETIMEDOUT", "Pi Fleet request timed out")),
-			timeoutMs,
-		);
-		timer.unref();
-		const onAbort = () => finish(abortError("Pi Fleet request aborted"));
-		signal?.addEventListener("abort", onAbort, { once: true });
-		socket.once("connect", () => {
-			void writeFrame(socket, frame).catch((error) =>
-				finish(error instanceof Error ? error : new Error(String(error))),
-			);
-		});
-		socket.on("data", (chunk) =>
-			decoder.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk),
-		);
-		socket.once("error", (error: NodeJS.ErrnoException) => {
-			finish(
-				new FleetEndpointError(
-					error.code ?? "EIO",
-					`Pi Fleet endpoint failed: ${error.code ?? "I/O error"}`,
-				),
-			);
-		});
-		socket.once("close", () => {
-			if (!settled)
-				finish(new FleetEndpointError("ECONNRESET", "Pi Fleet endpoint closed without a response"));
-		});
-		if (signal?.aborted) onAbort();
-	});
-}
-
-async function writeFrame(socket: Socket, frame: SignedFleetFrame): Promise<void> {
-	const data = Buffer.from(`${JSON.stringify(frame)}\n`, "utf8");
-	if (data.length > MAX_FRAME_BYTES) throw new Error("Pi Fleet frame is too large");
-	await new Promise<void>((resolvePromise, rejectPromise) => {
-		socket.write(data, (error) => (error ? rejectPromise(error) : resolvePromise()));
-	});
-}
-
-function listen(server: Server, path: string, signal?: AbortSignal): Promise<void> {
-	return new Promise((resolvePromise, rejectPromise) => {
-		let settled = false;
-		const finish = (error?: Error) => {
-			if (settled) return;
-			settled = true;
-			signal?.removeEventListener("abort", onAbort);
-			server.off("error", onError);
-			if (error) rejectPromise(error);
-			else resolvePromise();
-		};
-		const onError = (error: Error) => finish(error);
-		const onAbort = () => {
-			server.close();
-			finish(abortError("Pi Fleet transport start aborted"));
-		};
-		server.once("error", onError);
-		server.listen(path, () => finish());
-		signal?.addEventListener("abort", onAbort, { once: true });
-		if (signal?.aborted) onAbort();
-	});
-}
-
-function closeServer(server: Server): Promise<void> {
-	return new Promise((resolvePromise) => {
-		try {
-			server.close(() => resolvePromise());
-		} catch {
-			resolvePromise();
-		}
-	});
-}
-
-class FleetEndpointError extends Error {
-	constructor(
-		readonly code: string,
-		message: string,
+function assertDescriptionMatchesManifest(
+	peer: FleetPeerDescription,
+	record: ManifestRecord,
+): void {
+	if (
+		peer.sessionId !== record.manifest.sessionId ||
+		peer.endpointId !== record.manifest.endpointId ||
+		peer.pid !== record.manifest.pid
 	) {
-		super(message);
-		this.name = "FleetEndpointError";
+		throw new Error("Pi Fleet peer identity does not match its endpoint manifest");
 	}
 }
 
-function isDeadEndpointError(error: unknown): boolean {
-	return (
-		error instanceof FleetEndpointError &&
-		(error.code === "ENOENT" ||
-			error.code === "ECONNREFUSED" ||
-			error.code === "ECONNRESET" ||
-			error.code === "ETIMEDOUT")
-	);
+function deliveryAck(payload: FleetAckPayload): FleetDeliveryAck {
+	return {
+		accepted: payload.status === "accepted" || payload.status === "duplicate",
+		duplicate: payload.status === "duplicate",
+		...(payload.code ? { code: payload.code } : {}),
+		...(payload.error ? { error: payload.error } : {}),
+		...(payload.retryAfterMs !== undefined ? { retryAfterMs: payload.retryAfterMs } : {}),
+	};
+}
+
+function addIssue(issues: FleetDiscoveryIssue[], issue: FleetDiscoveryIssue): void {
+	if (issues.length >= MAX_DISCOVERY_ISSUES) return;
+	if (
+		issues.some(
+			(existing) =>
+				existing.code === issue.code &&
+				existing.sessionId === issue.sessionId &&
+				existing.endpointId === issue.endpointId,
+		)
+	) {
+		return;
+	}
+	issues.push(issue);
 }
 
 function randomId(prefix: string): string {
@@ -667,7 +865,41 @@ function randomId(prefix: string): string {
 
 function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
 	const concrete = signals.filter((signal): signal is AbortSignal => signal !== undefined);
-	return concrete.length === 1 ? concrete[0] : AbortSignal.any(concrete);
+	return concrete.length === 0
+		? new AbortController().signal
+		: concrete.length === 1
+			? concrete[0]
+			: AbortSignal.any(concrete);
+}
+
+function deadlineSignal(
+	milliseconds: number,
+	message: string,
+): { signal: AbortSignal; dispose(): void } {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(abortError(message)), milliseconds);
+	timer.unref();
+	return { signal: controller.signal, dispose: () => clearTimeout(timer) };
+}
+
+function raceWithSignal<T>(task: Promise<T>, signal: AbortSignal, message: string): Promise<T> {
+	if (signal.aborted) return Promise.reject(abortError(message));
+	return new Promise<T>((resolvePromise, rejectPromise) => {
+		let settled = false;
+		const settle = (operation: () => void) => {
+			if (settled) return;
+			settled = true;
+			signal.removeEventListener("abort", onAbort);
+			operation();
+		};
+		const onAbort = () => settle(() => rejectPromise(abortError(message)));
+		signal.addEventListener("abort", onAbort, { once: true });
+		void task.then(
+			(value) => settle(() => resolvePromise(value)),
+			(error) =>
+				settle(() => rejectPromise(error instanceof Error ? error : new Error(String(error)))),
+		);
+	});
 }
 
 function throwIfAborted(signal: AbortSignal | undefined, message: string): void {
@@ -684,6 +916,6 @@ function isAbortError(error: unknown): boolean {
 	return error instanceof Error && error.name === "AbortError";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function assertPositiveDuration(value: number, label: string): void {
+	if (!Number.isFinite(value) || value < 1) throw new Error(`${label} is invalid`);
 }

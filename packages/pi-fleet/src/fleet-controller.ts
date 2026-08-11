@@ -17,7 +17,10 @@ import { createPiLauncher, type PiLauncher } from "./launcher.js";
 import { type PiInvocation, resolvePiInvocation } from "./pi-invocation.js";
 import {
 	createGroup,
+	DEFAULT_MESSAGE_TTL_MS,
+	FLEET_PROTOCOL_VERSION,
 	type FleetGroup,
+	type FleetLocalPeerDescription,
 	type FleetMessage,
 	type FleetMessageMode,
 	type FleetPeerDescription,
@@ -27,7 +30,13 @@ import {
 } from "./protocol.js";
 import { FLEET_MESSAGE_TYPE, type FleetMessageDetails } from "./renderer.js";
 import { safeError, safeTerminalLine } from "./text.js";
-import { type FleetDeliveryAck, FleetTransport, type FleetTransportOptions } from "./transport.js";
+import {
+	type FleetDeliveryAck,
+	type FleetDiscoveryIssue,
+	type FleetDiscoveryResult,
+	FleetTransport,
+	type FleetTransportOptions,
+} from "./transport.js";
 
 const STATUS_KEY = "fleet";
 const DEFAULT_LAUNCH_TIMEOUT_MS = 15_000;
@@ -38,7 +47,8 @@ const RELOAD_HANDOFFS = Symbol.for("@narumitw/pi-fleet/reload-handoffs");
 export interface FleetTransportPort {
 	start(signal?: AbortSignal): Promise<void>;
 	stop(): Promise<void>;
-	listPeers(signal?: AbortSignal): Promise<FleetPeerDescription[]>;
+	listPeers(signal?: AbortSignal, deadlineMs?: number): Promise<FleetPeerDescription[]>;
+	discover?(signal?: AbortSignal, deadlineMs?: number): Promise<FleetDiscoveryResult>;
 	send(
 		targetSessionId: string,
 		message: FleetMessage,
@@ -89,6 +99,8 @@ export interface FleetSnapshot {
 	acceptsRequests: boolean;
 	self?: FleetPeerDescription;
 	peers: FleetPeerDescription[];
+	discoveryIssues?: FleetDiscoveryIssue[];
+	discoverySaturated?: boolean;
 }
 
 export interface SpawnSessionInput {
@@ -332,7 +344,14 @@ export class FleetController {
 		const owner = this.activeSessionManager;
 		const ownerGeneration = this.generation;
 		const operationSignal = combineSignals(signal, this.controller.signal);
-		const peers = await membership.transport.listPeers(operationSignal);
+		const discovery = membership.transport.discover
+			? await membership.transport.discover(operationSignal)
+			: {
+					peers: await membership.transport.listPeers(operationSignal),
+					issues: [],
+					scannedEntries: 0,
+					saturated: false,
+				};
 		if (
 			operationSignal.aborted ||
 			this.membership !== membership ||
@@ -347,7 +366,9 @@ export class FleetController {
 			invite: membership.invite,
 			acceptsRequests: membership.acceptsRequests,
 			self: membership.transport.peerDescription,
-			peers,
+			peers: discovery.peers,
+			...(discovery.issues.length > 0 ? { discoveryIssues: discovery.issues } : {}),
+			...(discovery.saturated ? { discoverySaturated: true } : {}),
 		};
 	}
 
@@ -368,6 +389,7 @@ export class FleetController {
 			throw new Error("Pi Fleet message is too large");
 		}
 		const self = membership.transport.peerDescription;
+		const issuedAt = this.deps.now();
 		const message: FleetMessage = {
 			id: this.deps.randomId("msg"),
 			fromSessionId: self.sessionId,
@@ -376,7 +398,8 @@ export class FleetController {
 			toSessionId: options.targetSessionId,
 			mode: options.mode,
 			text: options.text,
-			issuedAt: this.deps.now(),
+			issuedAt,
+			expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
 			...(options.replyTo ? { replyTo: options.replyTo } : {}),
 		};
 		const owner = ctx.sessionManager;
@@ -487,6 +510,7 @@ export class FleetController {
 			let kickoffAccepted = false;
 			if (task) {
 				const self = membership.transport.peerDescription;
+				const issuedAt = this.deps.now();
 				const kickoff: FleetMessage = {
 					id: this.deps.randomId("msg"),
 					fromSessionId: self.sessionId,
@@ -495,7 +519,8 @@ export class FleetController {
 					toSessionId: child.sessionId,
 					mode: "kickoff",
 					text: task,
-					issuedAt: this.deps.now(),
+					issuedAt,
+					expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
 					launchId,
 				};
 				const acknowledgement = await membership.transport.send(
@@ -582,8 +607,8 @@ export class FleetController {
 		}
 		const owner = ctx.sessionManager;
 		const ownerGeneration = this.generation;
-		const peer: FleetPeerDescription = {
-			protocolVersion: 1,
+		const peer: FleetLocalPeerDescription = {
+			protocolVersion: FLEET_PROTOCOL_VERSION,
 			sessionId: ctx.sessionManager.getSessionId(),
 			...(this.pi.getSessionName() ? { name: this.pi.getSessionName() } : {}),
 			cwd: ctx.cwd,
@@ -601,8 +626,8 @@ export class FleetController {
 			...(this.deps.runtimeBaseDirectory ? { baseDirectory: this.deps.runtimeBaseDirectory } : {}),
 			seenMessageIds: recent.messageIds,
 			kickoffConsumed: acceptedKickoff,
-			onMessage: async (message) => {
-				if (!this.isCurrent(owner, ownerGeneration)) return;
+			onMessage: async (message, deliverySignal) => {
+				if (deliverySignal?.aborted || !this.isCurrent(owner, ownerGeneration)) return;
 				this.receiveMessage(message);
 				if (message.mode === "kickoff") {
 					acceptedKickoff = true;
@@ -677,7 +702,8 @@ export class FleetController {
 		while (this.deps.now() <= deadline) {
 			throwIfAborted(signal, "Pi Fleet child readiness wait aborted");
 			if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
-			const peers = await membership.transport.listPeers(signal);
+			const remainingMs = Math.max(1, deadline - this.deps.now());
+			const peers = await membership.transport.listPeers(signal, remainingMs);
 			if (this.membership !== membership || !this.isCurrent(owner, ownerGeneration)) {
 				throw staleError();
 			}

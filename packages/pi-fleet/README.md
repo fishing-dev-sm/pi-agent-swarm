@@ -16,7 +16,9 @@ It also lets explicitly joined Pi sessions owned by the same operating-system us
 - Inherits the parent cwd, model identity, thinking level, and an optional first task.
 - Waits for an authenticated child endpoint before reporting that the new session is ready.
 - Connects explicit sessions through owner-only Unix sockets and ephemeral bearer invites.
-- Authenticates frames with HMAC-SHA-256 and bounds frames, messages, peers, rates, deadlines, and deduplication state.
+- Authenticates strict version-2 manifests and frames with separate HMAC-SHA-256 domains.
+- Binds every live process instance to a random endpoint id as well as its logical Pi session id.
+- Bounds frames, messages, directory scans, peers, concurrent probes, connections, deliveries, rates, deadlines, diagnostics, and deduplication state.
 - Delivers notify messages without starting a model turn.
 - Starts at most one turn for an allowed request or launch kickoff, while replies do not trigger another automatic turn.
 - Cleans sockets, manifests, connections, launchers, tasks, timers, and status on leave, replacement, reload, and shutdown.
@@ -98,6 +100,8 @@ Lists or messages sessions in the active Pi Fleet group.
 
 An accepted acknowledgement means the recipient extension accepted or deduplicated the message.
 It does not prove that a remote agent completed the requested work.
+Rejected and busy acknowledgements use stable codes such as `requests_disabled`, `rate_limited`, `target_busy`, and `delivery_failed`.
+Rate-limited responses may include a bounded retry delay.
 
 ## 💬 Commands
 
@@ -132,6 +136,9 @@ If permission is denied, enable it in **System Settings → Privacy & Security �
 Pi Fleet has no user or project settings file in this release.
 
 Group secrets, request permission, peers, readiness state, and deduplication state are held only in memory by Pi Fleet.
+The `pifleet:v1` prefix versions the bearer-invite encoding independently from the version-2 socket protocol.
+Version-2 messages normally expire after two minutes and cannot declare a lifetime longer than five minutes.
+Accepted message ids remain deduplicated for ten minutes, so their retry window outlives their valid delivery window.
 A copied invite is still a reusable bearer secret, so discard it or start a new group when you need to rotate access.
 A short-lived in-process handoff preserves a group across `/reload` for the same `sessionManager` only.
 Membership does not carry into `/new`, `/resume`, or another logical session without a new invite.
@@ -145,12 +152,15 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 
 ## 🔒 Security and privacy
 
-- Runtime directories are owned by the current user and restricted to `0700`.
-- Endpoint manifests and Unix sockets are restricted to `0600`.
-- Discovery ignores symlinks, non-regular files, oversized manifests, escaping socket paths, wrong owners, malformed records, and incompatible versions.
-- Every request and response is authenticated for its group, target, claimed sender, clock window, nonce, and request id.
+- Runtime directories are owned by the current user and restricted to `0700`, which is the portable filesystem access boundary.
+- Endpoint manifests and Unix sockets are restricted to `0600` as additional platform-specific defense in depth.
+- Discovery ignores symlinks, non-regular files, oversized manifests, wrong owners, malformed records, endpoint filename mismatches, and incompatible versions.
+- Discovery scans at most 512 directory entries, accepts at most 64 valid manifests, probes at most 16 peers concurrently, and finishes under one overall deadline.
+- Invalid manifests do not consume the valid-peer quota, and bounded non-secret diagnostics distinguish saturation, conflicts, protocol failures, deadlines, and unreachable peers.
+- Every manifest, request, and response is authenticated for its group and endpoint instance, while frames also bind the logical target, claimed sender, clock window, nonce, and request id.
 - The shared group MAC proves possession of the bearer invite, not a separate cryptographic identity for each peer.
-- A trusted invite holder can claim another session id, so session labels are collaboration hints rather than an authorization boundary.
+- A trusted invite holder can claim another session id, so session and endpoint labels are collaboration hints rather than a separate authorization boundary.
+- Two simultaneously live endpoints claiming one session id are omitted from discovery and rejected as an explicit identity conflict.
 - Bearer invites are shown only on the explicit invite screen or direct join input.
 - Pi Fleet does not persist invites, but a recipient can copy and reuse one until every holder discards it or moves to a new group.
 - Invites are not placed in tool output, status, notifications, custom renderers, launch scripts, or model context.
@@ -167,6 +177,11 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - No daemon, offline mailbox, separate Fleet history, delivery receipt, global ordering, or exactly-once guarantee.
 - No automatic trust or discovery of every Pi process.
 - No automatic close of a split after partial child startup.
+- Protocol version 2 intentionally rejects version-1 manifests and frames while the package remains experimental.
+- One request uses one short-lived socket connection; there is no persistent multiplexed channel or delivery stream.
+- Server connections use an absolute request deadline rather than an activity-reset timeout, and at most eight message deliveries run concurrently.
+- Per-sender and endpoint-wide rate limits are fixed windows, so a busy response can require waiting before retrying.
+- Old orphan temporary files and sockets are removed after a grace period, while empty private group directories may remain to avoid cross-process startup races.
 - No tab, window, resize, focus-navigation, or general layout manager.
 - Multiple Pi sessions can still race while editing the same workspace.
 
@@ -182,6 +197,7 @@ packages/pi-fleet/
 │   ├── menu.ts
 │   ├── protocol.ts
 │   ├── transport.ts
+│   ├── transport-io.ts
 │   ├── runtime-directory.ts
 │   ├── ghostty.ts
 │   ├── pi-invocation.ts

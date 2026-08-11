@@ -16,7 +16,7 @@ function dependencies(): FleetControllerDependencies {
 				options.peer.acceptsRequests = value;
 			},
 			get peerDescription() {
-				return { ...options.peer };
+				return { ...options.peer, endpointId: "a".repeat(24) };
 			},
 			endpointManifest: {
 				directory: "/tmp/pi-fleet-test",

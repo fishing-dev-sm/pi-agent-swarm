@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import { consumeLaunchEnvelope } from "../src/launch-envelope.js";
-import { parseInvite } from "../src/protocol.js";
+import { FLEET_PROTOCOL_VERSION, parseInvite } from "../src/protocol.js";
 import { FleetTransport } from "../src/transport.js";
 
 const baseDirectory = process.env.PI_FLEET_TEST_BASE;
@@ -11,7 +11,7 @@ if (!envelope) throw new Error("launch envelope is required");
 const transport = new FleetTransport({
 	group: parseInvite(envelope.invite),
 	peer: {
-		protocolVersion: 1,
+		protocolVersion: FLEET_PROTOCOL_VERSION,
 		sessionId: "child-process",
 		name: envelope.childName,
 		cwd: process.cwd(),

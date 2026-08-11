@@ -26,6 +26,7 @@ test("message renderer strips terminal controls and remains bounded at narrow CJ
 					mode: "notify",
 					text: raw,
 					issuedAt: Date.now(),
+					expiresAt: Date.now() + 120_000,
 				},
 			},
 			timestamp: Date.now(),

@@ -128,7 +128,7 @@ export function registerFleetTools(pi: ExtensionAPI, controller: FleetToolContro
 					};
 				}
 				const peers = snapshot.peers.slice(0, MAX_LISTED_PEERS);
-				const text = peers.length
+				const peerText = peers.length
 					? peers
 							.map(
 								(peer) =>
@@ -136,12 +136,17 @@ export function registerFleetTools(pi: ExtensionAPI, controller: FleetToolContro
 							)
 							.join("\n")
 					: "Pi Fleet is connected, but no other live sessions were found.";
+				const text = snapshot.discoveryIssues?.length
+					? `${peerText}\nDiscovery reported ${snapshot.discoveryIssues.length} bounded transport issue(s); inspect tool details before retrying.`
+					: peerText;
 				return {
 					content: [{ type: "text", text }],
 					details: {
 						connected: true,
 						peers,
 						truncated: snapshot.peers.length > peers.length,
+						...(snapshot.discoveryIssues ? { discoveryIssues: snapshot.discoveryIssues } : {}),
+						...(snapshot.discoverySaturated ? { discoverySaturated: true } : {}),
 					},
 				};
 			}
@@ -171,8 +176,12 @@ function deliveryResult(
 	targetSessionId: string,
 ) {
 	if (!result.acknowledgement.accepted) {
+		const code = result.acknowledgement.code ? ` [${result.acknowledgement.code}]` : "";
+		const retry = result.acknowledgement.retryAfterMs
+			? ` Retry after about ${result.acknowledgement.retryAfterMs}ms.`
+			: "";
 		throw new Error(
-			`Pi Fleet session ${targetSessionId} rejected the message: ${result.acknowledgement.error ?? "unknown reason"}`,
+			`Pi Fleet session ${targetSessionId} rejected the message${code}: ${result.acknowledgement.error ?? "unknown reason"}.${retry}`,
 		);
 	}
 	return {

@@ -38,7 +38,7 @@ class SpawnTransport implements FleetTransportPort {
 		this.options.peer.acceptsRequests = value;
 	}
 	get peerDescription() {
-		return { ...this.options.peer };
+		return { ...this.options.peer, endpointId: "a".repeat(24) };
 	}
 }
 
@@ -72,8 +72,9 @@ function harness(options: { ready?: boolean; ghosttyError?: Error } = {}) {
 				if (options.ghosttyError) throw options.ghosttyError;
 				if (options.ready !== false) {
 					pendingPeer = {
-						protocolVersion: 1,
+						protocolVersion: 2,
 						sessionId: "child-session",
+						endpointId: "b".repeat(24),
 						name: spawnOptions.environment.PI_FLEET_CHILD_NAME,
 						cwd: spawnOptions.cwd,
 						pid: 456,

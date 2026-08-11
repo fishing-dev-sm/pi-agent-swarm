@@ -4,7 +4,13 @@ import { GhosttyAdapter } from "../src/ghostty.js";
 import { launchEnvelopeEnvironment } from "../src/launch-envelope.js";
 import { createPiLauncher } from "../src/launcher.js";
 import { resolvePiInvocation } from "../src/pi-invocation.js";
-import { createGroup, type FleetMessage, formatInvite } from "../src/protocol.js";
+import {
+	createGroup,
+	DEFAULT_MESSAGE_TTL_MS,
+	FLEET_PROTOCOL_VERSION,
+	type FleetMessage,
+	formatInvite,
+} from "../src/protocol.js";
 import { FleetTransport } from "../src/transport.js";
 
 const packageDirectory = await realpath(process.cwd());
@@ -18,7 +24,7 @@ const replyPromise = new Promise<FleetMessage>((resolve) => {
 const parent = new FleetTransport({
 	group,
 	peer: {
-		protocolVersion: 1,
+		protocolVersion: FLEET_PROTOCOL_VERSION,
 		sessionId: parentSessionId,
 		name: "Pi Fleet smoke parent",
 		cwd: packageDirectory,
@@ -79,6 +85,7 @@ try {
 	const child = await waitForChild(parent, launchId, 15_000);
 	await launcher.cleanup();
 	launcher = undefined;
+	const notifyIssuedAt = Date.now();
 	const notify: FleetMessage = {
 		id: `smoke-notify-${process.pid}`,
 		fromSessionId: parentSessionId,
@@ -87,11 +94,13 @@ try {
 		toSessionId: child.sessionId,
 		mode: "notify",
 		text: "Pi Fleet deterministic Ghostty smoke notify.",
-		issuedAt: Date.now(),
+		issuedAt: notifyIssuedAt,
+		expiresAt: notifyIssuedAt + DEFAULT_MESSAGE_TTL_MS,
 	};
 	const notifyAck = await parent.send(child.sessionId, notify);
 	if (!notifyAck.accepted) throw new Error(`child rejected smoke notify: ${notifyAck.error}`);
 	const kickoffId = `smoke-kickoff-${process.pid}`;
+	const kickoffIssuedAt = Date.now();
 	const kickoff: FleetMessage = {
 		id: kickoffId,
 		fromSessionId: parentSessionId,
@@ -100,7 +109,8 @@ try {
 		toSessionId: child.sessionId,
 		mode: "kickoff",
 		text: `Use session_bus action reply with targetSessionId ${parentSessionId}, replyTo ${kickoffId}, and message smoke-reply. Do not perform any other work.`,
-		issuedAt: Date.now(),
+		issuedAt: kickoffIssuedAt,
+		expiresAt: kickoffIssuedAt + DEFAULT_MESSAGE_TTL_MS,
 		launchId,
 	};
 	const kickoffAck = await parent.send(child.sessionId, kickoff);

@@ -3,7 +3,9 @@ import { randomBytes } from "node:crypto";
 import { test } from "vitest";
 import {
 	createGroup,
+	createSignedEndpointManifest,
 	createSignedFrame,
+	DEFAULT_MESSAGE_TTL_MS,
 	FixedWindowRateLimiter,
 	formatInvite,
 	JsonLineDecoder,
@@ -12,10 +14,14 @@ import {
 	parseInvite,
 	ReplayWindow,
 	validateMessage,
+	validateMessageTiming,
+	verifySignedEndpointManifest,
 	verifySignedFrame,
 } from "../src/protocol.js";
 
 const NOW = 1_800_000_000_000;
+const SENDER_ENDPOINT = "1".repeat(24);
+const RECEIVER_ENDPOINT = "2".repeat(24);
 
 function message(text = "hello") {
 	return {
@@ -25,6 +31,28 @@ function message(text = "hello") {
 		mode: "notify" as const,
 		text,
 		issuedAt: NOW,
+		expiresAt: NOW + DEFAULT_MESSAGE_TTL_MS,
+	};
+}
+
+function signedFrame() {
+	const group = createGroup(Buffer.alloc(32, 3));
+	return {
+		group,
+		frame: createSignedFrame(
+			{
+				groupId: group.id,
+				requestId: "req_1234567890abcdef",
+				targetSessionId: "receiver",
+				targetEndpointId: RECEIVER_ENDPOINT,
+				senderSessionId: "sender",
+				senderEndpointId: SENDER_ENDPOINT,
+				issuedAt: NOW,
+				nonce: "nonce_1234567890abcdef",
+				payload: { kind: "message", message: message() },
+			},
+			group.secret,
+		),
 	};
 }
 
@@ -37,25 +65,14 @@ test("invite round-trips a 32-byte secret and rejects malformed input", () => {
 	assert.throws(() => createGroup(Buffer.alloc(31)), /32 bytes/u);
 });
 
-test("signed frames authenticate group, target, time, and replay identity", () => {
-	const group = createGroup(Buffer.alloc(32, 3));
-	const frame = createSignedFrame(
-		{
-			groupId: group.id,
-			requestId: "req_1234567890abcdef",
-			targetSessionId: "receiver",
-			senderSessionId: "sender",
-			issuedAt: NOW,
-			nonce: "nonce_1234567890abcdef",
-			payload: { kind: "message", message: message() },
-		},
-		group.secret,
-	);
+test("version-2 frames authenticate group, session, endpoint, time, and replay identity", () => {
+	const { group, frame } = signedFrame();
 	const replay = new ReplayWindow(8, 60_000);
 	assert.deepEqual(
 		verifySignedFrame(frame, group.secret, {
 			expectedGroupId: group.id,
 			expectedTargetSessionId: "receiver",
+			expectedTargetEndpointId: RECEIVER_ENDPOINT,
 			now: NOW,
 			replay,
 		}),
@@ -66,6 +83,7 @@ test("signed frames authenticate group, target, time, and replay identity", () =
 			verifySignedFrame(frame, group.secret, {
 				expectedGroupId: group.id,
 				expectedTargetSessionId: "receiver",
+				expectedTargetEndpointId: RECEIVER_ENDPOINT,
 				now: NOW,
 				replay,
 			}),
@@ -73,9 +91,20 @@ test("signed frames authenticate group, target, time, and replay identity", () =
 	);
 	assert.throws(
 		() =>
+			verifySignedFrame({ ...frame, version: 1 }, group.secret, {
+				expectedGroupId: group.id,
+				expectedTargetSessionId: "receiver",
+				expectedTargetEndpointId: RECEIVER_ENDPOINT,
+				now: NOW,
+			}),
+		/unsupported/u,
+	);
+	assert.throws(
+		() =>
 			verifySignedFrame(frame, randomBytes(32), {
 				expectedGroupId: group.id,
 				expectedTargetSessionId: "receiver",
+				expectedTargetEndpointId: RECEIVER_ENDPOINT,
 				now: NOW,
 			}),
 		/authentication/u,
@@ -85,6 +114,7 @@ test("signed frames authenticate group, target, time, and replay identity", () =
 			verifySignedFrame(frame, group.secret, {
 				expectedGroupId: "wrong",
 				expectedTargetSessionId: "receiver",
+				expectedTargetEndpointId: RECEIVER_ENDPOINT,
 				now: NOW,
 			}),
 		/group/u,
@@ -94,6 +124,7 @@ test("signed frames authenticate group, target, time, and replay identity", () =
 			verifySignedFrame(frame, group.secret, {
 				expectedGroupId: group.id,
 				expectedTargetSessionId: "other",
+				expectedTargetEndpointId: RECEIVER_ENDPOINT,
 				now: NOW,
 			}),
 		/target/u,
@@ -103,6 +134,17 @@ test("signed frames authenticate group, target, time, and replay identity", () =
 			verifySignedFrame(frame, group.secret, {
 				expectedGroupId: group.id,
 				expectedTargetSessionId: "receiver",
+				expectedTargetEndpointId: "3".repeat(24),
+				now: NOW,
+			}),
+		/endpoint/u,
+	);
+	assert.throws(
+		() =>
+			verifySignedFrame(frame, group.secret, {
+				expectedGroupId: group.id,
+				expectedTargetSessionId: "receiver",
+				expectedTargetEndpointId: RECEIVER_ENDPOINT,
 				now: NOW + 60_001,
 				maxClockSkewMs: 60_000,
 			}),
@@ -113,13 +155,96 @@ test("signed frames authenticate group, target, time, and replay identity", () =
 			verifySignedFrame({ ...frame, mac: `${frame.mac.slice(0, -1)}x` }, group.secret, {
 				expectedGroupId: group.id,
 				expectedTargetSessionId: "receiver",
+				expectedTargetEndpointId: RECEIVER_ENDPOINT,
 				now: NOW,
 			}),
 		/authentication/u,
 	);
 });
 
-test("message validation uses UTF-8 byte limits and preserves raw controls", () => {
+test("frames, nested messages, and acknowledgements reject unknown or inconsistent fields", () => {
+	const { group, frame } = signedFrame();
+	const options = {
+		expectedGroupId: group.id,
+		expectedTargetSessionId: "receiver",
+		expectedTargetEndpointId: RECEIVER_ENDPOINT,
+		now: NOW,
+	};
+	assert.throws(
+		() => verifySignedFrame({ ...frame, future: true }, group.secret, options),
+		/unknown/u,
+	);
+	const { version: _version, mac: _mac, ...unsigned } = frame;
+	assert.throws(
+		() =>
+			createSignedFrame(
+				{
+					...unsigned,
+					payload: { kind: "message", message: { ...message(), future: true } },
+				} as never,
+				group.secret,
+			),
+		/unknown/u,
+	);
+	assert.throws(
+		() =>
+			createSignedFrame(
+				{
+					groupId: group.id,
+					requestId: "req_ack_1234567890",
+					targetSessionId: "receiver",
+					targetEndpointId: RECEIVER_ENDPOINT,
+					senderSessionId: "sender",
+					senderEndpointId: SENDER_ENDPOINT,
+					issuedAt: NOW,
+					nonce: "nonce_ack_1234567890",
+					payload: { kind: "ack", status: "accepted", code: "target_busy" },
+				},
+				group.secret,
+			),
+		/successful ack/u,
+	);
+});
+
+test("signed endpoint manifests bind group, filename identity, socket name, and exact schema", () => {
+	const group = createGroup(Buffer.alloc(32, 5));
+	const manifest = createSignedEndpointManifest(
+		{
+			groupId: group.id,
+			endpointId: RECEIVER_ENDPOINT,
+			sessionId: "receiver",
+			socketName: `${RECEIVER_ENDPOINT}.sock`,
+			pid: 123,
+			publishedAt: NOW,
+		},
+		group.secret,
+	);
+	assert.deepEqual(
+		verifySignedEndpointManifest(manifest, group.secret, {
+			expectedGroupId: group.id,
+			expectedEndpointId: RECEIVER_ENDPOINT,
+		}),
+		manifest,
+	);
+	assert.throws(
+		() =>
+			verifySignedEndpointManifest({ ...manifest, extra: true }, group.secret, {
+				expectedGroupId: group.id,
+				expectedEndpointId: RECEIVER_ENDPOINT,
+			}),
+		/unknown/u,
+	);
+	assert.throws(
+		() =>
+			verifySignedEndpointManifest(manifest, group.secret, {
+				expectedGroupId: group.id,
+				expectedEndpointId: SENDER_ENDPOINT,
+			}),
+		/filename/u,
+	);
+});
+
+test("message validation uses UTF-8 limits and enforces a finite signed lifetime", () => {
 	const raw = "first\n\u001b[31m紅色\u001b[0m";
 	assert.equal(validateMessage(message(raw)).text, raw);
 	assert.equal(
@@ -132,6 +257,12 @@ test("message validation uses UTF-8 byte limits and preserves raw controls", () 
 	);
 	assert.throws(() => validateMessage({ ...message(), mode: "execute" }), /mode/u);
 	assert.throws(() => validateMessage({ ...message(), id: "bad id" }), /message id/u);
+	assert.throws(() => validateMessage({ ...message(), expiresAt: NOW }), /lifetime/u);
+	assert.doesNotThrow(() => validateMessageTiming(message(), NOW + DEFAULT_MESSAGE_TTL_MS));
+	assert.throws(
+		() => validateMessageTiming(message(), NOW + DEFAULT_MESSAGE_TTL_MS + 1),
+		/expired/u,
+	);
 });
 
 test("JSONL decoder handles fragments and rejects malformed, invalid UTF-8, and oversized records", () => {
@@ -153,7 +284,7 @@ test("JSONL decoder handles fragments and rejects malformed, invalid UTF-8, and 
 	decoder.finish();
 });
 
-test("replay and rate windows remain bounded and expire entries", () => {
+test("replay and rate windows remain bounded and report retry timing", () => {
 	const replay = new ReplayWindow(2, 100);
 	assert.equal(replay.accept("a", 0), true);
 	assert.equal(replay.accept("a", 1), false);
@@ -166,5 +297,6 @@ test("replay and rate windows remain bounded and expire entries", () => {
 	assert.equal(limiter.accept("peer", 0), true);
 	assert.equal(limiter.accept("peer", 1), true);
 	assert.equal(limiter.accept("peer", 2), false);
+	assert.equal(limiter.retryAfterMs("peer", 2), 98);
 	assert.equal(limiter.accept("peer", 101), true);
 });

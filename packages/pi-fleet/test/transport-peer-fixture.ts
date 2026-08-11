@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { type FleetMessage, parseInvite } from "../src/protocol.js";
+import { FLEET_PROTOCOL_VERSION, type FleetMessage, parseInvite } from "../src/protocol.js";
 import { FleetTransport } from "../src/transport.js";
 
 const [baseDirectory, invite, sessionId] = process.argv.slice(2);
@@ -8,7 +8,7 @@ let messageCount = 0;
 const transport = new FleetTransport({
 	group: parseInvite(invite),
 	peer: {
-		protocolVersion: 1,
+		protocolVersion: FLEET_PROTOCOL_VERSION,
 		sessionId,
 		name: sessionId,
 		cwd: process.cwd(),

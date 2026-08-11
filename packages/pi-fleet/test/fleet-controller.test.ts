@@ -46,7 +46,7 @@ class FakeTransport {
 		this.options.peer.acceptsRequests = value;
 	}
 	get peerDescription() {
-		return { ...this.options.peer };
+		return { ...this.options.peer, endpointId: "a".repeat(24) };
 	}
 }
 
@@ -278,42 +278,57 @@ test("incoming modes use follow-up delivery and only requests trigger a turn", a
 	await controller.startNewGroup(context.ctx, true);
 	const receive = deps.transports[0]?.options.onMessage;
 	assert.ok(receive);
-	await receive({
-		id: "msg_notify_123456",
-		fromSessionId: "peer",
-		fromName: "Peer",
-		fromCwd: "/tmp/peer",
-		toSessionId: "test-session",
-		mode: "notify",
-		text: "hello",
-		issuedAt: Date.now(),
-	});
-	await receive({
-		id: "msg_request_12345",
-		fromSessionId: "peer",
-		toSessionId: "test-session",
-		mode: "request",
-		text: "check tests",
-		issuedAt: Date.now(),
-	});
-	await receive({
-		id: "msg_reply_1234567",
-		fromSessionId: "peer",
-		toSessionId: "test-session",
-		mode: "reply",
-		text: "done",
-		replyTo: "msg_request_12345",
-		issuedAt: Date.now(),
-	});
-	await receive({
-		id: "msg_kickoff_12345",
-		fromSessionId: "peer",
-		toSessionId: "test-session",
-		mode: "kickoff",
-		text: "begin",
-		launchId: "launch_12345678",
-		issuedAt: Date.now(),
-	});
+	const issuedAt = Date.now();
+	const expiry = { issuedAt, expiresAt: issuedAt + 120_000 };
+	const deliverySignal = new AbortController().signal;
+	await receive(
+		{
+			id: "msg_notify_123456",
+			fromSessionId: "peer",
+			fromName: "Peer",
+			fromCwd: "/tmp/peer",
+			toSessionId: "test-session",
+			mode: "notify",
+			text: "hello",
+			...expiry,
+		},
+		deliverySignal,
+	);
+	await receive(
+		{
+			id: "msg_request_12345",
+			fromSessionId: "peer",
+			toSessionId: "test-session",
+			mode: "request",
+			text: "check tests",
+			...expiry,
+		},
+		deliverySignal,
+	);
+	await receive(
+		{
+			id: "msg_reply_1234567",
+			fromSessionId: "peer",
+			toSessionId: "test-session",
+			mode: "reply",
+			text: "done",
+			replyTo: "msg_request_12345",
+			...expiry,
+		},
+		deliverySignal,
+	);
+	await receive(
+		{
+			id: "msg_kickoff_12345",
+			fromSessionId: "peer",
+			toSessionId: "test-session",
+			mode: "kickoff",
+			text: "begin",
+			launchId: "launch_12345678",
+			...expiry,
+		},
+		deliverySignal,
+	);
 	assert.deepEqual(
 		mock.sentMessages.map(({ options }) => options),
 		[

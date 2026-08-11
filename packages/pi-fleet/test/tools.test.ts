@@ -11,8 +11,9 @@ function stubController(overrides: Partial<FleetToolController> = {}) {
 		acceptsRequests: false,
 		peers: [
 			{
-				protocolVersion: 1,
+				protocolVersion: 2,
 				sessionId: "peer-1",
+				endpointId: "b".repeat(24),
 				name: "Peer One",
 				cwd: "/tmp/peer",
 				pid: 123,
@@ -36,6 +37,7 @@ function stubController(overrides: Partial<FleetToolController> = {}) {
 		snapshot: async () => snapshot,
 		send: async (_ctx, input) => {
 			calls.push({ kind: "send", input });
+			const issuedAt = Date.now();
 			return {
 				message: {
 					id: "msg_1234567890",
@@ -43,7 +45,8 @@ function stubController(overrides: Partial<FleetToolController> = {}) {
 					toSessionId: input.targetSessionId,
 					mode: input.mode,
 					text: input.text,
-					issuedAt: Date.now(),
+					issuedAt,
+					expiresAt: issuedAt + 120_000,
 					...(input.replyTo ? { replyTo: input.replyTo } : {}),
 				},
 				acknowledgement: { accepted: true, duplicate: false },
@@ -156,6 +159,35 @@ test("session_bus lists peers, sends requests, and correlates replies", async ()
 	]);
 });
 
+test("session_bus exposes bounded discovery diagnostics without transport secrets", async () => {
+	const mock = createMockPi();
+	const { controller } = stubController({
+		snapshot: async () => ({
+			connected: true,
+			acceptsRequests: false,
+			peers: [],
+			discoveryIssues: [
+				{ code: "peer_unreachable", sessionId: "peer-1", endpointId: "b".repeat(24) },
+			],
+		}),
+	});
+	registerFleetTools(mock.pi, controller);
+	const tool = mock.tools.find(({ name }) => name === "session_bus") as {
+		execute(...args: unknown[]): Promise<{ content: Array<{ text: string }>; details: unknown }>;
+	};
+	const context = createMockContext({ mode: "tui", hasUI: true });
+	const result = await tool.execute(
+		"call-list-diagnostics",
+		{ action: "list" },
+		undefined,
+		undefined,
+		context.ctx,
+	);
+	assert.match(result.content[0]?.text ?? "", /transport issue/u);
+	assert.equal(JSON.stringify(result.details).includes("peer_unreachable"), true);
+	assert.equal(JSON.stringify(result).includes("pifleet:v1"), false);
+});
+
 test("session_bus throws on invalid action fields and rejected acknowledgement", async () => {
 	const mock = createMockPi();
 	const { controller } = stubController({
@@ -167,6 +199,7 @@ test("session_bus throws on invalid action fields and rejected acknowledgement",
 				mode: "request",
 				text: "review",
 				issuedAt: Date.now(),
+				expiresAt: Date.now() + 120_000,
 			},
 			acknowledgement: {
 				accepted: false,

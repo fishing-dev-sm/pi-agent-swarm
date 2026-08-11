@@ -1,18 +1,30 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { TextDecoder } from "node:util";
 
-export const FLEET_PROTOCOL_VERSION = 1;
+export const FLEET_PROTOCOL_VERSION = 2;
 export const INVITE_PREFIX = "pifleet:v1:";
 export const MAX_FRAME_BYTES = 32 * 1024;
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 export const DEFAULT_CLOCK_SKEW_MS = 60_000;
+export const DEFAULT_MESSAGE_TTL_MS = 2 * 60_000;
+export const MAX_MESSAGE_LIFETIME_MS = 5 * 60_000;
 
 const GROUP_DOMAIN = "pi-fleet/group/v1\0";
-const MAC_DOMAIN = "pi-fleet/frame/v1\0";
+const FRAME_MAC_DOMAIN = "pi-fleet/frame/v2\0";
+const MANIFEST_MAC_DOMAIN = "pi-fleet/manifest/v2\0";
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/u;
 const GROUP_ID = /^[a-f0-9]{32}$/u;
+const ENDPOINT_ID = /^[a-f0-9]{24}$/u;
 const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/u;
 const BASE64URL_MAC = /^[A-Za-z0-9_-]{43}$/u;
+const ACK_CODES = new Set<FleetAckCode>([
+	"delivery_failed",
+	"kickoff_consumed",
+	"launch_mismatch",
+	"rate_limited",
+	"requests_disabled",
+	"target_busy",
+]);
 
 export interface FleetGroup {
 	id: string;
@@ -30,6 +42,7 @@ export interface FleetMessage {
 	mode: FleetMessageMode;
 	text: string;
 	issuedAt: number;
+	expiresAt: number;
 	replyTo?: string;
 	launchId?: string;
 }
@@ -37,6 +50,7 @@ export interface FleetMessage {
 export interface FleetPeerDescription {
 	protocolVersion: number;
 	sessionId: string;
+	endpointId: string;
 	name?: string;
 	cwd: string;
 	pid: number;
@@ -44,17 +58,39 @@ export interface FleetPeerDescription {
 	acceptsRequests: boolean;
 }
 
+export type FleetLocalPeerDescription = Omit<FleetPeerDescription, "endpointId">;
+
+export type FleetAckStatus = "accepted" | "duplicate" | "rejected" | "busy";
+
+export type FleetAckCode =
+	| "delivery_failed"
+	| "kickoff_consumed"
+	| "launch_mismatch"
+	| "rate_limited"
+	| "requests_disabled"
+	| "target_busy";
+
+export interface FleetAckPayload {
+	kind: "ack";
+	status: FleetAckStatus;
+	code?: FleetAckCode;
+	error?: string;
+	retryAfterMs?: number;
+}
+
 export type FleetPayload =
 	| { kind: "describe" }
 	| { kind: "description"; peer: FleetPeerDescription }
 	| { kind: "message"; message: FleetMessage }
-	| { kind: "ack"; accepted: boolean; duplicate?: boolean; error?: string };
+	| FleetAckPayload;
 
 export interface UnsignedFleetFrame {
 	groupId: string;
 	requestId: string;
 	targetSessionId: string;
+	targetEndpointId: string;
 	senderSessionId: string;
+	senderEndpointId: string;
 	issuedAt: number;
 	nonce: string;
 	payload: FleetPayload;
@@ -65,9 +101,24 @@ export interface SignedFleetFrame extends UnsignedFleetFrame {
 	mac: string;
 }
 
+export interface UnsignedEndpointManifest {
+	groupId: string;
+	endpointId: string;
+	sessionId: string;
+	socketName: string;
+	pid: number;
+	publishedAt: number;
+}
+
+export interface SignedEndpointManifest extends UnsignedEndpointManifest {
+	version: typeof FLEET_PROTOCOL_VERSION;
+	mac: string;
+}
+
 export interface VerifyFrameOptions {
 	expectedGroupId: string;
 	expectedTargetSessionId: string;
+	expectedTargetEndpointId: string;
 	now?: number;
 	maxClockSkewMs?: number;
 	replay?: ReplayWindow;
@@ -109,7 +160,7 @@ export function createSignedFrame(input: UnsignedFleetFrame, secret: Uint8Array)
 	};
 	return {
 		...frameWithoutMac,
-		mac: frameMac(frameWithoutMac, secret),
+		mac: keyedMac(FRAME_MAC_DOMAIN, frameWithoutMac, secret),
 	};
 }
 
@@ -125,23 +176,85 @@ export function verifySignedFrame(
 	if (frame.targetSessionId !== options.expectedTargetSessionId) {
 		throw new Error("Pi Fleet frame targets another session");
 	}
+	if (frame.targetEndpointId !== options.expectedTargetEndpointId) {
+		throw new Error("Pi Fleet frame targets another endpoint instance");
+	}
 	const now = options.now ?? Date.now();
 	const maxClockSkewMs = options.maxClockSkewMs ?? DEFAULT_CLOCK_SKEW_MS;
 	if (Math.abs(now - frame.issuedAt) > maxClockSkewMs) {
 		throw new Error("Pi Fleet frame expired outside the accepted clock window");
 	}
 	const { mac, ...unsigned } = frame;
-	const expected = frameMac(unsigned, secret);
+	const expected = keyedMac(FRAME_MAC_DOMAIN, unsigned, secret);
 	if (!safeMacEqual(mac, expected)) throw new Error("Pi Fleet frame authentication failed");
-	const replayKey = `${frame.senderSessionId}:${frame.requestId}:${frame.nonce}`;
+	const replayKey = [
+		frame.senderSessionId,
+		frame.senderEndpointId,
+		frame.requestId,
+		frame.nonce,
+	].join(":");
 	if (options.replay && !options.replay.accept(replayKey, now)) {
 		throw new Error("Pi Fleet frame was replayed");
 	}
 	return frame;
 }
 
+export function createSignedEndpointManifest(
+	input: UnsignedEndpointManifest,
+	secret: Uint8Array,
+): SignedEndpointManifest {
+	const manifestWithoutMac = {
+		version: FLEET_PROTOCOL_VERSION as typeof FLEET_PROTOCOL_VERSION,
+		...normalizeUnsignedEndpointManifest(input),
+	};
+	return {
+		...manifestWithoutMac,
+		mac: keyedMac(MANIFEST_MAC_DOMAIN, manifestWithoutMac, secret),
+	};
+}
+
+export function verifySignedEndpointManifest(
+	value: unknown,
+	secret: Uint8Array,
+	options: { expectedGroupId: string; expectedEndpointId: string },
+): SignedEndpointManifest {
+	const manifest = normalizeSignedEndpointManifest(value);
+	if (manifest.groupId !== options.expectedGroupId) {
+		throw new Error("Pi Fleet endpoint manifest belongs to the wrong group");
+	}
+	if (manifest.endpointId !== options.expectedEndpointId) {
+		throw new Error("Pi Fleet endpoint manifest identity does not match its filename");
+	}
+	if (manifest.socketName !== `${manifest.endpointId}.sock`) {
+		throw new Error("Pi Fleet endpoint manifest socket does not match its identity");
+	}
+	const { mac, ...unsigned } = manifest;
+	const expected = keyedMac(MANIFEST_MAC_DOMAIN, unsigned, secret);
+	if (!safeMacEqual(mac, expected)) {
+		throw new Error("Pi Fleet endpoint manifest authentication failed");
+	}
+	return manifest;
+}
+
 export function validateMessage(value: unknown): FleetMessage {
 	if (!isRecord(value)) throw new Error("Pi Fleet message must be an object");
+	assertExactKeys(
+		value,
+		[
+			"expiresAt",
+			"fromCwd",
+			"fromName",
+			"fromSessionId",
+			"id",
+			"issuedAt",
+			"launchId",
+			"mode",
+			"replyTo",
+			"text",
+			"toSessionId",
+		],
+		"message",
+	);
 	const id = requiredId(value.id, "message id");
 	const fromSessionId = requiredId(value.fromSessionId, "sender session id");
 	const fromName = optionalBoundedString(value.fromName, "sender name", 200);
@@ -156,6 +269,10 @@ export function validateMessage(value: unknown): FleetMessage {
 		throw new Error("Pi Fleet message is too large");
 	}
 	const issuedAt = finiteInteger(value.issuedAt, "message issued time");
+	const expiresAt = finiteInteger(value.expiresAt, "message expiry time");
+	if (expiresAt <= issuedAt || expiresAt - issuedAt > MAX_MESSAGE_LIFETIME_MS) {
+		throw new Error("Pi Fleet message lifetime is invalid");
+	}
 	const replyTo = optionalId(value.replyTo, "reply message id");
 	const launchId = optionalId(value.launchId, "launch id");
 	if (mode === "reply" && !replyTo) throw new Error("Pi Fleet reply requires a reply message id");
@@ -169,9 +286,17 @@ export function validateMessage(value: unknown): FleetMessage {
 		mode,
 		text: value.text,
 		issuedAt,
+		expiresAt,
 		...(replyTo ? { replyTo } : {}),
 		...(launchId ? { launchId } : {}),
 	};
+}
+
+export function validateMessageTiming(message: FleetMessage, now: number): void {
+	if (message.issuedAt > now + DEFAULT_CLOCK_SKEW_MS) {
+		throw new Error("Pi Fleet message was issued too far in the future");
+	}
+	if (message.expiresAt < now) throw new Error("Pi Fleet message has expired");
 }
 
 export class ReplayWindow {
@@ -245,6 +370,12 @@ export class FixedWindowRateLimiter {
 		this.entries.delete(key);
 		this.entries.set(key, current);
 		return true;
+	}
+
+	retryAfterMs(key: string, now: number): number {
+		const current = this.entries.get(key);
+		if (!current || now < current.start || now - current.start >= this.windowMs) return 0;
+		return Math.max(1, current.start + this.windowMs - now);
 	}
 
 	private trim(): void {
@@ -328,71 +459,27 @@ export class JsonLineDecoder {
 	}
 }
 
-function normalizeUnsignedFrame(value: UnsignedFleetFrame): UnsignedFleetFrame {
-	if (!isRecord(value)) throw new Error("Pi Fleet frame must be an object");
-	const groupId = value.groupId;
-	if (typeof groupId !== "string" || !GROUP_ID.test(groupId)) {
-		throw new Error("Pi Fleet frame group id is invalid");
-	}
-	const requestId = requiredId(value.requestId, "request id");
-	const targetSessionId = requiredId(value.targetSessionId, "target session id");
-	const senderSessionId = requiredId(value.senderSessionId, "sender session id");
-	const issuedAt = finiteInteger(value.issuedAt, "frame issued time");
-	const nonce = requiredId(value.nonce, "frame nonce");
-	const payload = validatePayload(value.payload);
-	return {
-		groupId,
-		requestId,
-		targetSessionId,
-		senderSessionId,
-		issuedAt,
-		nonce,
-		payload,
-	};
-}
-
-function normalizeSignedFrame(value: unknown): SignedFleetFrame {
-	if (!isRecord(value)) throw new Error("Pi Fleet frame must be an object");
-	if (value.version !== FLEET_PROTOCOL_VERSION) {
-		throw new Error("Pi Fleet frame protocol version is unsupported");
-	}
-	const normalized = normalizeUnsignedFrame(value as unknown as UnsignedFleetFrame);
-	if (typeof value.mac !== "string" || !BASE64URL_MAC.test(value.mac)) {
-		throw new Error("Pi Fleet frame authentication tag is invalid");
-	}
-	return { version: FLEET_PROTOCOL_VERSION, ...normalized, mac: value.mac };
-}
-
-function validatePayload(value: unknown): FleetPayload {
-	if (!isRecord(value) || typeof value.kind !== "string") {
-		throw new Error("Pi Fleet frame payload is invalid");
-	}
-	if (value.kind === "describe") return { kind: "describe" };
-	if (value.kind === "description") {
-		return { kind: "description", peer: validatePeerDescription(value.peer) };
-	}
-	if (value.kind === "message") {
-		return { kind: "message", message: validateMessage(value.message) };
-	}
-	if (value.kind === "ack") {
-		if (typeof value.accepted !== "boolean") throw new Error("Pi Fleet ack is invalid");
-		const error = optionalBoundedString(value.error, "ack error", 1_000);
-		return {
-			kind: "ack",
-			accepted: value.accepted,
-			...(value.duplicate === true ? { duplicate: true } : {}),
-			...(error ? { error } : {}),
-		};
-	}
-	throw new Error("Pi Fleet frame payload kind is invalid");
-}
-
 export function validatePeerDescription(value: unknown): FleetPeerDescription {
 	if (!isRecord(value)) throw new Error("Pi Fleet peer description is invalid");
+	assertExactKeys(
+		value,
+		[
+			"acceptsRequests",
+			"cwd",
+			"endpointId",
+			"launchId",
+			"name",
+			"pid",
+			"protocolVersion",
+			"sessionId",
+		],
+		"peer description",
+	);
 	if (value.protocolVersion !== FLEET_PROTOCOL_VERSION) {
 		throw new Error("Pi Fleet peer protocol version is unsupported");
 	}
 	const sessionId = requiredId(value.sessionId, "peer session id");
+	const endpointId = requiredEndpointId(value.endpointId, "peer endpoint id");
 	const name = optionalBoundedString(value.name, "peer name", 200);
 	const cwd = optionalBoundedString(value.cwd, "peer cwd", 4_096);
 	if (cwd === undefined) throw new Error("Pi Fleet peer cwd is invalid");
@@ -405,6 +492,7 @@ export function validatePeerDescription(value: unknown): FleetPeerDescription {
 	return {
 		protocolVersion: FLEET_PROTOCOL_VERSION,
 		sessionId,
+		endpointId,
 		...(name ? { name } : {}),
 		cwd,
 		pid,
@@ -413,13 +501,178 @@ export function validatePeerDescription(value: unknown): FleetPeerDescription {
 	};
 }
 
-function frameMac(value: object, secret: Uint8Array): string {
+function normalizeUnsignedFrame(value: UnsignedFleetFrame): UnsignedFleetFrame {
+	if (!isRecord(value)) throw new Error("Pi Fleet frame must be an object");
+	assertExactKeys(
+		value,
+		[
+			"groupId",
+			"issuedAt",
+			"nonce",
+			"payload",
+			"requestId",
+			"senderEndpointId",
+			"senderSessionId",
+			"targetEndpointId",
+			"targetSessionId",
+		],
+		"frame",
+	);
+	return normalizeUnsignedFrameFields(value);
+}
+
+function normalizeUnsignedFrameFields(value: Record<string, unknown>): UnsignedFleetFrame {
+	const groupId = value.groupId;
+	if (typeof groupId !== "string" || !GROUP_ID.test(groupId)) {
+		throw new Error("Pi Fleet frame group id is invalid");
+	}
+	return {
+		groupId,
+		requestId: requiredId(value.requestId, "request id"),
+		targetSessionId: requiredId(value.targetSessionId, "target session id"),
+		targetEndpointId: requiredEndpointId(value.targetEndpointId, "target endpoint id"),
+		senderSessionId: requiredId(value.senderSessionId, "sender session id"),
+		senderEndpointId: requiredEndpointId(value.senderEndpointId, "sender endpoint id"),
+		issuedAt: finiteInteger(value.issuedAt, "frame issued time"),
+		nonce: requiredId(value.nonce, "frame nonce"),
+		payload: validatePayload(value.payload),
+	};
+}
+
+function normalizeSignedFrame(value: unknown): SignedFleetFrame {
+	if (!isRecord(value)) throw new Error("Pi Fleet frame must be an object");
+	assertExactKeys(
+		value,
+		[
+			"groupId",
+			"issuedAt",
+			"mac",
+			"nonce",
+			"payload",
+			"requestId",
+			"senderEndpointId",
+			"senderSessionId",
+			"targetEndpointId",
+			"targetSessionId",
+			"version",
+		],
+		"signed frame",
+	);
+	if (value.version !== FLEET_PROTOCOL_VERSION) {
+		throw new Error("Pi Fleet frame protocol version is unsupported");
+	}
+	const normalized = normalizeUnsignedFrameFields(value);
+	if (typeof value.mac !== "string" || !BASE64URL_MAC.test(value.mac)) {
+		throw new Error("Pi Fleet frame authentication tag is invalid");
+	}
+	return { version: FLEET_PROTOCOL_VERSION, ...normalized, mac: value.mac };
+}
+
+function validatePayload(value: unknown): FleetPayload {
+	if (!isRecord(value) || typeof value.kind !== "string") {
+		throw new Error("Pi Fleet frame payload is invalid");
+	}
+	if (value.kind === "describe") {
+		assertExactKeys(value, ["kind"], "describe payload");
+		return { kind: "describe" };
+	}
+	if (value.kind === "description") {
+		assertExactKeys(value, ["kind", "peer"], "description payload");
+		return { kind: "description", peer: validatePeerDescription(value.peer) };
+	}
+	if (value.kind === "message") {
+		assertExactKeys(value, ["kind", "message"], "message payload");
+		return { kind: "message", message: validateMessage(value.message) };
+	}
+	if (value.kind === "ack") {
+		assertExactKeys(value, ["code", "error", "kind", "retryAfterMs", "status"], "ack payload");
+		const status = value.status;
+		if (
+			status !== "accepted" &&
+			status !== "duplicate" &&
+			status !== "rejected" &&
+			status !== "busy"
+		) {
+			throw new Error("Pi Fleet ack status is invalid");
+		}
+		const code = optionalAckCode(value.code);
+		const error = optionalBoundedString(value.error, "ack error", 1_000);
+		const retryAfterMs = optionalPositiveInteger(value.retryAfterMs, "ack retry delay", 86_400_000);
+		if (status === "accepted" || status === "duplicate") {
+			if (code || error || retryAfterMs !== undefined) {
+				throw new Error("Pi Fleet successful ack contains rejection details");
+			}
+		} else if (!code) {
+			throw new Error("Pi Fleet rejected ack requires an error code");
+		}
+		return {
+			kind: "ack",
+			status,
+			...(code ? { code } : {}),
+			...(error ? { error } : {}),
+			...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+		};
+	}
+	throw new Error("Pi Fleet frame payload kind is invalid");
+}
+
+function normalizeUnsignedEndpointManifest(
+	value: UnsignedEndpointManifest,
+): UnsignedEndpointManifest {
+	if (!isRecord(value)) throw new Error("Pi Fleet endpoint manifest must be an object");
+	assertExactKeys(
+		value,
+		["endpointId", "groupId", "pid", "publishedAt", "sessionId", "socketName"],
+		"endpoint manifest",
+	);
+	return normalizeUnsignedEndpointManifestFields(value);
+}
+
+function normalizeUnsignedEndpointManifestFields(
+	value: Record<string, unknown>,
+): UnsignedEndpointManifest {
+	const groupId = value.groupId;
+	if (typeof groupId !== "string" || !GROUP_ID.test(groupId)) {
+		throw new Error("Pi Fleet endpoint manifest group id is invalid");
+	}
+	const endpointId = requiredEndpointId(value.endpointId, "endpoint manifest id");
+	const socketName = value.socketName;
+	if (typeof socketName !== "string" || socketName !== `${endpointId}.sock`) {
+		throw new Error("Pi Fleet endpoint manifest socket name is invalid");
+	}
+	const pid = finiteInteger(value.pid, "endpoint manifest process id");
+	if (pid < 1) throw new Error("Pi Fleet endpoint manifest process id is invalid");
+	return {
+		groupId,
+		endpointId,
+		sessionId: requiredId(value.sessionId, "endpoint manifest session id"),
+		socketName,
+		pid,
+		publishedAt: finiteInteger(value.publishedAt, "endpoint manifest publication time"),
+	};
+}
+
+function normalizeSignedEndpointManifest(value: unknown): SignedEndpointManifest {
+	if (!isRecord(value)) throw new Error("Pi Fleet endpoint manifest must be an object");
+	assertExactKeys(
+		value,
+		["endpointId", "groupId", "mac", "pid", "publishedAt", "sessionId", "socketName", "version"],
+		"signed endpoint manifest",
+	);
+	if (value.version !== FLEET_PROTOCOL_VERSION) {
+		throw new Error("Pi Fleet endpoint manifest protocol version is unsupported");
+	}
+	const normalized = normalizeUnsignedEndpointManifestFields(value);
+	if (typeof value.mac !== "string" || !BASE64URL_MAC.test(value.mac)) {
+		throw new Error("Pi Fleet endpoint manifest authentication tag is invalid");
+	}
+	return { version: FLEET_PROTOCOL_VERSION, ...normalized, mac: value.mac };
+}
+
+function keyedMac(domain: string, value: object, secret: Uint8Array): string {
 	const key = Buffer.from(secret);
 	if (key.length !== 32) throw new Error("Pi Fleet group secret must be exactly 32 bytes");
-	return createHmac("sha256", key)
-		.update(MAC_DOMAIN)
-		.update(canonicalJson(value))
-		.digest("base64url");
+	return createHmac("sha256", key).update(domain).update(canonicalJson(value)).digest("base64url");
 }
 
 function safeMacEqual(actual: string, expected: string): boolean {
@@ -454,9 +707,24 @@ function requiredId(value: unknown, label: string): string {
 	return value;
 }
 
+function requiredEndpointId(value: unknown, label: string): string {
+	if (typeof value !== "string" || !ENDPOINT_ID.test(value)) {
+		throw new Error(`Pi Fleet ${label} is invalid`);
+	}
+	return value;
+}
+
 function optionalId(value: unknown, label: string): string | undefined {
 	if (value === undefined) return undefined;
 	return requiredId(value, label);
+}
+
+function optionalAckCode(value: unknown): FleetAckCode | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || !ACK_CODES.has(value as FleetAckCode)) {
+		throw new Error("Pi Fleet ack error code is invalid");
+	}
+	return value as FleetAckCode;
 }
 
 function optionalBoundedString(
@@ -471,11 +739,33 @@ function optionalBoundedString(
 	return value;
 }
 
+function optionalPositiveInteger(
+	value: unknown,
+	label: string,
+	maximum: number,
+): number | undefined {
+	if (value === undefined) return undefined;
+	const normalized = finiteInteger(value, label);
+	if (normalized < 1 || normalized > maximum) throw new Error(`Pi Fleet ${label} is invalid`);
+	return normalized;
+}
+
 function finiteInteger(value: unknown, label: string): number {
 	if (typeof value !== "number" || !Number.isSafeInteger(value)) {
 		throw new Error(`Pi Fleet ${label} is invalid`);
 	}
 	return value;
+}
+
+function assertExactKeys(
+	value: Record<string, unknown>,
+	allowed: readonly string[],
+	label: string,
+): void {
+	const allowedKeys = new Set(allowed);
+	for (const key of Object.keys(value)) {
+		if (!allowedKeys.has(key)) throw new Error(`Pi Fleet ${label} contains an unknown field`);
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

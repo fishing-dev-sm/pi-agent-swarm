@@ -112,13 +112,15 @@ posixTest(
 				["second"],
 			);
 			assert.deepEqual(await peers[2]?.request("list"), []);
+			const issuedAt = Date.now();
 			const message: FleetMessage = {
 				id: "msg_process_123456",
 				fromSessionId: "first",
 				toSessionId: "second",
 				mode: "notify",
 				text: "cross-process",
-				issuedAt: Date.now(),
+				issuedAt,
+				expiresAt: issuedAt + 120_000,
 			};
 			assert.deepEqual(await peers[0]?.request("send", { targetSessionId: "second", message }), {
 				accepted: true,

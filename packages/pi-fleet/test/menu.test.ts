@@ -15,8 +15,9 @@ const connected: FleetSnapshot = {
 	invite: `pifleet:v1:${"A".repeat(43)}`,
 	acceptsRequests: false,
 	self: {
-		protocolVersion: 1,
+		protocolVersion: 2,
 		sessionId: "self",
+		endpointId: "a".repeat(24),
 		name: "Main",
 		cwd: "/tmp/main",
 		pid: 123,
@@ -24,8 +25,9 @@ const connected: FleetSnapshot = {
 	},
 	peers: [
 		{
-			protocolVersion: 1,
+			protocolVersion: 2,
 			sessionId: "peer",
+			endpointId: "b".repeat(24),
 			name: "Peer",
 			cwd: "/tmp/peer",
 			pid: 456,
