@@ -4,6 +4,7 @@ export const FLEET_LAUNCH_ENV_KEYS = [
 	"PI_FLEET_INVITE",
 	"PI_FLEET_PARENT_SESSION_ID",
 	"PI_FLEET_LAUNCH_ID",
+	"PI_FLEET_KICKOFF_CAPABILITY",
 	"PI_FLEET_CHILD_NAME",
 	"PI_FLEET_ACCEPT_REQUESTS",
 	"PI_FLEET_MODEL_PROVIDER",
@@ -15,6 +16,7 @@ export interface FleetLaunchEnvelope {
 	invite: string;
 	parentSessionId: string;
 	launchId: string;
+	kickoffCapability: string;
 	childName?: string;
 	acceptsRequests: boolean;
 	model?: { provider: string; id: string; thinkingLevel?: FleetThinkingLevel };
@@ -45,6 +47,7 @@ export function consumeLaunchEnvelope(
 	const invite = bounded(values.PI_FLEET_INVITE, "invite", 256);
 	const parentSessionId = safeId(values.PI_FLEET_PARENT_SESSION_ID, "parent session id");
 	const launchId = safeId(values.PI_FLEET_LAUNCH_ID, "launch id");
+	const kickoffCapability = safeId(values.PI_FLEET_KICKOFF_CAPABILITY, "kickoff capability");
 	const childName = optionalBounded(values.PI_FLEET_CHILD_NAME, "child name", 200);
 	const acceptsRequests = parseBoolean(values.PI_FLEET_ACCEPT_REQUESTS);
 	const provider = optionalBounded(values.PI_FLEET_MODEL_PROVIDER, "model provider", 200);
@@ -63,6 +66,7 @@ export function consumeLaunchEnvelope(
 		invite,
 		parentSessionId,
 		launchId,
+		kickoffCapability,
 		...(childName ? { childName } : {}),
 		acceptsRequests,
 		...(provider && id
@@ -82,6 +86,7 @@ export function launchEnvelopeEnvironment(envelope: FleetLaunchEnvelope): Record
 		PI_FLEET_INVITE: envelope.invite,
 		PI_FLEET_PARENT_SESSION_ID: envelope.parentSessionId,
 		PI_FLEET_LAUNCH_ID: envelope.launchId,
+		PI_FLEET_KICKOFF_CAPABILITY: envelope.kickoffCapability,
 		PI_FLEET_ACCEPT_REQUESTS: envelope.acceptsRequests ? "1" : "0",
 		...(envelope.childName ? { PI_FLEET_CHILD_NAME: envelope.childName } : {}),
 		...(envelope.model

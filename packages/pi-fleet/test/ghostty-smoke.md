@@ -21,8 +21,8 @@ npm run smoke:pi-fleet:ghostty
 1. The script creates an owner-only parent endpoint and ephemeral group.
 2. Native Ghostty AppleScript creates one right-hand split with the package cwd.
 3. The split starts a distinct named Pi session with only the local Pi Fleet extension explicitly loaded.
-4. The child consumes and deletes its launch envelope, joins the group, and reports its launch id.
-5. The parent sends one non-triggering notify and one launch-specific permitted request.
+4. The child consumes and deletes its launch envelope, including the parent-only kickoff capability, joins the group, and reports its launch id.
+5. The parent sends one non-triggering notify and one capability-authorized launch request.
 6. The child uses `session_bus` to send one correlated reply that does not trigger a parent model turn.
 7. The script closes only the terminal id returned by Ghostty and removes its launcher, socket, and manifest.
 

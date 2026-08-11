@@ -81,7 +81,7 @@ export interface FleetAckPayload {
 export type FleetPayload =
 	| { kind: "describe" }
 	| { kind: "description"; peer: FleetPeerDescription }
-	| { kind: "message"; message: FleetMessage }
+	| { kind: "message"; message: FleetMessage; kickoffCapability?: string }
 	| FleetAckPayload;
 
 export interface UnsignedFleetFrame {
@@ -581,8 +581,17 @@ function validatePayload(value: unknown): FleetPayload {
 		return { kind: "description", peer: validatePeerDescription(value.peer) };
 	}
 	if (value.kind === "message") {
-		assertExactKeys(value, ["kind", "message"], "message payload");
-		return { kind: "message", message: validateMessage(value.message) };
+		assertExactKeys(value, ["kickoffCapability", "kind", "message"], "message payload");
+		const kickoffCapability = optionalId(value.kickoffCapability, "kickoff capability");
+		const message = validateMessage(value.message);
+		if (kickoffCapability && message.mode !== "kickoff") {
+			throw new Error("Pi Fleet kickoff capability is invalid for this message mode");
+		}
+		return {
+			kind: "message",
+			message,
+			...(kickoffCapability ? { kickoffCapability } : {}),
+		};
 	}
 	if (value.kind === "ack") {
 		assertExactKeys(value, ["code", "error", "kind", "retryAfterMs", "status"], "ack payload");

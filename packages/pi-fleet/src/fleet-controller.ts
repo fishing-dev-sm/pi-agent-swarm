@@ -34,6 +34,7 @@ import {
 	type FleetDeliveryAck,
 	type FleetDiscoveryIssue,
 	type FleetDiscoveryResult,
+	type FleetSendAuthorization,
 	FleetTransport,
 	type FleetTransportOptions,
 } from "./transport.js";
@@ -53,6 +54,7 @@ export interface FleetTransportPort {
 		targetSessionId: string,
 		message: FleetMessage,
 		signal?: AbortSignal,
+		authorization?: FleetSendAuthorization,
 	): Promise<FleetDeliveryAck>;
 	setAcceptsRequests(value: boolean): void;
 	readonly peerDescription: FleetPeerDescription;
@@ -124,14 +126,17 @@ interface Membership {
 	invite: string;
 	acceptsRequests: boolean;
 	launchId?: string;
+	kickoffCapability?: string;
 	kickoffConsumed: boolean;
 	transport: FleetTransportPort;
+	rollbackLaunch?: object;
 }
 
 interface ReloadHandoff {
 	invite: string;
 	acceptsRequests: boolean;
 	launchId?: string;
+	kickoffCapability?: string;
 	kickoffConsumed: boolean;
 	warningAccepted: boolean;
 	expiresAt: number;
@@ -153,7 +158,7 @@ export function defaultFleetControllerDependencies(pi: ExtensionAPI): FleetContr
 		realpath,
 		isDirectory: async (value) => (await stat(value)).isDirectory(),
 		now: Date.now,
-		randomId: (prefix) => `${prefix}_${randomBytes(12).toString("hex")}`,
+		randomId: (prefix) => `${prefix}_${randomBytes(16).toString("hex")}`,
 		sleep: abortableSleep,
 		launchTimeoutMs: DEFAULT_LAUNCH_TIMEOUT_MS,
 		environment: process.env,
@@ -229,6 +234,7 @@ export class FleetController {
 					ctx,
 					this.controller.signal,
 					envelope?.launchId ?? handoff?.launchId,
+					envelope?.kickoffCapability ?? handoff?.kickoffCapability,
 					handoff?.kickoffConsumed ?? false,
 				),
 			);
@@ -250,6 +256,9 @@ export class FleetController {
 				invite: this.membership.invite,
 				acceptsRequests: this.membership.acceptsRequests,
 				...(this.membership.launchId ? { launchId: this.membership.launchId } : {}),
+				...(this.membership.kickoffCapability
+					? { kickoffCapability: this.membership.kickoffCapability }
+					: {}),
 				kickoffConsumed: this.membership.kickoffConsumed,
 				warningAccepted: this.warningAccepted,
 				expiresAt: this.deps.now() + RELOAD_HANDOFF_TTL_MS,
@@ -287,6 +296,7 @@ export class FleetController {
 		this.assertCurrentContext(ctx);
 		return this.mutateMembership(async () => {
 			this.assertCurrentContext(ctx);
+			if (this.membership) this.membership.rollbackLaunch = undefined;
 			if (!this.membership) {
 				const group = createGroup();
 				await this.startGroupOwned(
@@ -333,6 +343,7 @@ export class FleetController {
 	setAcceptsRequests(ctx: ExtensionContext, value: boolean): void {
 		this.assertCurrentContext(ctx);
 		if (!this.membership) throw new Error("Pi Fleet is not connected");
+		this.membership.rollbackLaunch = undefined;
 		this.membership.acceptsRequests = value;
 		this.membership.transport.setAcceptsRequests(value);
 	}
@@ -341,6 +352,7 @@ export class FleetController {
 		if (!this.activeSessionManager || this.controller.signal.aborted) throw staleError();
 		const membership = this.membership;
 		if (!membership) return { connected: false, acceptsRequests: false, peers: [] };
+		membership.rollbackLaunch = undefined;
 		const owner = this.activeSessionManager;
 		const ownerGeneration = this.generation;
 		const operationSignal = combineSignals(signal, this.controller.signal);
@@ -385,6 +397,7 @@ export class FleetController {
 		this.assertCurrentContext(ctx);
 		const membership = this.membership;
 		if (!membership) throw new Error("Pi Fleet is not connected");
+		membership.rollbackLaunch = undefined;
 		if (Buffer.byteLength(options.text) > MAX_MESSAGE_BYTES) {
 			throw new Error("Pi Fleet message is too large");
 		}
@@ -445,6 +458,7 @@ export class FleetController {
 		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
 		const task = normalizeOptional(input.task, "task", MAX_MESSAGE_BYTES);
 		const launchId = this.deps.randomId("launch");
+		const kickoffCapability = this.deps.randomId("kickoff");
 		const name = normalizeOptional(input.name, "name", 200) ?? `Fleet ${launchId.slice(-6)}`;
 		const ghostty = this.deps.createGhostty();
 		const ghosttyVersion = await ghostty.assertAvailable(operationSignal);
@@ -465,23 +479,25 @@ export class FleetController {
 		);
 		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
 		if (!confirmed) throw abortError("Pi Fleet launch cancelled before creating a split");
-		const autoCreatedGroup = !this.membership;
+		const rollbackOwner = {};
+		let claimedMembership: Membership | undefined;
 		let splitCreated = false;
 		let terminalId: string | undefined;
 		let actualGhosttyVersion = ghosttyVersion;
 		let launcher: PiLauncher | undefined;
 		const statusToken = this.beginStatus(ctx, "fleet: launching Ghostty split");
 		try {
-			if (!this.membership) await this.startNewGroup(ctx, false, operationSignal);
-			const membership = this.membership;
-			const directory = membership?.transport.endpointManifest?.directory;
-			if (!membership || !directory) throw new Error("Pi Fleet runtime directory is unavailable");
+			const membership = await this.claimSpawnMembership(ctx, operationSignal, rollbackOwner);
+			claimedMembership = membership;
+			const directory = membership.transport.endpointManifest?.directory;
+			if (!directory) throw new Error("Pi Fleet runtime directory is unavailable");
 			const invocation = this.deps.resolveInvocation(["--name", name]);
 			launcher = await this.deps.createLauncher(invocation, directory);
 			const envelope: FleetLaunchEnvelope = {
 				invite: membership.invite,
 				parentSessionId: ctx.sessionManager.getSessionId(),
 				launchId,
+				kickoffCapability,
 				childName: name,
 				acceptsRequests: false,
 				...(ctx.model
@@ -527,6 +543,7 @@ export class FleetController {
 					child.sessionId,
 					kickoff,
 					operationSignal,
+					{ kickoffCapability },
 				);
 				if (
 					this.membership !== membership ||
@@ -537,7 +554,7 @@ export class FleetController {
 				}
 				if (!acknowledgement.accepted) {
 					throw new GhosttyLaunchError(
-						`Ghostty created the split, but the child rejected its first task: ${acknowledgement.error ?? "unknown reason"}`,
+						`Ghostty created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
 						true,
 						terminalId,
 					);
@@ -555,7 +572,13 @@ export class FleetController {
 		} catch (error) {
 			const partial =
 				splitCreated || (error instanceof GhosttyLaunchError && error.splitCreated === true);
-			if (autoCreatedGroup && !partial) await this.leaveGroupInternal();
+			if (
+				!partial &&
+				claimedMembership?.rollbackLaunch === rollbackOwner &&
+				this.membership === claimedMembership
+			) {
+				await this.leaveGroupInternal();
+			}
 			if (partial && !(error instanceof GhosttyLaunchError)) {
 				throw new GhosttyLaunchError(
 					`Ghostty created the split, but the child session did not become ready: ${safeError(error)}`,
@@ -565,6 +588,9 @@ export class FleetController {
 			}
 			throw error;
 		} finally {
+			if (claimedMembership?.rollbackLaunch === rollbackOwner) {
+				claimedMembership.rollbackLaunch = undefined;
+			}
 			try {
 				await launcher?.cleanup();
 			} catch (error) {
@@ -591,6 +617,30 @@ export class FleetController {
 		);
 	}
 
+	private claimSpawnMembership(
+		ctx: ExtensionContext,
+		signal: AbortSignal,
+		rollbackOwner: object,
+	): Promise<Membership> {
+		return this.mutateMembership(async () => {
+			this.assertCurrentContext(ctx);
+			if (this.membership) {
+				this.membership.rollbackLaunch = undefined;
+				return this.membership;
+			}
+			const group = createGroup();
+			const membership = await this.startGroupOwned(
+				group,
+				formatInvite(group.secret),
+				false,
+				ctx,
+				signal,
+			);
+			membership.rollbackLaunch = rollbackOwner;
+			return membership;
+		});
+	}
+
 	private async startGroupOwned(
 		group: FleetGroup,
 		invite: string,
@@ -598,11 +648,12 @@ export class FleetController {
 		ctx: ExtensionContext,
 		signal: AbortSignal,
 		launchId?: string,
+		kickoffCapability?: string,
 		kickoffConsumed = false,
-	): Promise<void> {
+	): Promise<Membership> {
 		this.assertCurrentContext(ctx);
 		if (this.membership) {
-			if (this.membership.group.id === group.id) return;
+			if (this.membership.group.id === group.id) return this.membership;
 			throw new Error("Pi Fleet is already connected to another group");
 		}
 		const owner = ctx.sessionManager;
@@ -625,6 +676,7 @@ export class FleetController {
 			peer,
 			...(this.deps.runtimeBaseDirectory ? { baseDirectory: this.deps.runtimeBaseDirectory } : {}),
 			seenMessageIds: recent.messageIds,
+			...(kickoffCapability ? { kickoffCapability } : {}),
 			kickoffConsumed: acceptedKickoff,
 			onMessage: async (message, deliverySignal) => {
 				if (deliverySignal?.aborted || !this.isCurrent(owner, ownerGeneration)) return;
@@ -645,14 +697,17 @@ export class FleetController {
 				await transport.stop();
 				throw staleError();
 			}
-			this.membership = {
+			const membership: Membership = {
 				group,
 				invite,
 				acceptsRequests,
 				...(launchId ? { launchId } : {}),
+				...(kickoffCapability ? { kickoffCapability } : {}),
 				kickoffConsumed: acceptedKickoff,
 				transport,
 			};
+			this.membership = membership;
+			return membership;
 		} catch (error) {
 			await transport.stop();
 			group.secret.fill(0);

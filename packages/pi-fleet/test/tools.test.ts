@@ -159,6 +159,44 @@ test("session_bus lists peers, sends requests, and correlates replies", async ()
 	]);
 });
 
+test("session_bus bounds aggregate peer text and details by UTF-8 bytes", async () => {
+	const mock = createMockPi();
+	const peers: FleetSnapshot["peers"] = Array.from({ length: 64 }, (_, index) => ({
+		protocolVersion: 2,
+		sessionId: `peer-${index}`,
+		endpointId: index.toString(16).padStart(24, "0"),
+		name: `Peer ${index} ${"名".repeat(60)}`,
+		cwd: `/${"界".repeat(1_365)}`,
+		pid: index + 1,
+		acceptsRequests: false,
+	}));
+	const { controller } = stubController({
+		snapshot: async () => ({ connected: true, acceptsRequests: false, peers }),
+	});
+	registerFleetTools(mock.pi, controller);
+	const tool = mock.tools.find(({ name }) => name === "session_bus") as {
+		execute(...args: unknown[]): Promise<{
+			content: Array<{ text: string }>;
+			details: { peers: FleetSnapshot["peers"]; truncated: boolean };
+		}>;
+	};
+	const context = createMockContext({ mode: "tui", hasUI: true });
+	const result = await tool.execute(
+		"call-list-bounded",
+		{ action: "list" },
+		undefined,
+		undefined,
+		context.ctx,
+	);
+	assert.equal(Buffer.byteLength(JSON.stringify(result), "utf8") <= 40 * 1024, true);
+	assert.equal(result.details.peers.length < peers.length, true);
+	assert.equal(result.details.truncated, true);
+	assert.equal(
+		result.details.peers.every((peer) => result.content[0]?.text.includes(peer.sessionId)),
+		true,
+	);
+});
+
 test("session_bus exposes bounded discovery diagnostics without transport secrets", async () => {
 	const mock = createMockPi();
 	const { controller } = stubController({
@@ -190,6 +228,7 @@ test("session_bus exposes bounded discovery diagnostics without transport secret
 
 test("session_bus throws on invalid action fields and rejected acknowledgement", async () => {
 	const mock = createMockPi();
+	const rawAckError = "Target session\u001b]0;owned\u0007 does not allow agent requests\r";
 	const { controller } = stubController({
 		send: async () => ({
 			message: {
@@ -204,7 +243,7 @@ test("session_bus throws on invalid action fields and rejected acknowledgement",
 			acknowledgement: {
 				accepted: false,
 				duplicate: false,
-				error: "Target session does not allow agent requests",
+				error: rawAckError,
 			},
 		}),
 	});
@@ -221,8 +260,14 @@ test("session_bus throws on invalid action fields and rejected acknowledgement",
 			undefined,
 			context.ctx,
 		),
-		/does not allow agent requests/u,
+		(error: unknown) =>
+			error instanceof Error &&
+			/does not allow agent requests/u.test(error.message) &&
+			!error.message.includes("\u001b") &&
+			!error.message.includes("\u0007") &&
+			!error.message.includes("\r"),
 	);
+	assert.equal(rawAckError.includes("\u001b"), true);
 	await assert.rejects(
 		tool.execute(
 			"call-reply",

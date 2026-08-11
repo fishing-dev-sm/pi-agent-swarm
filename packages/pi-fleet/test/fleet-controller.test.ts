@@ -101,6 +101,7 @@ test("child launch envelope is consumed, redacted, named, and joined after warni
 		PI_FLEET_INVITE: formatInvite(createGroup(Buffer.alloc(32, 9)).secret),
 		PI_FLEET_PARENT_SESSION_ID: "parent",
 		PI_FLEET_LAUNCH_ID: "launch_1234567890",
+		PI_FLEET_KICKOFF_CAPABILITY: "kickoff_1234567890abcdef",
 		PI_FLEET_CHILD_NAME: "Child",
 		PI_FLEET_ACCEPT_REQUESTS: "0",
 		PI_FLEET_MODEL_PROVIDER: "provider",
@@ -138,6 +139,7 @@ test("child launch envelope is consumed, redacted, named, and joined after warni
 	assert.equal(deps.transports.length, 1);
 	assert.equal(deps.transports[0]?.started, true);
 	assert.deepEqual(deps.transports[0]?.options.seenMessageIds, ["msg_previous_1234"]);
+	assert.equal(deps.transports[0]?.options.kickoffCapability, "kickoff_1234567890abcdef");
 	assert.equal(deps.transports[0]?.options.kickoffConsumed, true);
 	assert.match(context.notifications[0]?.message ?? "", /experimental/u);
 	assert.equal(mock.sessionName, "Child");

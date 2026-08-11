@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, lstat, open, opendir, rm } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
@@ -72,10 +72,15 @@ export interface FleetTransportOptions {
 	requestTimeoutMs?: number;
 	discoveryDeadlineMs?: number;
 	discoveryProbeTimeoutMs?: number;
+	kickoffCapability?: string;
 	onMessage(message: FleetMessage, signal: AbortSignal): Promise<void> | void;
 	seenMessageIds?: readonly string[];
 	kickoffConsumed?: boolean;
 	now?: () => number;
+}
+
+export interface FleetSendAuthorization {
+	kickoffCapability: string;
 }
 
 export interface FleetDeliveryAck {
@@ -174,6 +179,13 @@ export class FleetTransport {
 		}
 		const endpointId = options.endpointId ?? randomEndpointId();
 		this.peer = validatePeerDescription({ ...options.peer, endpointId });
+		if (
+			(options.kickoffCapability !== undefined &&
+				!SAFE_SESSION_ID.test(options.kickoffCapability)) ||
+			Boolean(this.peer.launchId) !== Boolean(options.kickoffCapability)
+		) {
+			throw new Error("Pi Fleet local kickoff capability is invalid");
+		}
 		this.now = options.now ?? Date.now;
 		this.kickoffConsumed = options.kickoffConsumed === true;
 		for (const id of options.seenMessageIds ?? []) {
@@ -314,6 +326,7 @@ export class FleetTransport {
 		targetSessionId: string,
 		value: FleetMessage,
 		signal?: AbortSignal,
+		authorization?: FleetSendAuthorization,
 	): Promise<FleetDeliveryAck> {
 		this.assertStarted();
 		throwIfAborted(signal, "Pi Fleet message send aborted");
@@ -327,6 +340,12 @@ export class FleetTransport {
 		}
 		if (message.toSessionId !== targetSessionId) {
 			throw new Error("Pi Fleet message target does not match the selected session");
+		}
+		if (authorization && message.mode !== "kickoff") {
+			throw new Error("Pi Fleet kickoff authorization is invalid for this message mode");
+		}
+		if (authorization && !SAFE_SESSION_ID.test(authorization.kickoffCapability)) {
+			throw new Error("Pi Fleet kickoff authorization is invalid");
 		}
 		const manifestResult = await this.readManifests(signal);
 		throwIfAborted(signal, "Pi Fleet message send aborted");
@@ -343,7 +362,15 @@ export class FleetTransport {
 		if (!record) throw new Error(`Pi Fleet session ${targetSessionId} is unavailable`);
 		let response: SignedFleetFrame;
 		try {
-			response = await this.request(record, { kind: "message", message }, signal);
+			response = await this.request(
+				record,
+				{
+					kind: "message",
+					message,
+					...(authorization ? { kickoffCapability: authorization.kickoffCapability } : {}),
+				},
+				signal,
+			);
 		} catch (error) {
 			if (isDeadEndpointError(error)) await this.removeStaleRecord(record);
 			throw error;
@@ -486,7 +513,7 @@ export class FleetTransport {
 				await this.respond(socket, frame, { kind: "ack", status: "duplicate" });
 				return;
 			}
-			const policyError = this.messagePolicyError(message);
+			const policyError = this.messagePolicyError(message, frame.payload.kickoffCapability);
 			if (policyError) {
 				await this.respond(socket, frame, policyError);
 				return;
@@ -537,7 +564,10 @@ export class FleetTransport {
 		}
 	}
 
-	private messagePolicyError(message: FleetMessage): FleetAckPayload | undefined {
+	private messagePolicyError(
+		message: FleetMessage,
+		kickoffCapability?: string,
+	): FleetAckPayload | undefined {
 		if (message.mode === "request" && !this.peer.acceptsRequests) {
 			return {
 				kind: "ack",
@@ -547,7 +577,11 @@ export class FleetTransport {
 			};
 		}
 		if (message.mode === "kickoff") {
-			if (!this.peer.launchId || message.launchId !== this.peer.launchId) {
+			if (
+				!this.peer.launchId ||
+				message.launchId !== this.peer.launchId ||
+				!secretEqual(kickoffCapability, this.options.kickoffCapability)
+			) {
 				return {
 					kind: "ack",
 					status: "rejected",
@@ -880,6 +914,13 @@ function deadlineSignal(
 	const timer = setTimeout(() => controller.abort(abortError(message)), milliseconds);
 	timer.unref();
 	return { signal: controller.signal, dispose: () => clearTimeout(timer) };
+}
+
+function secretEqual(actual: string | undefined, expected: string | undefined): boolean {
+	if (!actual || !expected) return false;
+	const actualBytes = Buffer.from(actual);
+	const expectedBytes = Buffer.from(expected);
+	return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }
 
 function raceWithSignal<T>(task: Promise<T>, signal: AbortSignal, message: string): Promise<T> {

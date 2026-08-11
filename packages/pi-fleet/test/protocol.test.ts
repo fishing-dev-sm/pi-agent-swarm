@@ -190,6 +190,21 @@ test("frames, nested messages, and acknowledgements reject unknown or inconsiste
 		() =>
 			createSignedFrame(
 				{
+					...unsigned,
+					payload: {
+						kind: "message",
+						message: message(),
+						kickoffCapability: "kickoff_capability_1234",
+					},
+				},
+				group.secret,
+			),
+		/message mode/u,
+	);
+	assert.throws(
+		() =>
+			createSignedFrame(
+				{
 					groupId: group.id,
 					requestId: "req_ack_1234567890",
 					targetSessionId: "receiver",

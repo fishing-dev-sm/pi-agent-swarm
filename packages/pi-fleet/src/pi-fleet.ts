@@ -110,7 +110,7 @@ function menuSource(controller: FleetController, ctx: ExtensionCommandContext): 
 			const result = await controller.send(commandContext, options, signal);
 			if (!result.acknowledgement.accepted) {
 				throw new Error(
-					`Target rejected the message: ${result.acknowledgement.error ?? "unknown reason"}`,
+					`Target rejected the message: ${safeTerminalLine(result.acknowledgement.error ?? "unknown reason")}`,
 				);
 			}
 			if (controller.isCurrent(commandContext)) {

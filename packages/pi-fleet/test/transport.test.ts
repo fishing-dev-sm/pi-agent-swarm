@@ -57,6 +57,7 @@ function createTransport(
 		endpointId?: string;
 		acceptsRequests?: boolean;
 		launchId?: string;
+		kickoffCapability?: string;
 		requestTimeoutMs?: number;
 		discoveryDeadlineMs?: number;
 		discoveryProbeTimeoutMs?: number;
@@ -84,6 +85,7 @@ function createTransport(
 		...(options.discoveryProbeTimeoutMs !== undefined
 			? { discoveryProbeTimeoutMs: options.discoveryProbeTimeoutMs }
 			: {}),
+		...(options.kickoffCapability ? { kickoffCapability: options.kickoffCapability } : {}),
 		onMessage,
 	});
 }
@@ -155,6 +157,8 @@ posixTest("launch kickoff is accepted once only for the matching launch id", asy
 		const group = createGroup(Buffer.alloc(32, 9));
 		const received: FleetMessage[] = [];
 		const parent = createTransport(group, baseDirectory, "parent");
+		const inviteHolder = createTransport(group, baseDirectory, "invite-holder");
+		const kickoffCapability = "kickoff_capability_1234567890";
 		const child = createTransport(
 			group,
 			baseDirectory,
@@ -162,26 +166,45 @@ posixTest("launch kickoff is accepted once only for the matching launch id", asy
 			async (value) => {
 				received.push(value);
 			},
-			{ launchId: "launch_1234567890" },
+			{ launchId: "launch_1234567890", kickoffCapability },
 		);
-		await parent.start();
-		await child.start();
+		await Promise.all([parent.start(), inviteHolder.start(), child.start()]);
+		assert.equal(
+			(await inviteHolder.listPeers()).find((peer) => peer.sessionId === "child")?.launchId,
+			"launch_1234567890",
+		);
 		const wrong = {
 			...fleetMessage("msg_kickoff_wrong1", "parent", "child", "kickoff"),
 			launchId: "launch_wrong1234",
 		};
-		assert.equal((await parent.send("child", wrong)).code, "launch_mismatch");
+		assert.equal(
+			(await parent.send("child", wrong, undefined, { kickoffCapability })).code,
+			"launch_mismatch",
+		);
 		const kickoff = {
 			...fleetMessage("msg_kickoff_right1", "parent", "child", "kickoff"),
 			launchId: "launch_1234567890",
 		};
-		assert.equal((await parent.send("child", kickoff)).accepted, true);
+		const unauthorizedKickoff = {
+			...kickoff,
+			id: "msg_kickoff_unauthorized",
+			fromSessionId: "invite-holder",
+		};
+		assert.equal((await inviteHolder.send("child", unauthorizedKickoff)).code, "launch_mismatch");
 		assert.equal(
-			(await parent.send("child", { ...kickoff, id: "msg_kickoff_right2" })).code,
+			(await parent.send("child", kickoff, undefined, { kickoffCapability })).accepted,
+			true,
+		);
+		assert.equal(
+			(
+				await parent.send("child", { ...kickoff, id: "msg_kickoff_right2" }, undefined, {
+					kickoffCapability,
+				})
+			).code,
 			"kickoff_consumed",
 		);
 		assert.equal(received.length, 1);
-		await Promise.all([parent.stop(), child.stop()]);
+		await Promise.all([parent.stop(), inviteHolder.stop(), child.stop()]);
 	});
 });
 
@@ -235,18 +258,36 @@ posixTest("only one concurrent launch kickoff can enter the child session", asyn
 					await deliveryReleased;
 				}
 			},
-			{ launchId: "launch_concurrent1" },
+			{
+				launchId: "launch_concurrent1",
+				kickoffCapability: "kickoff_concurrent_capability",
+			},
 		);
 		await Promise.all([parent.start(), child.start()]);
-		const first = parent.send("concurrent-child", {
-			...fleetMessage("msg_concurrent_first", "concurrent-parent", "concurrent-child", "kickoff"),
-			launchId: "launch_concurrent1",
-		});
+		const first = parent.send(
+			"concurrent-child",
+			{
+				...fleetMessage("msg_concurrent_first", "concurrent-parent", "concurrent-child", "kickoff"),
+				launchId: "launch_concurrent1",
+			},
+			undefined,
+			{ kickoffCapability: "kickoff_concurrent_capability" },
+		);
 		await deliveryStarted;
-		const second = await parent.send("concurrent-child", {
-			...fleetMessage("msg_concurrent_second", "concurrent-parent", "concurrent-child", "kickoff"),
-			launchId: "launch_concurrent1",
-		});
+		const second = await parent.send(
+			"concurrent-child",
+			{
+				...fleetMessage(
+					"msg_concurrent_second",
+					"concurrent-parent",
+					"concurrent-child",
+					"kickoff",
+				),
+				launchId: "launch_concurrent1",
+			},
+			undefined,
+			{ kickoffCapability: "kickoff_concurrent_capability" },
+		);
 		releaseDelivery();
 		const firstAck = await first;
 		await Promise.all([parent.stop(), child.stop()]);

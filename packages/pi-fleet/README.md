@@ -20,7 +20,7 @@ It also lets explicitly joined Pi sessions owned by the same operating-system us
 - Binds every live process instance to a random endpoint id as well as its logical Pi session id.
 - Bounds frames, messages, directory scans, peers, concurrent probes, connections, deliveries, rates, deadlines, diagnostics, and deduplication state.
 - Delivers notify messages without starting a model turn.
-- Starts at most one turn for an allowed request or launch kickoff, while replies do not trigger another automatic turn.
+- Starts at most one turn for an allowed request or parent-capability launch kickoff, while replies do not trigger another automatic turn.
 - Cleans sockets, manifests, connections, launchers, tasks, timers, and status on leave, replacement, reload, and shutdown.
 
 ## 📦 Install
@@ -102,6 +102,7 @@ An accepted acknowledgement means the recipient extension accepted or deduplicat
 It does not prove that a remote agent completed the requested work.
 Rejected and busy acknowledgements use stable codes such as `requests_disabled`, `rate_limited`, `target_busy`, and `delivery_failed`.
 Rate-limited responses may include a bounded retry delay.
+Peer-list text and details share a 40 KiB UTF-8 result budget below Pi's tool-output limit.
 
 ## 💬 Commands
 
@@ -143,7 +144,7 @@ A copied invite is still a reusable bearer secret, so discard it or start a new 
 A short-lived in-process handoff preserves a group across `/reload` for the same `sessionManager` only.
 Membership does not carry into `/new`, `/resume`, or another logical session without a new invite.
 
-The Ghostty child receives an internal launch-only environment envelope.
+The Ghostty child receives an internal launch-only environment envelope containing a parent-only kickoff capability.
 The child consumes and deletes those values during `session_start` before Pi tools can inherit them.
 These values are not user settings or supported environment overrides.
 
@@ -160,6 +161,7 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - Every manifest, request, and response is authenticated for its group and endpoint instance, while frames also bind the logical target, claimed sender, clock window, nonce, and request id.
 - The shared group MAC proves possession of the bearer invite, not a separate cryptographic identity for each peer.
 - A trusted invite holder can claim another session id, so session and endpoint labels are collaboration hints rather than a separate authorization boundary.
+- Launch kickoffs additionally require a random capability shared only through the parent-to-child launch envelope; it is not published through peer discovery or persisted with delivered messages.
 - Two simultaneously live endpoints claiming one session id are omitted from discovery and rejected as an explicit identity conflict.
 - Bearer invites are shown only on the explicit invite screen or direct join input.
 - Pi Fleet does not persist invites, but a recipient can copy and reuse one until every holder discards it or moves to a new group.

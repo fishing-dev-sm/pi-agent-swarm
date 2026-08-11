@@ -9,11 +9,16 @@ import {
 } from "../src/fleet-controller.js";
 import { GhosttyLaunchError } from "../src/ghostty.js";
 import type { FleetMessage, FleetPeerDescription } from "../src/protocol.js";
-import type { FleetDeliveryAck, FleetTransportOptions } from "../src/transport.js";
+import type {
+	FleetDeliveryAck,
+	FleetSendAuthorization,
+	FleetTransportOptions,
+} from "../src/transport.js";
 
 class SpawnTransport implements FleetTransportPort {
 	peers: FleetPeerDescription[] = [];
 	messages: FleetMessage[] = [];
+	authorizations: Array<FleetSendAuthorization | undefined> = [];
 	stopped = 0;
 	beforeList?: () => void;
 	readonly endpointManifest = {
@@ -30,8 +35,14 @@ class SpawnTransport implements FleetTransportPort {
 		this.beforeList?.();
 		return [...this.peers];
 	}
-	async send(_targetSessionId: string, message: FleetMessage): Promise<FleetDeliveryAck> {
+	async send(
+		_targetSessionId: string,
+		message: FleetMessage,
+		_signal?: AbortSignal,
+		authorization?: FleetSendAuthorization,
+	): Promise<FleetDeliveryAck> {
 		this.messages.push(message);
+		this.authorizations.push(authorization);
 		return { accepted: true, duplicate: false };
 	}
 	setAcceptsRequests(value: boolean) {
@@ -150,7 +161,12 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
 	assert.equal(splitCalls[0]?.environment.PI_FLEET_MODEL_ID, "model");
 	assert.equal(splitCalls[0]?.environment.PI_FLEET_THINKING, "high");
 	assert.match(splitCalls[0]?.environment.PI_FLEET_INVITE ?? "", /^pifleet:v1:/u);
+	assert.match(splitCalls[0]?.environment.PI_FLEET_KICKOFF_CAPABILITY ?? "", /^kickoff_/u);
 	assert.equal(transports[0]?.messages[0]?.mode, "kickoff");
+	assert.equal(
+		transports[0]?.authorizations[0]?.kickoffCapability,
+		splitCalls[0]?.environment.PI_FLEET_KICKOFF_CAPABILITY,
+	);
 	assert.equal(transports[0]?.messages[0]?.text, "Check tests");
 	assert.equal(result.sessionId, "child-session");
 	assert.equal(result.kickoffAccepted, true);
@@ -171,6 +187,56 @@ test("spawn reuses an existing group and supports all split directions", async (
 		assert.equal(splitCalls[0]?.direction, direction);
 		await controller.sessionShutdown({ reason: "quit" }, context.ctx);
 	}
+});
+
+test("a concurrent launch failure cannot roll back another launch's automatic group", async () => {
+	const runtime = harness();
+	let ghosttyIndex = 0;
+	let availabilityCount = 0;
+	let releaseAvailability!: () => void;
+	const availabilityReleased = new Promise<void>((resolve) => {
+		releaseAvailability = resolve;
+	});
+	runtime.deps.createGhostty = () => {
+		const index = ghosttyIndex;
+		ghosttyIndex += 1;
+		return {
+			assertAvailable: async () => {
+				availabilityCount += 1;
+				if (availabilityCount === 2) releaseAvailability();
+				await availabilityReleased;
+				return "1.3.1";
+			},
+			spawnSplit: async (options) => {
+				if (index === 1) throw new GhosttyLaunchError("second launch denied", false);
+				const transport = runtime.transports[0];
+				assert.ok(transport);
+				transport.peers.push({
+					protocolVersion: 2,
+					sessionId: "successful-child",
+					endpointId: "c".repeat(24),
+					cwd: options.cwd,
+					pid: 789,
+					launchId: options.environment.PI_FLEET_LAUNCH_ID,
+					acceptsRequests: false,
+				});
+				return { terminalId: "successful-terminal", version: "1.3.1" };
+			},
+		};
+	};
+	const controller = new FleetController(runtime.mock.pi, runtime.deps);
+	const context = createMockContext({ mode: "tui", hasUI: true, confirm: async () => true });
+	await controller.sessionStart({ reason: "startup" }, context.ctx);
+	const results = await Promise.allSettled([
+		controller.spawn(context.ctx, { name: "First" }),
+		controller.spawn(context.ctx, { name: "Second" }),
+	]);
+	assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+	assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+	assert.equal((await controller.snapshot()).connected, true);
+	assert.equal(runtime.transports[0]?.stopped, 0);
+	await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+	assert.equal(runtime.transports[0]?.stopped, 1);
 });
 
 test("spawn rejects an overlong canonical cwd before side effects", async () => {

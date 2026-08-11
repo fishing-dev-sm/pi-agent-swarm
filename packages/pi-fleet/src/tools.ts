@@ -10,6 +10,7 @@ const DIRECTIONS = ["right", "down", "left", "up"] as const;
 const BUS_ACTIONS = ["list", "send", "reply"] as const;
 const SEND_MODES = ["notify", "request"] as const;
 const MAX_LISTED_PEERS = 64;
+const MAX_LIST_RESULT_BYTES = 40 * 1024;
 
 export interface FleetToolController {
 	spawn(
@@ -127,28 +128,7 @@ export function registerFleetTools(pi: ExtensionAPI, controller: FleetToolContro
 						details: { connected: false, peers: [] },
 					};
 				}
-				const peers = snapshot.peers.slice(0, MAX_LISTED_PEERS);
-				const peerText = peers.length
-					? peers
-							.map(
-								(peer) =>
-									`${safeTerminalLine(peer.name ?? peer.sessionId)} · ${safeTerminalLine(peer.sessionId)} · ${safeTerminalLine(peer.cwd)} · requests ${peer.acceptsRequests ? "allowed" : "blocked"}`,
-							)
-							.join("\n")
-					: "Pi Fleet is connected, but no other live sessions were found.";
-				const text = snapshot.discoveryIssues?.length
-					? `${peerText}\nDiscovery reported ${snapshot.discoveryIssues.length} bounded transport issue(s); inspect tool details before retrying.`
-					: peerText;
-				return {
-					content: [{ type: "text", text }],
-					details: {
-						connected: true,
-						peers,
-						truncated: snapshot.peers.length > peers.length,
-						...(snapshot.discoveryIssues ? { discoveryIssues: snapshot.discoveryIssues } : {}),
-						...(snapshot.discoverySaturated ? { discoverySaturated: true } : {}),
-					},
-				};
+				return peerListResult(snapshot);
 			}
 
 			const targetSessionId = required(params.targetSessionId, "targetSessionId");
@@ -171,6 +151,47 @@ export function registerFleetTools(pi: ExtensionAPI, controller: FleetToolContro
 	});
 }
 
+function peerListResult(snapshot: FleetSnapshot) {
+	const peers: FleetSnapshot["peers"] = [];
+	const lines: string[] = [];
+	for (const peer of snapshot.peers.slice(0, MAX_LISTED_PEERS)) {
+		const listedPeer = {
+			...peer,
+			...(peer.name ? { name: safeTerminalLine(peer.name) } : {}),
+			cwd: safeTerminalLine(peer.cwd),
+		};
+		const line = `${listedPeer.name ?? listedPeer.sessionId} · ${listedPeer.sessionId} · ${listedPeer.cwd} · requests ${listedPeer.acceptsRequests ? "allowed" : "blocked"}`;
+		const candidate = createPeerListResult(snapshot, [...peers, listedPeer], [...lines, line]);
+		if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > MAX_LIST_RESULT_BYTES) break;
+		peers.push(listedPeer);
+		lines.push(line);
+	}
+	return createPeerListResult(snapshot, peers, lines);
+}
+
+function createPeerListResult(
+	snapshot: FleetSnapshot,
+	peers: FleetSnapshot["peers"],
+	lines: string[],
+) {
+	const peerText = lines.length
+		? lines.join("\n")
+		: "Pi Fleet is connected, but no other live sessions were found.";
+	const text = snapshot.discoveryIssues?.length
+		? `${peerText}\nDiscovery reported ${snapshot.discoveryIssues.length} bounded transport issue(s); inspect tool details before retrying.`
+		: peerText;
+	return {
+		content: [{ type: "text" as const, text }],
+		details: {
+			connected: true,
+			peers,
+			truncated: snapshot.peers.length > peers.length,
+			...(snapshot.discoveryIssues ? { discoveryIssues: snapshot.discoveryIssues } : {}),
+			...(snapshot.discoverySaturated ? { discoverySaturated: true } : {}),
+		},
+	};
+}
+
 function deliveryResult(
 	result: { message: FleetMessage; acknowledgement: FleetDeliveryAck },
 	targetSessionId: string,
@@ -181,7 +202,7 @@ function deliveryResult(
 			? ` Retry after about ${result.acknowledgement.retryAfterMs}ms.`
 			: "";
 		throw new Error(
-			`Pi Fleet session ${targetSessionId} rejected the message${code}: ${result.acknowledgement.error ?? "unknown reason"}.${retry}`,
+			`Pi Fleet session ${safeTerminalLine(targetSessionId)} rejected the message${code}: ${safeTerminalLine(result.acknowledgement.error ?? "unknown reason")}.${retry}`,
 		);
 	}
 	return {

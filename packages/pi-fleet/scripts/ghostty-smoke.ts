@@ -16,6 +16,7 @@ import { FleetTransport } from "../src/transport.js";
 const packageDirectory = await realpath(process.cwd());
 const parentSessionId = `smoke-parent-${process.pid}`;
 const launchId = `smoke-launch-${process.pid}`;
+const kickoffCapability = `smoke-kickoff-capability-${process.pid}`;
 const group = createGroup();
 let replyResolve!: (message: FleetMessage) => void;
 const replyPromise = new Promise<FleetMessage>((resolve) => {
@@ -65,6 +66,7 @@ try {
 			invite: formatInvite(group.secret),
 			parentSessionId,
 			launchId,
+			kickoffCapability,
 			childName: "Pi Fleet Ghostty smoke child",
 			acceptsRequests: true,
 			...(process.env.PI_PROVIDER && process.env.PI_MODEL
@@ -113,7 +115,9 @@ try {
 		expiresAt: kickoffIssuedAt + DEFAULT_MESSAGE_TTL_MS,
 		launchId,
 	};
-	const kickoffAck = await parent.send(child.sessionId, kickoff);
+	const kickoffAck = await parent.send(child.sessionId, kickoff, undefined, {
+		kickoffCapability,
+	});
 	if (!kickoffAck.accepted) throw new Error(`child rejected smoke kickoff: ${kickoffAck.error}`);
 	const reply = await withTimeout(replyPromise, 90_000, "child session reply timed out");
 	if (reply.replyTo !== kickoffId || reply.text.trim() !== "smoke-reply") {

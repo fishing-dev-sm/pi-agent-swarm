@@ -20,6 +20,7 @@ const transport = new FleetTransport({
 		acceptsRequests: envelope.acceptsRequests,
 	},
 	baseDirectory,
+	kickoffCapability: envelope.kickoffCapability,
 	onMessage: async (message) => {
 		process.stdout.write(`${JSON.stringify({ type: "message", message })}\n`);
 	},

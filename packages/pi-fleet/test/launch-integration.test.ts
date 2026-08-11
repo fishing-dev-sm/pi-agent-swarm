@@ -105,6 +105,7 @@ posixTest(
 				true,
 			);
 			assert.equal(JSON.stringify(childEvents).includes("pifleet:v1"), false);
+			assert.equal(JSON.stringify(childEvents).includes("kickoff_integration1234"), false);
 		} finally {
 			await controller.sessionShutdown({ reason: "quit" }, context.ctx);
 			if (child && child.exitCode === null) {
