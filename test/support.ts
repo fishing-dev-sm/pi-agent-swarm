@@ -25,6 +25,7 @@ type MockPiApi = {
 	registerShortcut(shortcut: KeyId, options: unknown): void;
 	registerFlag(name: string, flag: unknown): void;
 	registerTool(tool: unknown): void;
+	registerMessageRenderer(customType: string, renderer: MockHandler): void;
 	registerEntryRenderer(customType: string, renderer: MockHandler): void;
 	registerProvider(name: string, config: unknown): void;
 	unregisterProvider(name: string): void;
@@ -43,6 +44,8 @@ type MockPiApi = {
 	appendEntry(customType: string, data: unknown): void;
 	sendUserMessage(text: string, messageOptions?: unknown): void;
 	sendMessage(message: unknown, messageOptions?: unknown): void;
+	setSessionName(name: string): void;
+	getSessionName(): string | undefined;
 	setModel(model: unknown): Promise<boolean>;
 };
 
@@ -56,6 +59,7 @@ export function createMockPi(
 ) {
 	const commands = new Map<string, MockCommand>();
 	const shortcuts = new Map<KeyId, { description?: string; handler: MockHandler }>();
+	const messageRenderers = new Map<string, MockHandler>();
 	const entryRenderers = new Map<string, MockHandler>();
 	const flags = new Map<string, MockFlag>();
 	const events = new Map<string, MockHandler[]>();
@@ -96,6 +100,7 @@ export function createMockPi(
 		},
 	};
 	let thinkingLevel = options.thinkingLevel ?? "off";
+	let sessionName: string | undefined;
 	let activeTools = [...(options.activeTools ?? [])];
 	const allTools = options.allTools ?? activeTools.map((name) => builtinTool(name));
 
@@ -111,6 +116,9 @@ export function createMockPi(
 		},
 		registerTool(tool: unknown) {
 			tools.push(tool as MockTool);
+		},
+		registerMessageRenderer(customType: string, renderer: MockHandler) {
+			messageRenderers.set(customType, renderer);
 		},
 		registerEntryRenderer(customType: string, renderer: MockHandler) {
 			entryRenderers.set(customType, renderer);
@@ -158,6 +166,12 @@ export function createMockPi(
 		appendEntry(customType: string, data: unknown) {
 			entries.push({ customType, data });
 		},
+		setSessionName(name: string) {
+			sessionName = name;
+		},
+		getSessionName() {
+			return sessionName;
+		},
 		sendUserMessage(text: string, messageOptions?: unknown) {
 			sentUserMessages.push({ text, options: messageOptions });
 		},
@@ -176,6 +190,7 @@ export function createMockPi(
 		rawPi,
 		commands,
 		shortcuts,
+		messageRenderers,
 		entryRenderers,
 		flags,
 		events,
@@ -191,6 +206,9 @@ export function createMockPi(
 		thinkingLevels,
 		get thinkingLevel() {
 			return thinkingLevel;
+		},
+		get sessionName() {
+			return sessionName;
 		},
 	};
 }
