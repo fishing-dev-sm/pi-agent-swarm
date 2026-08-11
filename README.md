@@ -39,6 +39,7 @@ pi -e npm:@narumitw/pi-goal \
 
 | Package | Use it for | Install |
 | --- | --- | --- |
+| [`pi-codex-compact`](./packages/pi-codex-compact) | Use OpenAI Codex Remote Compaction V2 to persist and replay bounded opaque checkpoints, with `/codex-compact` manual controls and safe Pi-native fallback. | `pi install npm:@narumitw/pi-codex-compact` |
 | [`pi-lsp`](./packages/pi-lsp) | Language-server diagnostics and code actions across JavaScript, TypeScript, Python, Rust, Go, Ruby, C/C++, JVM, .NET, Swift, shell, infrastructure formats, and more. | `pi install npm:@narumitw/pi-lsp` |
 | [`pi-plan-mode`](./packages/pi-plan-mode) | Codex-like, read-only `/plan` collaboration before implementation begins. | `pi install npm:@narumitw/pi-plan-mode` |
 | [`pi-subagents`](./packages/pi-subagents) | Delegate isolated work in single, parallel, or chained execution modes. | `pi install npm:@narumitw/pi-subagents` |
@@ -104,7 +105,6 @@ commands, settings persistence, confirmations, and specialized UI.
 | Package | Use it for | Install |
 | --- | --- | --- |
 | [`pi-analytics`](./packages/pi-analytics) | Review private, content-free local metrics for model calls, skills, tools, response cycles, and observed provider reliability through `/analytics`. | `pi install npm:@narumitw/pi-analytics` |
-| [`pi-codex-compact`](./packages/pi-codex-compact) | Use OpenAI Codex Remote Compaction V2 to persist and replay bounded opaque checkpoints, with `/codex-compact` manual controls and safe Pi-native fallback. | `pi install npm:@narumitw/pi-codex-compact` |
 | [`pi-file-context`](./packages/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it with configurable `F8` or `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
 | [`pi-webui`](./packages/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
 
