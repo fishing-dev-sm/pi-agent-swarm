@@ -107,6 +107,7 @@ commands, settings persistence, confirmations, and specialized UI.
 | [`pi-analytics`](./packages/pi-analytics) | Review private, content-free local metrics for model calls, skills, tools, response cycles, and observed provider reliability through `/analytics`. | `pi install npm:@narumitw/pi-analytics` |
 | [`pi-file-context`](./packages/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it with configurable `F8` or `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
 | [`pi-webui`](./packages/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
+| [`pi-workflow`](./packages/pi-workflow) | Combine `/plan` and `/goal` in one experimental package with an integrated, recoverable Plan-to-Goal handoff. | `pi install npm:@narumitw/pi-workflow` |
 
 ## 🔧 Advanced installation
 
