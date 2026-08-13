@@ -203,3 +203,4 @@ vite.config.ts.timestamp-*
 # Project
 third_party/
 packages/pi-lsp/test/docker/results/raw/
+.pi/agent/
