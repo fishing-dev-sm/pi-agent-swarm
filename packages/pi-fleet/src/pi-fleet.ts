@@ -87,8 +87,9 @@ function menuSource(controller: FleetController, ctx: ExtensionCommandContext): 
 		spawn: async (commandContext, input, signal) => {
 			const result = await controller.spawn(commandContext, input, signal);
 			if (controller.isCurrent(commandContext)) {
+				const terminalLabel = result.terminal === "ghostty" ? "Ghostty" : "tmux";
 				commandContext.ui.notify(
-					`Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in Ghostty.`,
+					`Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in ${terminalLabel}.`,
 					"info",
 				);
 			}

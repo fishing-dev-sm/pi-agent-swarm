@@ -25,8 +25,9 @@ function stubController(overrides: Partial<FleetToolController> = {}) {
 		sessionId: "child",
 		name: "Child",
 		cwd: "/tmp/child",
-		terminalId: "terminal-child",
-		ghosttyVersion: "1.3.1",
+		terminal: "tmux",
+		terminalId: "%42",
+		terminalVersion: "3.4",
 		kickoffAccepted: true,
 	};
 	const controller: FleetToolController = {
@@ -72,6 +73,7 @@ test("registers separate spawn and bus tools with focused schemas", () => {
 		"direction",
 		"name",
 		"task",
+		"terminal",
 	]);
 	assert.deepEqual(Object.keys(bus.parameters.properties ?? {}).sort(), [
 		"action",
@@ -103,8 +105,41 @@ test("session_spawn delegates launch input and returns readiness without secrets
 			input: { direction: "down", task: "check tests", name: "Child", cwd: "/tmp/child" },
 		},
 	]);
-	assert.match(result.content[0]?.text ?? "", /child.*ready/iu);
+	assert.match(result.content[0]?.text ?? "", /child.*ready.*tmux/iu);
 	assert.equal(JSON.stringify(result).includes("pifleet:v1"), false);
+});
+
+test("session_spawn uses Ghostty only when the tool argument explicitly requests it", async () => {
+	const mock = createMockPi();
+	const ghosttyResult: SpawnSessionResult = {
+		sessionId: "ghostty-child",
+		cwd: "/tmp/child",
+		terminal: "ghostty",
+		terminalId: "terminal-child",
+		terminalVersion: "1.3.1",
+		ghosttyVersion: "1.3.1",
+		kickoffAccepted: false,
+	};
+	const { controller, calls } = stubController({
+		spawn: async (_ctx, input) => {
+			calls.push({ kind: "spawn", input });
+			return ghosttyResult;
+		},
+	});
+	registerFleetTools(mock.pi, controller);
+	const tool = mock.tools.find(({ name }) => name === "session_spawn") as {
+		execute(...args: unknown[]): Promise<{ content: Array<{ text: string }>; details: unknown }>;
+	};
+	const context = createMockContext({ mode: "rpc", hasUI: true });
+	const result = await tool.execute(
+		"call-ghostty",
+		{ terminal: "ghostty", direction: "right" },
+		undefined,
+		undefined,
+		context.ctx,
+	);
+	assert.deepEqual(calls, [{ kind: "spawn", input: { terminal: "ghostty", direction: "right" } }]);
+	assert.match(result.content[0]?.text ?? "", /ready.*Ghostty/iu);
 });
 
 test("session_bus lists peers, sends requests, and correlates replies", async () => {

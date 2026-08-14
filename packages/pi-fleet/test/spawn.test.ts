@@ -4,11 +4,11 @@ import { createMockContext, createMockPi } from "../../../test/support.js";
 import {
 	FleetController,
 	type FleetControllerDependencies,
-	type FleetGhosttyPort,
+	type FleetTerminalPort,
 	type FleetTransportPort,
 } from "../src/fleet-controller.js";
-import { GhosttyLaunchError } from "../src/ghostty.js";
 import type { FleetMessage, FleetPeerDescription } from "../src/protocol.js";
+import { TmuxLaunchError } from "../src/tmux.js";
 import type {
 	FleetDeliveryAck,
 	FleetSendAuthorization,
@@ -53,19 +53,49 @@ class SpawnTransport implements FleetTransportPort {
 	}
 }
 
-function harness(options: { ready?: boolean; ghosttyError?: Error } = {}) {
+function harness(options: { ready?: boolean; launchError?: Error } = {}) {
 	const mock = createMockPi();
 	const transports: SpawnTransport[] = [];
-	const splitCalls: Parameters<FleetGhosttyPort["spawnSplit"]>[0][] = [];
+	const tmuxSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
+	const ghosttySplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
 	let now = 1_800_000_000_000;
+	let tmuxCreated = 0;
+	let ghosttyCreated = 0;
 	let launcherCleaned = false;
 	let cleanupStateAtFirstPoll: boolean | undefined;
 	let pendingPeer: FleetPeerDescription | undefined;
+	const spawnSplit = async (
+		terminal: "tmux" | "ghostty",
+		spawnOptions: Parameters<FleetTerminalPort["spawnSplit"]>[0],
+	) => {
+		const calls = terminal === "tmux" ? tmuxSplitCalls : ghosttySplitCalls;
+		calls.push(spawnOptions);
+		if (options.launchError) throw options.launchError;
+		if (options.ready !== false) {
+			pendingPeer = {
+				protocolVersion: 2,
+				sessionId: "child-session",
+				endpointId: "b".repeat(24),
+				name: spawnOptions.environment.PI_FLEET_CHILD_NAME,
+				cwd: spawnOptions.cwd,
+				pid: 456,
+				launchId: spawnOptions.environment.PI_FLEET_LAUNCH_ID,
+				acceptsRequests: false,
+			};
+		}
+		return {
+			terminalId: `${terminal}-child`,
+			version: terminal === "tmux" ? "3.4" : "1.3.1",
+		};
+	};
 	const deps: FleetControllerDependencies = {
 		createTransport: (transportOptions) => {
 			const transport = new SpawnTransport(transportOptions);
 			transport.beforeList = () => {
-				if (splitCalls.length > 0 && cleanupStateAtFirstPoll === undefined) {
+				if (
+					(tmuxSplitCalls.length > 0 || ghosttySplitCalls.length > 0) &&
+					cleanupStateAtFirstPoll === undefined
+				) {
 					cleanupStateAtFirstPoll = launcherCleaned;
 				}
 				if (pendingPeer) {
@@ -76,26 +106,20 @@ function harness(options: { ready?: boolean; ghosttyError?: Error } = {}) {
 			transports.push(transport);
 			return transport;
 		},
-		createGhostty: () => ({
-			assertAvailable: async () => "1.3.1",
-			spawnSplit: async (spawnOptions) => {
-				splitCalls.push(spawnOptions);
-				if (options.ghosttyError) throw options.ghosttyError;
-				if (options.ready !== false) {
-					pendingPeer = {
-						protocolVersion: 2,
-						sessionId: "child-session",
-						endpointId: "b".repeat(24),
-						name: spawnOptions.environment.PI_FLEET_CHILD_NAME,
-						cwd: spawnOptions.cwd,
-						pid: 456,
-						launchId: spawnOptions.environment.PI_FLEET_LAUNCH_ID,
-						acceptsRequests: false,
-					};
-				}
-				return { terminalId: "terminal-child", version: "1.3.1" };
-			},
-		}),
+		createTmux: () => {
+			tmuxCreated += 1;
+			return {
+				assertAvailable: async () => "3.4",
+				spawnSplit: (spawnOptions) => spawnSplit("tmux", spawnOptions),
+			};
+		},
+		createGhostty: () => {
+			ghosttyCreated += 1;
+			return {
+				assertAvailable: async () => "1.3.1",
+				spawnSplit: (spawnOptions) => spawnSplit("ghostty", spawnOptions),
+			};
+		},
 		resolveInvocation: (args) => ({ command: "/bin/pi", args }),
 		createLauncher: async () => ({
 			path: "/tmp/pi-fleet-spawn-test/launch.sh",
@@ -118,7 +142,14 @@ function harness(options: { ready?: boolean; ghosttyError?: Error } = {}) {
 		mock,
 		deps,
 		transports,
-		splitCalls,
+		splitCalls: tmuxSplitCalls,
+		ghosttySplitCalls,
+		get tmuxCreated() {
+			return tmuxCreated;
+		},
+		get ghosttyCreated() {
+			return ghosttyCreated;
+		},
 		get launcherCleaned() {
 			return launcherCleaned;
 		},
@@ -132,15 +163,15 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
 	const runtime = harness();
 	const { mock, deps, transports, splitCalls } = runtime;
 	const controller = new FleetController(mock.pi, deps);
-	let confirmations = 0;
+	const confirmationMessages: string[] = [];
 	const context = createMockContext({
 		mode: "tui",
 		hasUI: true,
 		cwd: "/project",
 		model: { provider: "provider", id: "model" },
 		thinkingLevel: "high",
-		confirm: async () => {
-			confirmations += 1;
+		confirm: async (_title: string, message: string) => {
+			confirmationMessages.push(message);
 			return true;
 		},
 	});
@@ -151,9 +182,15 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
 		task: "Check tests",
 		cwd: "worktree",
 	});
-	assert.equal(confirmations, 2);
+	assert.equal(confirmationMessages.length, 2);
+	assert.equal(
+		confirmationMessages.some((message) => /tmux split: down/u.test(message)),
+		true,
+	);
 	assert.equal(transports.length, 1);
 	assert.equal(splitCalls.length, 1);
+	assert.equal(runtime.tmuxCreated, 1);
+	assert.equal(runtime.ghosttyCreated, 0);
 	assert.equal(splitCalls[0]?.direction, "down");
 	assert.equal(runtime.cleanupStateAtFirstPoll, false);
 	assert.equal(splitCalls[0]?.cwd, "/real/project/worktree");
@@ -169,6 +206,10 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
 	);
 	assert.equal(transports[0]?.messages[0]?.text, "Check tests");
 	assert.equal(result.sessionId, "child-session");
+	assert.equal(result.terminal, "tmux");
+	assert.equal(result.terminalId, "tmux-child");
+	assert.equal(result.terminalVersion, "3.4");
+	assert.equal(result.ghosttyVersion, undefined);
 	assert.equal(result.kickoffAccepted, true);
 	assert.equal(runtime.launcherCleaned, true);
 	assert.equal(mock.sentMessages.length, 0);
@@ -189,17 +230,46 @@ test("spawn reuses an existing group and supports all split directions", async (
 	}
 });
 
+test("spawn uses Ghostty only after explicit selection and reports compatible metadata", async () => {
+	const runtime = harness();
+	const controller = new FleetController(runtime.mock.pi, runtime.deps);
+	const confirmations: string[] = [];
+	const context = createMockContext({
+		mode: "tui",
+		hasUI: true,
+		confirm: async (_title: string, message: string) => {
+			confirmations.push(message);
+			return true;
+		},
+	});
+	await controller.sessionStart({ reason: "startup" }, context.ctx);
+	const result = await controller.spawn(context.ctx, { terminal: "ghostty", direction: "left" });
+	assert.equal(runtime.splitCalls.length, 0);
+	assert.equal(runtime.tmuxCreated, 0);
+	assert.equal(runtime.ghosttyCreated, 1);
+	assert.equal(runtime.ghosttySplitCalls.length, 1);
+	assert.equal(runtime.ghosttySplitCalls[0]?.direction, "left");
+	assert.equal(
+		confirmations.some((message) => /Ghostty split: left/u.test(message)),
+		true,
+	);
+	assert.equal(result.terminal, "ghostty");
+	assert.equal(result.terminalVersion, "1.3.1");
+	assert.equal(result.ghosttyVersion, "1.3.1");
+	await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
 test("a concurrent launch failure cannot roll back another launch's automatic group", async () => {
 	const runtime = harness();
-	let ghosttyIndex = 0;
+	let terminalIndex = 0;
 	let availabilityCount = 0;
 	let releaseAvailability!: () => void;
 	const availabilityReleased = new Promise<void>((resolve) => {
 		releaseAvailability = resolve;
 	});
-	runtime.deps.createGhostty = () => {
-		const index = ghosttyIndex;
-		ghosttyIndex += 1;
+	runtime.deps.createTmux = () => {
+		const index = terminalIndex;
+		terminalIndex += 1;
 		return {
 			assertAvailable: async () => {
 				availabilityCount += 1;
@@ -208,7 +278,7 @@ test("a concurrent launch failure cannot roll back another launch's automatic gr
 				return "1.3.1";
 			},
 			spawnSplit: async (options) => {
-				if (index === 1) throw new GhosttyLaunchError("second launch denied", false);
+				if (index === 1) throw new TmuxLaunchError("second launch denied", false);
 				const transport = runtime.transports[0];
 				assert.ok(transport);
 				transport.peers.push({
@@ -323,7 +393,7 @@ test("session shutdown waits for an in-flight launch to release its launcher", a
 });
 
 test("pre-split failure rolls back an automatic group while readiness timeout keeps it", async () => {
-	const failedHarness = harness({ ghosttyError: new GhosttyLaunchError("denied", false) });
+	const failedHarness = harness({ launchError: new TmuxLaunchError("denied", false) });
 	const failed = new FleetController(failedHarness.mock.pi, failedHarness.deps);
 	const firstContext = createMockContext({ mode: "tui", hasUI: true, confirm: async () => true });
 	await failed.sessionStart({ reason: "startup" }, firstContext.ctx);
@@ -339,7 +409,7 @@ test("pre-split failure rolls back an automatic group while readiness timeout ke
 	await timeout.sessionStart({ reason: "startup" }, secondContext.ctx);
 	await assert.rejects(
 		timeout.spawn(secondContext.ctx, {}),
-		(error: unknown) => error instanceof GhosttyLaunchError && error.splitCreated,
+		(error: unknown) => error instanceof TmuxLaunchError && error.splitCreated,
 	);
 	assert.equal(timeoutHarness.launcherCleaned, true);
 	assert.equal((await timeout.snapshot()).connected, true);

@@ -1,4 +1,6 @@
-export type GhosttySplitDirection = "right" | "down" | "left" | "up";
+import type { TerminalSplitDirection } from "./terminal.js";
+
+export type GhosttySplitDirection = TerminalSplitDirection;
 
 export interface GhosttyCommandResult {
 	stdout: string;
@@ -21,7 +23,7 @@ export interface GhosttyAdapterOptions {
 }
 
 export interface SpawnGhosttySplitOptions {
-	direction: GhosttySplitDirection;
+	direction: TerminalSplitDirection;
 	cwd: string;
 	launcherCommand: string;
 	environment: Readonly<Record<string, string>>;
