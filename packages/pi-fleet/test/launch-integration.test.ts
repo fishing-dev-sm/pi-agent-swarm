@@ -99,23 +99,19 @@ posixTest(
 			assert.equal(result.terminal, "tmux");
 			assert.equal(result.terminalVersion, "3.4");
 			assert.equal(result.kickoffAccepted, true);
-			assert.equal(
-				childEvents.some(
-					(event) =>
-						event.type === "ready" &&
-						event.cwd === canonicalChildCwd &&
-						event.launchId === "launch_integration1234" &&
-						event.environmentConsumed === true,
-				),
-				true,
+			await waitForChildEvent(
+				childEvents,
+				(event) =>
+					event.type === "ready" &&
+					event.cwd === canonicalChildCwd &&
+					event.launchId === "launch_integration1234" &&
+					event.environmentConsumed === true,
 			);
-			assert.equal(
-				childEvents.some(
-					(event) =>
-						event.type === "message" &&
-						(event.message as { text?: string }).text === "Run integration task",
-				),
-				true,
+			await waitForChildEvent(
+				childEvents,
+				(event) =>
+					event.type === "message" &&
+					(event.message as { text?: string }).text === "Run integration task",
 			);
 			assert.equal(JSON.stringify(childEvents).includes("pifleet:v1"), false);
 			assert.equal(JSON.stringify(childEvents).includes("kickoff_integration1234"), false);
@@ -140,6 +136,19 @@ posixTest(
 	},
 	15_000,
 );
+
+async function waitForChildEvent(
+	events: Array<Record<string, unknown>>,
+	predicate: (event: Record<string, unknown>) => boolean,
+) {
+	const deadline = Date.now() + 2_000;
+	while (!events.some(predicate)) {
+		if (Date.now() >= deadline) {
+			assert.fail(`Timed out waiting for child event in ${JSON.stringify(events)}`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
 
 function compiledFixture(name: string): string {
 	const testHarnessPath = join(
