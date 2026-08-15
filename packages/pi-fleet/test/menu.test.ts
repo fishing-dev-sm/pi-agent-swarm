@@ -64,7 +64,7 @@ function source(overrides: Partial<FleetMenuSource> = {}) {
 	return { source: value, calls };
 }
 
-test("main menu keeps New Pi session first when disconnected or connected", () => {
+test("main menu keeps the terminal-neutral New Pi session action first", () => {
 	const first = source({ snapshot: async () => disconnected });
 	const firstMenu = createFleetMenu(first.source);
 	assert.deepEqual(
@@ -73,7 +73,7 @@ test("main menu keeps New Pi session first when disconnected or connected", () =
 				items: ReadonlyArray<{ label: string }>;
 			}
 		).items.map(({ label }) => label),
-		["New Pi session in Ghostty", "Join with invite", "Start local group", "Status", "Help"],
+		["New Pi session…", "Join with invite", "Start local group", "Status", "Help"],
 	);
 	const second = source({ snapshot: async () => connected });
 	const secondMenu = createFleetMenu(second.source);
@@ -84,7 +84,7 @@ test("main menu keeps New Pi session first when disconnected or connected", () =
 			}
 		).items.map(({ label }) => label),
 		[
-			"New Pi session in Ghostty",
+			"New Pi session…",
 			"Send message",
 			"Sessions",
 			"Invite another session",
@@ -96,15 +96,49 @@ test("main menu keeps New Pi session first when disconnected or connected", () =
 	);
 });
 
-test("spawn collects direction and preserves the first task", async () => {
+test("spawn defaults the backend choice to tmux and preserves direction and first task", async () => {
 	const { source: menuSource, calls } = source({ snapshot: async () => disconnected });
 	const { menu } = createFleetMenu(menuSource);
-	const selections = ["Down", undefined];
+	const selections = ["tmux — default", "Down"];
+	const selectionOptions: string[][] = [];
 	const context = createMockContext({
 		mode: "tui",
 		hasUI: true,
-		select: async () => selections.shift(),
+		select: async (_title: string, options: string[]) => {
+			selectionOptions.push(options);
+			return selections.shift();
+		},
 		input: async () => "Investigate tests",
+	});
+	const result = await menu.actions.spawn({
+		ctx: context.ctx,
+		state: disconnected,
+		signal: new AbortController().signal,
+		itemId: "spawn",
+	});
+	assert.deepEqual(result, { kind: "close" });
+	assert.deepEqual(selectionOptions[0], ["tmux — default", "Ghostty — explicit opt-in"]);
+	assert.deepEqual(calls, [
+		{
+			kind: "spawn",
+			input: {
+				terminal: "tmux",
+				direction: "down",
+				task: "Investigate tests",
+			} satisfies SpawnSessionInput,
+		},
+	]);
+});
+
+test("spawn uses Ghostty only after its explicit backend choice", async () => {
+	const { source: menuSource, calls } = source({ snapshot: async () => disconnected });
+	const { menu } = createFleetMenu(menuSource);
+	const selections = ["Ghostty — explicit opt-in", "Left"];
+	const context = createMockContext({
+		mode: "rpc",
+		hasUI: true,
+		select: async () => selections.shift(),
+		input: async () => "",
 	});
 	const result = await menu.actions.spawn({
 		ctx: context.ctx,
@@ -116,9 +150,32 @@ test("spawn collects direction and preserves the first task", async () => {
 	assert.deepEqual(calls, [
 		{
 			kind: "spawn",
-			input: { direction: "down", task: "Investigate tests" } satisfies SpawnSessionInput,
+			input: { terminal: "ghostty", direction: "left" } satisfies SpawnSessionInput,
 		},
 	]);
+});
+
+test("cancelled terminal or direction choices create no spawn side effects", async () => {
+	for (const selections of [[undefined], ["tmux — default", undefined]]) {
+		const { source: menuSource, calls } = source({ snapshot: async () => disconnected });
+		const { menu } = createFleetMenu(menuSource);
+		const pending = [...selections];
+		const context = createMockContext({
+			mode: "tui",
+			hasUI: true,
+			select: async () => pending.shift(),
+		});
+		assert.deepEqual(
+			await menu.actions.spawn({
+				ctx: context.ctx,
+				state: disconnected,
+				signal: new AbortController().signal,
+				itemId: "spawn",
+			}),
+			{ kind: "stay" },
+		);
+		assert.deepEqual(calls, []);
+	}
 });
 
 test("cancelled warning and dialogs create no group, join, or spawn side effects", async () => {

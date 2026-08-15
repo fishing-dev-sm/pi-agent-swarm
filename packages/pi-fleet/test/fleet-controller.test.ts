@@ -61,6 +61,10 @@ function dependencies(
 			transports.push(transport);
 			return transport;
 		},
+		createTmux: () => ({
+			assertAvailable: async () => "3.4",
+			spawnSplit: async () => ({ terminalId: "%42", version: "3.4" }),
+		}),
 		createGhostty: () => ({
 			assertAvailable: async () => "1.3.1",
 			spawnSplit: async () => ({ terminalId: "terminal-child", version: "1.3.1" }),

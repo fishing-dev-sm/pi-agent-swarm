@@ -29,7 +29,7 @@ npm run smoke:pi-fleet:ghostty
 ## Deterministic coverage
 
 - `ghostty.test.ts` covers version gating, all split directions, positional arguments, cancellation, Automation denial, missing focus, and stale ownership.
-- `launch-integration.test.ts` covers a real child process, cwd and launch-id propagation, environment consumption, authenticated readiness, kickoff delivery, and cleanup with a fake Ghostty boundary.
+- `launch-integration.test.ts` covers a real child process, cwd and launch-id propagation, environment consumption, authenticated readiness, kickoff delivery, and cleanup through the default fake tmux boundary.
 - `process-transport.test.ts` covers separate-process discovery, authentication, duplicate suppression, group isolation, and cleanup.
 
 ## Evidence

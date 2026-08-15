@@ -11,7 +11,7 @@ import { FleetTransport } from "../src/transport.js";
 const posixTest = process.platform === "win32" ? test.skip : test;
 
 posixTest(
-	"fake Ghostty launches a real child endpoint, propagates cwd and launch id, and delivers kickoff",
+	"fake tmux launches a real child endpoint, propagates cwd and launch id, and delivers kickoff",
 	async () => {
 		const runtimeBase = await mkdtemp("/tmp/pi-fleet-launch-integration-");
 		const childCwd = await mkdtemp("/tmp/pi-fleet-child-cwd-");
@@ -21,31 +21,38 @@ posixTest(
 		const childEvents: Array<Record<string, unknown>> = [];
 		let buffer = "";
 		const mock = createMockPi();
+		const spawnChild = async (
+			options: Parameters<ReturnType<FleetControllerDependencies["createTmux"]>["spawnSplit"]>[0],
+		) => {
+			child = spawn(process.execPath, [fixturePath], {
+				cwd: options.cwd,
+				env: {
+					...process.env,
+					...options.environment,
+					PI_FLEET_TEST_BASE: runtimeBase,
+				},
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+			child.stdout.on("data", (chunk) => {
+				buffer += String(chunk);
+				while (true) {
+					const newline = buffer.indexOf("\n");
+					if (newline < 0) break;
+					childEvents.push(JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>);
+					buffer = buffer.slice(newline + 1);
+				}
+			});
+			return { terminalId: "fake-pane", version: "3.4" };
+		};
 		const deps: FleetControllerDependencies = {
 			createTransport: (options) => new FleetTransport(options),
+			createTmux: () => ({
+				assertAvailable: async () => "3.4",
+				spawnSplit: spawnChild,
+			}),
 			createGhostty: () => ({
 				assertAvailable: async () => "1.3.1",
-				spawnSplit: async (options) => {
-					child = spawn(process.execPath, [fixturePath], {
-						cwd: options.cwd,
-						env: {
-							...process.env,
-							...options.environment,
-							PI_FLEET_TEST_BASE: runtimeBase,
-						},
-						stdio: ["pipe", "pipe", "pipe"],
-					});
-					child.stdout.on("data", (chunk) => {
-						buffer += String(chunk);
-						while (true) {
-							const newline = buffer.indexOf("\n");
-							if (newline < 0) break;
-							childEvents.push(JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>);
-							buffer = buffer.slice(newline + 1);
-						}
-					});
-					return { terminalId: "fake-terminal", version: "1.3.1" };
-				},
+				spawnSplit: async (options) => ({ ...(await spawnChild(options)), version: "1.3.1" }),
 			}),
 			resolveInvocation: () => ({ command: "/bin/pi", args: [] }),
 			createLauncher: async () => ({
@@ -85,6 +92,8 @@ posixTest(
 			});
 			assert.equal(result.sessionId, "child-process");
 			assert.equal(result.cwd, canonicalChildCwd);
+			assert.equal(result.terminal, "tmux");
+			assert.equal(result.terminalVersion, "3.4");
 			assert.equal(result.kickoffAccepted, true);
 			assert.equal(
 				childEvents.some(

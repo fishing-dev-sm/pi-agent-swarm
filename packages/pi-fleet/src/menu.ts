@@ -33,6 +33,7 @@ type Screen =
 	| "leave";
 type Action = "spawn" | "start" | "join" | "send" | "setPolicy" | "leave";
 
+const TERMINAL_OPTIONS = ["tmux — default", "Ghostty — explicit opt-in"] as const;
 const DIRECTION_OPTIONS = ["Right", "Down", "Left", "Up"] as const;
 
 export function createFleetMenu(source: FleetMenuSource) {
@@ -121,8 +122,8 @@ export function createFleetMenu(source: FleetMenuSource) {
 				title: "Pi Fleet help",
 				lines: [
 					"Pi Fleet is experimental and connects explicit sessions owned by one OS user.",
-					"New Pi session creates a separate process in a Ghostty split and preserves the parent.",
-					"Ghostty automation currently requires macOS and Ghostty 1.3 or newer.",
+					"New Pi session creates a separate process in a terminal split and preserves the parent.",
+					"tmux 3.2 or newer is the default; Ghostty 1.3 on macOS requires explicit selection.",
 					"Notify messages do not start turns, requests require recipient permission, and replies do not auto-trigger another turn.",
 					"Groups, invites, peer state, and message deduplication are ephemeral.",
 				],
@@ -143,10 +144,19 @@ export function createFleetMenu(source: FleetMenuSource) {
 		},
 		actions: {
 			spawn: async ({ ctx, signal }) => {
-				const selected = await ctx.ui.select("Ghostty split direction", [...DIRECTION_OPTIONS], {
-					signal,
-				});
-				if (!selected || signal.aborted) return { kind: "stay" };
+				const terminalChoice = await ctx.ui.select(
+					"Terminal split backend",
+					[...TERMINAL_OPTIONS],
+					{ signal },
+				);
+				if (!terminalChoice || signal.aborted) return { kind: "stay" };
+				const terminal = terminalChoice === TERMINAL_OPTIONS[0] ? "tmux" : "ghostty";
+				const directionChoice = await ctx.ui.select(
+					`${terminal === "tmux" ? "tmux" : "Ghostty"} split direction`,
+					[...DIRECTION_OPTIONS],
+					{ signal },
+				);
+				if (!directionChoice || signal.aborted) return { kind: "stay" };
 				const task = await ctx.ui.input(
 					"Optional first task",
 					"Submit an empty value for an idle child session",
@@ -156,7 +166,8 @@ export function createFleetMenu(source: FleetMenuSource) {
 				await source.spawn(
 					ctx,
 					{
-						direction: selected.toLowerCase() as SpawnSessionInput["direction"],
+						terminal,
+						direction: directionChoice.toLowerCase() as SpawnSessionInput["direction"],
 						...(task ? { task } : {}),
 					},
 					signal,
@@ -271,11 +282,11 @@ function mainScreen(state: FleetSnapshot) {
 		return {
 			kind: "actions" as const,
 			title: "Pi Fleet · disconnected",
-			lines: ["Experimental local Pi sessions with confirmed Ghostty launch and messaging."],
+			lines: ["Experimental local Pi sessions with confirmed terminal launch and messaging."],
 			items: [
 				{
 					id: "spawn",
-					label: "New Pi session in Ghostty",
+					label: "New Pi session…",
 					action: "spawn" as const,
 					busyLabel: "Launching",
 				},
@@ -297,7 +308,7 @@ function mainScreen(state: FleetSnapshot) {
 		items: [
 			{
 				id: "spawn",
-				label: "New Pi session in Ghostty",
+				label: "New Pi session…",
 				action: "spawn" as const,
 				busyLabel: "Launching",
 			},

@@ -7,7 +7,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { GhosttyAdapter, GhosttyLaunchError, type GhosttySplitDirection } from "./ghostty.js";
+import { GhosttyAdapter } from "./ghostty.js";
 import {
 	consumeLaunchEnvelope,
 	type FleetLaunchEnvelope,
@@ -28,8 +28,17 @@ import {
 	MAX_MESSAGE_BYTES,
 	parseInvite,
 } from "./protocol.js";
+import { putReloadHandoff, takeReloadHandoff } from "./reload-handoff.js";
 import { FLEET_MESSAGE_TYPE, type FleetMessageDetails } from "./renderer.js";
+import {
+	createTerminalLaunchError,
+	type FleetTerminal,
+	isTerminalLaunchError,
+	normalizeTerminal,
+	type TerminalSplitDirection,
+} from "./terminal.js";
 import { safeError, safeTerminalLine } from "./text.js";
+import { TmuxAdapter } from "./tmux.js";
 import {
 	type FleetDeliveryAck,
 	type FleetDiscoveryIssue,
@@ -43,7 +52,6 @@ const STATUS_KEY = "fleet";
 const DEFAULT_LAUNCH_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const RELOAD_HANDOFF_TTL_MS = 30_000;
-const RELOAD_HANDOFFS = Symbol.for("@narumitw/pi-fleet/reload-handoffs");
 
 export interface FleetTransportPort {
 	start(signal?: AbortSignal): Promise<void>;
@@ -67,10 +75,12 @@ export interface FleetTransportPort {
 		| undefined;
 }
 
-export interface FleetGhosttyPort {
+export type { FleetTerminal } from "./terminal.js";
+
+export interface FleetTerminalPort {
 	assertAvailable(signal?: AbortSignal): Promise<string>;
 	spawnSplit(options: {
-		direction: GhosttySplitDirection;
+		direction: TerminalSplitDirection;
 		cwd: string;
 		launcherCommand: string;
 		environment: Readonly<Record<string, string>>;
@@ -81,7 +91,8 @@ export interface FleetGhosttyPort {
 
 export interface FleetControllerDependencies {
 	createTransport(options: FleetTransportOptions): FleetTransportPort;
-	createGhostty(): FleetGhosttyPort;
+	createTmux(): FleetTerminalPort;
+	createGhostty(): FleetTerminalPort;
 	resolveInvocation(args: string[]): PiInvocation;
 	createLauncher(invocation: PiInvocation, directory: string): Promise<PiLauncher>;
 	realpath(value: string): Promise<string>;
@@ -106,7 +117,8 @@ export interface FleetSnapshot {
 }
 
 export interface SpawnSessionInput {
-	direction?: GhosttySplitDirection;
+	terminal?: FleetTerminal;
+	direction?: TerminalSplitDirection;
 	task?: string;
 	name?: string;
 	cwd?: string;
@@ -116,8 +128,10 @@ export interface SpawnSessionResult {
 	sessionId: string;
 	name?: string;
 	cwd: string;
+	terminal: FleetTerminal;
 	terminalId: string;
-	ghosttyVersion: string;
+	terminalVersion: string;
+	ghosttyVersion?: string;
 	kickoffAccepted: boolean;
 }
 
@@ -132,19 +146,17 @@ interface Membership {
 	rollbackLaunch?: object;
 }
 
-interface ReloadHandoff {
-	invite: string;
-	acceptsRequests: boolean;
-	launchId?: string;
-	kickoffCapability?: string;
-	kickoffConsumed: boolean;
-	warningAccepted: boolean;
-	expiresAt: number;
-}
-
 export function defaultFleetControllerDependencies(pi: ExtensionAPI): FleetControllerDependencies {
 	return {
 		createTransport: (options) => new FleetTransport(options),
+		createTmux: () =>
+			new TmuxAdapter({
+				execute: async (command, args, options) =>
+					pi.exec(command, args, {
+						...(options.signal ? { signal: options.signal } : {}),
+						timeout: options.timeoutMs,
+					}),
+			}),
 		createGhostty: () =>
 			new GhosttyAdapter({
 				execute: async (command, args, options) =>
@@ -206,7 +218,7 @@ export class FleetController {
 		if (!handoff?.warningAccepted) {
 			this.notify(
 				ctx,
-				"Pi Fleet is experimental. Local protocol, Ghostty automation, and agent-request behavior may change.",
+				"Pi Fleet is experimental. Local protocol, terminal automation, and agent-request behavior may change.",
 				"warning",
 			);
 		}
@@ -280,7 +292,7 @@ export class FleetController {
 		const ownerGeneration = this.generation;
 		const accepted = await ctx.ui.confirm(
 			"Use experimental Pi Fleet?",
-			"Pi Fleet starts local sockets and may launch paid model turns in new Ghostty splits. Its protocol and behavior may change.",
+			"Pi Fleet starts local sockets and may launch paid model turns in new terminal splits. Its protocol and behavior may change.",
 			{ signal: combineSignals(signal, this.controller.signal) },
 		);
 		if (!this.isCurrent(owner, ownerGeneration)) return false;
@@ -453,6 +465,8 @@ export class FleetController {
 		const owner = ctx.sessionManager;
 		const ownerGeneration = this.generation;
 		const operationSignal = combineSignals(signal, this.controller.signal);
+		const terminal = normalizeTerminal(input.terminal);
+		const terminalLabel = terminal === "tmux" ? "tmux" : "Ghostty";
 		const direction = input.direction ?? "right";
 		const cwd = await this.resolveSpawnCwd(ctx, input.cwd);
 		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
@@ -460,8 +474,9 @@ export class FleetController {
 		const launchId = this.deps.randomId("launch");
 		const kickoffCapability = this.deps.randomId("kickoff");
 		const name = normalizeOptional(input.name, "name", 200) ?? `Fleet ${launchId.slice(-6)}`;
-		const ghostty = this.deps.createGhostty();
-		const ghosttyVersion = await ghostty.assertAvailable(operationSignal);
+		const terminalAdapter =
+			terminal === "tmux" ? this.deps.createTmux() : this.deps.createGhostty();
+		const terminalVersion = await terminalAdapter.assertAvailable(operationSignal);
 		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
 		if (!(await this.acceptExperimentalWarning(ctx, operationSignal))) {
 			throw abortError("Pi Fleet launch cancelled before creating a split");
@@ -469,7 +484,7 @@ export class FleetController {
 		const confirmed = await ctx.ui.confirm(
 			"Create a new Pi session?",
 			[
-				`Ghostty split: ${direction}`,
+				`${terminalLabel} split: ${direction}`,
 				`Name: ${safeTerminalLine(name)}`,
 				`Cwd: ${safeTerminalLine(cwd)}`,
 				`Model: ${safeTerminalLine(ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "Pi default")}`,
@@ -483,9 +498,9 @@ export class FleetController {
 		let claimedMembership: Membership | undefined;
 		let splitCreated = false;
 		let terminalId: string | undefined;
-		let actualGhosttyVersion = ghosttyVersion;
+		let actualTerminalVersion = terminalVersion;
 		let launcher: PiLauncher | undefined;
-		const statusToken = this.beginStatus(ctx, "fleet: launching Ghostty split");
+		const statusToken = this.beginStatus(ctx, `fleet: launching ${terminalLabel} split`);
 		try {
 			const membership = await this.claimSpawnMembership(ctx, operationSignal, rollbackOwner);
 			claimedMembership = membership;
@@ -510,7 +525,7 @@ export class FleetController {
 						}
 					: {}),
 			};
-			const split = await ghostty.spawnSplit({
+			const split = await terminalAdapter.spawnSplit({
 				direction,
 				cwd,
 				launcherCommand: launcher.command,
@@ -520,7 +535,7 @@ export class FleetController {
 			});
 			splitCreated = true;
 			terminalId = split.terminalId;
-			actualGhosttyVersion = split.version;
+			actualTerminalVersion = split.version;
 			this.updateStatus(statusToken, "fleet: waiting for child session");
 			const child = await this.waitForChild(launchId, operationSignal, owner, ownerGeneration);
 			let kickoffAccepted = false;
@@ -553,8 +568,9 @@ export class FleetController {
 					throw staleError();
 				}
 				if (!acknowledgement.accepted) {
-					throw new GhosttyLaunchError(
-						`Ghostty created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
+					throw createTerminalLaunchError(
+						terminal,
+						`${terminalLabel} created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
 						true,
 						terminalId,
 					);
@@ -565,13 +581,14 @@ export class FleetController {
 				sessionId: child.sessionId,
 				...(child.name ? { name: child.name } : {}),
 				cwd: child.cwd,
+				terminal,
 				terminalId,
-				ghosttyVersion: actualGhosttyVersion,
+				terminalVersion: actualTerminalVersion,
+				...(terminal === "ghostty" ? { ghosttyVersion: actualTerminalVersion } : {}),
 				kickoffAccepted,
 			};
 		} catch (error) {
-			const partial =
-				splitCreated || (error instanceof GhosttyLaunchError && error.splitCreated === true);
+			const partial = splitCreated || (isTerminalLaunchError(error) && error.splitCreated);
 			if (
 				!partial &&
 				claimedMembership?.rollbackLaunch === rollbackOwner &&
@@ -579,9 +596,10 @@ export class FleetController {
 			) {
 				await this.leaveGroupInternal();
 			}
-			if (partial && !(error instanceof GhosttyLaunchError)) {
-				throw new GhosttyLaunchError(
-					`Ghostty created the split, but the child session did not become ready: ${safeError(error)}`,
+			if (partial && !isTerminalLaunchError(error)) {
+				throw createTerminalLaunchError(
+					terminal,
+					`${terminalLabel} created the split, but the child session did not become ready: ${safeError(error)}`,
 					true,
 					terminalId,
 				);
@@ -881,26 +899,6 @@ export class FleetController {
 			// Notification is best-effort during replacement.
 		}
 	}
-}
-
-function reloadHandoffs(): WeakMap<object, ReloadHandoff> {
-	const root = globalThis as unknown as Record<PropertyKey, unknown>;
-	const existing = root[RELOAD_HANDOFFS];
-	if (existing instanceof WeakMap) return existing as WeakMap<object, ReloadHandoff>;
-	const created = new WeakMap<object, ReloadHandoff>();
-	root[RELOAD_HANDOFFS] = created;
-	return created;
-}
-
-function putReloadHandoff(owner: object, handoff: ReloadHandoff): void {
-	reloadHandoffs().set(owner, handoff);
-}
-
-function takeReloadHandoff(owner: object, now: number): ReloadHandoff | undefined {
-	const store = reloadHandoffs();
-	const value = store.get(owner);
-	store.delete(owner);
-	return value && value.expiresAt >= now ? value : undefined;
 }
 
 function recentFleetState(ctx: ExtensionContext): {

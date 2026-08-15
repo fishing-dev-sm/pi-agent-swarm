@@ -4,14 +4,16 @@
 
 > [!WARNING]
 > Pi Fleet is experimental.
-> Its local protocol, Ghostty automation, tool schemas, and agent-request behavior may change between releases.
+> Its local protocol, terminal automation, tool schemas, and agent-request behavior may change between releases.
 
-`@narumitw/pi-fleet` starts a separate Pi process in a new Ghostty split while preserving the parent session.
+`@narumitw/pi-fleet` starts a separate Pi process in a terminal split while preserving the parent session.
+It defaults to tmux and uses Ghostty only after an explicit selection.
 It also lets explicitly joined Pi sessions owned by the same operating-system user exchange bounded local messages and one-turn requests.
 
 ## ✨ Features
 
-- Starts a distinct Pi process through Ghostty's native macOS AppleScript API.
+- Starts a distinct Pi process in a tmux split by default.
+- Preserves Ghostty's native macOS AppleScript integration as an explicit opt-in backend.
 - Preserves the parent Pi session instead of replacing it with `ctx.newSession()`.
 - Inherits the parent cwd, model identity, thinking level, and an optional first task.
 - Waits for an authenticated child endpoint before reporting that the new session is ready.
@@ -43,7 +45,7 @@ Load the extension from a local checkout:
 pi --no-extensions --no-skills --no-session -e ./packages/pi-fleet
 ```
 
-A child started by Ghostty uses normal Pi extension discovery.
+A child started in either terminal backend uses normal Pi extension discovery.
 Install Pi Fleet persistently before testing the complete split-and-auto-join flow because a parent's temporary `-e` argument is not copied into the child process.
 
 Pi extensions execute with your user permissions.
@@ -57,29 +59,32 @@ Run:
 /fleet
 ```
 
-Choose **New Pi session in Ghostty**.
+Choose **New Pi session…**.
 
-Pi Fleet asks for a split direction and an optional first task.
-It then shows the experimental warning and an exact launch preview before creating any socket or split.
+The backend selector starts on **tmux — default**.
+Choose **Ghostty — explicit opt-in** only when you want Ghostty automation for this launch.
+Pi Fleet then asks for a split direction and an optional first task.
+It shows the experimental warning and an exact launch preview before creating any socket or split.
 
 After confirmation, Pi Fleet:
 
 1. Creates or reuses an ephemeral local group.
-2. Creates the Ghostty split.
+2. Creates the selected terminal split.
 3. Starts a separate named Pi process in the selected cwd.
 4. Waits for the child to authenticate and report readiness.
 5. Sends the optional first task through a launch-specific one-time kickoff.
 
-If Ghostty creates the split but the child does not become ready, Pi Fleet leaves the visible split open and reports a partial launch instead of closing a potentially useful terminal.
+If the terminal creates a split but the child does not become ready, Pi Fleet leaves the visible split open and reports a partial launch instead of closing a potentially useful pane.
 
 ## 🧰 Tools
 
 ### `session_spawn`
 
-Creates a separate Pi process in a Ghostty split.
+Creates a separate Pi process in a terminal split.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
+| `terminal` | No | `tmux` or `ghostty`; defaults to `tmux`. Ghostty requires explicit selection. |
 | `direction` | No | `right`, `down`, `left`, or `up`; defaults to `right`. |
 | `task` | No | First task sent only after authenticated readiness. |
 | `name` | No | Child session display name. |
@@ -87,6 +92,8 @@ Creates a separate Pi process in a Ghostty split.
 
 The tool works only in TUI and RPC modes because it requires user confirmation.
 JSON and print modes fail before creating a group, launcher, or split.
+Successful details include `terminal`, `terminalId`, and `terminalVersion`.
+Ghostty results also retain `ghosttyVersion` for compatibility.
 
 ### `session_bus`
 
@@ -114,12 +121,30 @@ Peer-list text and details share a 40 KiB UTF-8 result budget below Pi's tool-ou
 Unknown and trailing arguments are rejected.
 JSON and print command routes fail before opening sockets or custom UI.
 
-The manager keeps **New Pi session in Ghostty** first whether connected or disconnected.
+The manager keeps **New Pi session…** first whether connected or disconnected.
+Its terminal selector lists tmux first and requires a separate Ghostty choice.
 Connected sessions can send a message, inspect peers, copy the explicit invite, change request policy, inspect status and help, or leave the group.
 
-## 🍎 Ghostty requirements
+## 🖥️ Terminal backends
 
-Split automation currently requires:
+Pi Fleet does not automatically fall back between terminal backends.
+A failed tmux launch never probes or starts Ghostty.
+
+### tmux default
+
+The default backend requires:
+
+- tmux 3.2 or newer.
+- Pi running inside the target tmux pane with `TMUX` and `TMUX_PANE` available.
+
+Pi Fleet targets the current pane, uses `split-window`, passes the cwd and launch-only environment to the new pane, and maps left or up to a split inserted before the current pane.
+
+### Ghostty explicit opt-in
+
+Choose Ghostty in the manager or pass `terminal: "ghostty"` to `session_spawn`.
+Do not select it when the user requested only another Pi session without naming Ghostty.
+
+Ghostty requires:
 
 - macOS.
 - Ghostty 1.3 or newer.
@@ -129,12 +154,13 @@ Split automation currently requires:
 Pi Fleet uses Ghostty's native `split` AppleScript command with positional arguments.
 It does not simulate user key presses or depend on customized keybindings.
 
-The first launch may trigger a macOS Automation permission prompt.
+The first Ghostty launch may trigger a macOS Automation permission prompt.
 If permission is denied, enable it in **System Settings → Privacy & Security → Automation** and retry.
 
 ## ⚙️ Settings and lifecycle
 
 Pi Fleet has no user or project settings file in this release.
+The terminal backend is selected per launch, and an omitted tool argument defaults to tmux.
 
 Group secrets, request permission, peers, readiness state, and deduplication state are held only in memory by Pi Fleet.
 The `pifleet:v1` prefix versions the bearer-invite encoding independently from the version-2 socket protocol.
@@ -144,7 +170,7 @@ A copied invite is still a reusable bearer secret, so discard it or start a new 
 A short-lived in-process handoff preserves a group across `/reload` for the same `sessionManager` only.
 Membership does not carry into `/new`, `/resume`, or another logical session without a new invite.
 
-The Ghostty child receives an internal launch-only environment envelope containing a parent-only kickoff capability.
+The terminal child receives an internal launch-only environment envelope containing a parent-only kickoff capability.
 The child consumes and deletes those values during `session_start` before Pi tools can inherit them.
 These values are not user settings or supported environment overrides.
 
@@ -166,18 +192,21 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - Bearer invites are shown only on the explicit invite screen or direct join input.
 - Pi Fleet does not persist invites, but a recipient can copy and reuse one until every holder discards it or moves to a new group.
 - Invites are not placed in tool output, status, notifications, custom renderers, launch scripts, or model context.
+- Tmux receives launch values through per-pane `-e` arguments and Pi Fleet never publishes them to the tmux global environment.
 - Peer names, paths, messages, model ids, and errors are treated as untrusted terminal text and sanitized only at display boundaries.
-- A same-user process or another privileged Pi extension is outside the security boundary and may inspect process memory or environment.
+- A same-user process or another privileged Pi extension is outside the security boundary and may inspect process arguments, memory, or environment.
 - Pi Fleet provides explicit group separation, not a sandbox against the operating-system user.
 
 ## 🧪 Experimental limitations
 
 - Local same-user communication only.
 - POSIX Unix-socket transport only.
-- Ghostty split automation only on macOS.
+- Tmux spawning requires tmux 3.2 or newer and an active current pane.
+- Ghostty spawning remains an explicit opt-in and works only on macOS.
 - No LAN, internet, cross-user, remote-host, or public-room transport.
 - No daemon, offline mailbox, separate Fleet history, delivery receipt, global ordering, or exactly-once guarantee.
 - No automatic trust or discovery of every Pi process.
+- No automatic backend fallback after launch failure.
 - No automatic close of a split after partial child startup.
 - Protocol version 2 intentionally rejects version-1 manifests and frames while the package remains experimental.
 - One request uses one short-lived socket connection; there is no persistent multiplexed channel or delivery stream.
@@ -201,10 +230,13 @@ packages/pi-fleet/
 │   ├── transport.ts
 │   ├── transport-io.ts
 │   ├── runtime-directory.ts
+│   ├── terminal.ts
+│   ├── tmux.ts
 │   ├── ghostty.ts
 │   ├── pi-invocation.ts
 │   ├── launcher.ts
 │   ├── launch-envelope.ts
+│   ├── reload-handoff.ts
 │   ├── renderer.ts
 │   └── text.ts
 ├── scripts/
@@ -219,7 +251,7 @@ packages/pi-fleet/
 
 ## 🔎 Keywords
 
-Pi extension, Pi Fleet, Pi sessions, Ghostty split, local agents, agent communication, Unix socket, TypeScript.
+Pi extension, Pi Fleet, Pi sessions, tmux split, Ghostty split, local agents, agent communication, Unix socket, TypeScript.
 
 ## 📄 License
 

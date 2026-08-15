@@ -11,6 +11,7 @@
 		"pi",
 		"fleet",
 		"session",
+		"tmux",
 		"ghostty"
 	],
 	"files": [
