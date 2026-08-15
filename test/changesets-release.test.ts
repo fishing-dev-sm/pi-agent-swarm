@@ -26,6 +26,16 @@ test("Changesets bumps selected packages independently and preserves ordinary in
 			private: true,
 			workspaces: ["packages/*"],
 		});
+		writeJson(path.join(fixture, "package-lock.json"), {
+			lockfileVersion: 3,
+			requires: true,
+			packages: {
+				"": {
+					name: "fixture-root",
+					workspaces: ["packages/*"],
+				},
+			},
+		});
 		writeJson(path.join(fixture, "packages/pi-tui-kit/package.json"), {
 			name: "@fixture/pi-tui-kit",
 			version: "0.49.3",
