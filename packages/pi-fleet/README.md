@@ -7,15 +7,16 @@
 > Its local protocol, terminal automation, tool schemas, and agent-request behavior may change between releases.
 
 `@narumitw/pi-fleet` starts a separate Pi process in a terminal split while preserving the parent session.
-It defaults to tmux and uses Ghostty only after an explicit selection.
+Its built-in default remains tmux, and users can select Ghostty or Zellij in Settings or per tool call.
 It also lets explicitly joined Pi sessions owned by the same operating-system user exchange bounded local messages and one-turn requests.
 
 ## ✨ Features
 
-- Starts a distinct Pi process in a tmux split by default.
-- Preserves Ghostty's native macOS AppleScript integration as an explicit opt-in backend.
+- Starts a distinct Pi process with a configurable tmux, Ghostty, or Zellij backend.
+- Keeps tmux as the built-in default while preserving native Ghostty and Zellij integrations.
 - Preserves the parent Pi session instead of replacing it with `ctx.newSession()`.
 - Inherits the parent cwd, model identity, thinking level, and an optional first task.
+- Lets users keep or skip the final launch preview while retaining one-time experimental consent.
 - Waits for an authenticated child endpoint before reporting that the new session is ready.
 - Connects explicit sessions through owner-only Unix sockets and ephemeral bearer invites.
 - Authenticates strict version-2 manifests and frames with separate HMAC-SHA-256 domains.
@@ -45,7 +46,7 @@ Load the extension from a local checkout:
 pi --no-extensions --no-skills --no-session -e ./packages/pi-fleet
 ```
 
-A child started in either terminal backend uses normal Pi extension discovery.
+A child started in any supported terminal backend uses normal Pi extension discovery.
 Install Pi Fleet persistently before testing the complete split-and-auto-join flow because a parent's temporary `-e` argument is not copied into the child process.
 
 Pi extensions execute with your user permissions.
@@ -59,14 +60,13 @@ Run:
 /fleet
 ```
 
-Choose **New Pi session…**.
+Choose **Settings** first when you want to change the default terminal or final launch confirmation.
+Then choose **New Pi session…**.
+Pi Fleet uses the configured terminal and asks for a split direction and an optional first task.
+It always requires one-time experimental consent.
+When **Confirm new sessions** is **Ask**, it also shows an exact launch preview before creating any socket or split.
 
-The backend selector starts on **tmux — default**.
-Choose **Ghostty — explicit opt-in** only when you want Ghostty automation for this launch.
-Pi Fleet then asks for a split direction and an optional first task.
-It shows the experimental warning and an exact launch preview before creating any socket or split.
-
-After confirmation, Pi Fleet:
+After the required consent and optional launch confirmation, Pi Fleet:
 
 1. Creates or reuses an ephemeral local group.
 2. Creates the selected terminal split.
@@ -84,13 +84,13 @@ Creates a separate Pi process in a terminal split.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `terminal` | No | `tmux` or `ghostty`; defaults to `tmux`. Ghostty requires explicit selection. |
+| `terminal` | No | Explicit `tmux`, `ghostty`, or `zellij` override; omission uses the configured default, initially `tmux`. |
 | `direction` | No | `right`, `down`, `left`, or `up`; defaults to `right`. |
 | `task` | No | First task sent only after authenticated readiness. |
 | `name` | No | Child session display name. |
 | `cwd` | No | Existing directory; defaults to the current cwd. |
 
-The tool works only in TUI and RPC modes because it requires user confirmation.
+The tool works only in TUI and RPC modes because Pi Fleet requires experimental consent and may require launch confirmation.
 JSON and print modes fail before creating a group, launcher, or split.
 Successful details include `terminal`, `terminalId`, and `terminalVersion`.
 Ghostty results also retain `ghosttyVersion` for compatibility.
@@ -122,17 +122,17 @@ Unknown and trailing arguments are rejected.
 JSON and print command routes fail before opening sockets or custom UI.
 
 The manager keeps **New Pi session…** first whether connected or disconnected.
-Its terminal selector lists tmux first and requires a separate Ghostty choice.
-Connected sessions can send a message, inspect peers, copy the explicit invite, change request policy, inspect status and help, or leave the group.
+Its **Settings** screen changes the default terminal and final launch confirmation.
+Connected sessions can send a message, inspect peers, copy the explicit invite, change request policy, inspect settings, status, and help, or leave the group.
 
 ## 🖥️ Terminal backends
 
 Pi Fleet does not automatically fall back between terminal backends.
-A failed tmux launch never probes or starts Ghostty.
+A failed launch never probes or starts another configured backend.
 
-### tmux default
+### tmux built-in default
 
-The default backend requires:
+The tmux backend requires:
 
 - tmux 3.2 or newer.
 - Pi running inside the target tmux pane with `TMUX` and `TMUX_PANE` available.
@@ -141,8 +141,7 @@ Pi Fleet targets the current pane, uses `split-window`, passes the cwd and launc
 
 ### Ghostty explicit opt-in
 
-Choose Ghostty in the manager or pass `terminal: "ghostty"` to `session_spawn`.
-Do not select it when the user requested only another Pi session without naming Ghostty.
+Choose Ghostty under **Settings**, or pass `terminal: "ghostty"` to override the configured default for one `session_spawn` call.
 
 Ghostty requires:
 
@@ -157,12 +156,47 @@ It does not simulate user key presses or depend on customized keybindings.
 The first Ghostty launch may trigger a macOS Automation permission prompt.
 If permission is denied, enable it in **System Settings → Privacy & Security → Automation** and retry.
 
+### Zellij explicit opt-in
+
+Choose Zellij under **Settings**, or pass `terminal: "zellij"` to override the configured default for one `session_spawn` call.
+
+Zellij requires:
+
+- Zellij 0.44 or newer.
+- Pi running inside the target Zellij pane with `ZELLIJ` and `ZELLIJ_PANE_ID` available.
+
+Pi Fleet uses `zellij action new-pane` with a private self-deleting launcher path and validates the returned `terminal_<id>` pane identity.
+Right and down use Zellij's native split directions.
+Left and up create the corresponding native pane and then use pane-targeted `move-pane` placement.
+A placement failure is a partial launch because the child pane may already be running and remains visible.
+
 ## ⚙️ Settings and lifecycle
 
-Pi Fleet has no user or project settings file in this release.
-The terminal backend is selected per launch, and an omitted tool argument defaults to tmux.
+Open `/fleet` and choose **Settings**.
+Pi Fleet stores user settings in `<getAgentDir()>/pi-fleet.json`, normally `~/.pi/agent/pi-fleet.json`:
 
-Group secrets, request permission, peers, readiness state, and deduplication state are held only in memory by Pi Fleet.
+```json
+{
+  "defaultTerminal": "tmux",
+  "confirmSessionLaunch": true
+}
+```
+
+| Setting | Values | Default | Behavior |
+| --- | --- | --- | --- |
+| `defaultTerminal` | `tmux`, `ghostty`, `zellij` | `tmux` | Used by menu launches and by `session_spawn` when `terminal` is omitted. |
+| `confirmSessionLaunch` | `true`, `false` | `true` | Shows or skips the final launch preview for menu and tool launches. |
+
+An explicit `session_spawn.terminal` value overrides `defaultTerminal` for that launch.
+Disabling launch confirmation does not disable one-time experimental consent.
+Pi Fleet does not read project overrides or extension-specific environment variables.
+A missing file keeps defaults without creating the file, while each Settings change saves immediately.
+Writes preserve unknown fields, serialize within one Pi process, and publish atomically through a private temporary file and rename.
+Malformed or invalid files are reported and never overwritten by the Settings screen.
+Separately running Pi processes do not share a settings lock, so avoid changing this file concurrently from multiple sessions.
+A Settings change applies immediately in the current process; other running Pi processes reload it on their next session start or `/reload`.
+
+Group secrets, request permission, peers, readiness state, and deduplication state stay in memory except for the short-lived private Zellij launch copy described below.
 The `pifleet:v1` prefix versions the bearer-invite encoding independently from the version-2 socket protocol.
 Version-2 messages normally expire after two minutes and cannot declare a lifetime longer than five minutes.
 Accepted message ids remain deduplicated for ten minutes, so their retry window outlives their valid delivery window.
@@ -190,11 +224,12 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - Launch kickoffs additionally require a random capability shared only through the parent-to-child launch envelope; it is not published through peer discovery or persisted with delivered messages.
 - Two simultaneously live endpoints claiming one session id are omitted from discovery and rejected as an explicit identity conflict.
 - Bearer invites are shown only on the explicit invite screen or direct join input.
-- Pi Fleet does not persist invites, but a recipient can copy and reuse one until every holder discards it or moves to a new group.
-- Invites are not placed in tool output, status, notifications, custom renderers, launch scripts, or model context.
+- Pi Fleet does not retain invites as durable settings or group state, but a recipient can copy and reuse one until every holder discards it or moves to a new group.
+- Invites are not placed in tool output, status, notifications, custom renderers, or model context.
 - Tmux receives launch values through per-pane `-e` arguments and Pi Fleet never publishes them to the tmux global environment.
+- Zellij receives only a launcher path, while launch values briefly exist in a private `0700` launcher that unlinks itself before starting Pi so Zellij command metadata cannot retain them.
 - Peer names, paths, messages, model ids, and errors are treated as untrusted terminal text and sanitized only at display boundaries.
-- A same-user process or another privileged Pi extension is outside the security boundary and may inspect process arguments, memory, or environment.
+- A same-user process or another privileged Pi extension is outside the security boundary and may inspect process arguments, private runtime files, memory, or environment.
 - Pi Fleet provides explicit group separation, not a sandbox against the operating-system user.
 
 ## 🧪 Experimental limitations
@@ -203,6 +238,7 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - POSIX Unix-socket transport only.
 - Tmux spawning requires tmux 3.2 or newer and an active current pane.
 - Ghostty spawning remains an explicit opt-in and works only on macOS.
+- Zellij spawning remains an explicit opt-in and requires Zellij 0.44 or newer in an active pane.
 - No LAN, internet, cross-user, remote-host, or public-room transport.
 - No daemon, offline mailbox, separate Fleet history, delivery receipt, global ordering, or exactly-once guarantee.
 - No automatic trust or discovery of every Pi process.
@@ -212,7 +248,7 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - One request uses one short-lived socket connection; there is no persistent multiplexed channel or delivery stream.
 - Server connections use an absolute request deadline rather than an activity-reset timeout, and at most eight message deliveries run concurrently.
 - Per-sender and endpoint-wide rate limits are fixed windows, so a busy response can require waiting before retrying.
-- Old orphan temporary files and sockets are removed after a grace period, while empty private group directories may remain to avoid cross-process startup races.
+- Old orphan temporary files, private launchers, and sockets are removed after a grace period, while empty private group directories may remain to avoid cross-process startup races.
 - No tab, window, resize, focus-navigation, or general layout manager.
 - Multiple Pi sessions can still race while editing the same workspace.
 
@@ -231,8 +267,10 @@ packages/pi-fleet/
 │   ├── transport-io.ts
 │   ├── runtime-directory.ts
 │   ├── terminal.ts
+│   ├── settings.ts
 │   ├── tmux.ts
 │   ├── ghostty.ts
+│   ├── zellij.ts
 │   ├── pi-invocation.ts
 │   ├── launcher.ts
 │   ├── launch-envelope.ts
@@ -251,7 +289,7 @@ packages/pi-fleet/
 
 ## 🔎 Keywords
 
-Pi extension, Pi Fleet, Pi sessions, tmux split, Ghostty split, local agents, agent communication, Unix socket, TypeScript.
+Pi extension, Pi Fleet, Pi sessions, tmux split, Ghostty split, Zellij pane, local agents, agent communication, Unix socket, TypeScript.
 
 ## 📄 License
 

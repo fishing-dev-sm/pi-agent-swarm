@@ -12,6 +12,7 @@ export interface PiLauncher {
 export async function createPiLauncher(
 	invocation: PiInvocation,
 	directory: string,
+	embeddedEnvironment?: Readonly<Record<string, string>>,
 ): Promise<PiLauncher> {
 	await assertPrivateDirectory(directory);
 	const launcherPath = join(directory, `launch-${randomBytes(8).toString("hex")}.sh`);
@@ -20,14 +21,26 @@ export async function createPiLauncher(
 	for (const value of command) {
 		if (value.includes("\0")) throw new Error("Pi Fleet launcher argument contains a NUL byte");
 	}
-	const source = `#!/bin/sh\nexec ${command.map(quoteShell).join(" ")}\n`;
+	const environment = validateEmbeddedEnvironment(embeddedEnvironment);
+	const setup = environment.length
+		? [
+				`rm -f ${quoteShell(launcherPath)} || exit 1`,
+				...environment.map(([key, value]) => `export ${key}=${quoteShell(value)}`),
+			]
+		: [];
+	const source = ["#!/bin/sh", ...setup, `exec ${command.map(quoteShell).join(" ")}`, ""].join(
+		"\n",
+	);
 	const handle = await open(launcherPath, "wx", 0o700);
 	try {
 		await handle.writeFile(source, "utf8");
 		await handle.sync();
 		await handle.chmod(0o700);
-	} finally {
 		await handle.close();
+	} catch (error) {
+		await handle.close().catch(() => undefined);
+		await rm(launcherPath, { force: true }).catch(() => undefined);
+		throw error;
 	}
 	let cleaned = false;
 	return {
@@ -40,6 +53,23 @@ export async function createPiLauncher(
 			await rm(launcherPath, { force: true });
 		},
 	};
+}
+
+function validateEmbeddedEnvironment(
+	environment: Readonly<Record<string, string>> | undefined,
+): Array<readonly [string, string]> {
+	const entries = Object.entries(environment ?? {}).sort(([left], [right]) =>
+		left.localeCompare(right),
+	);
+	let bytes = 0;
+	for (const [key, value] of entries) {
+		if (!/^[A-Z][A-Z0-9_]{0,63}$/u.test(key) || value.includes("\0")) {
+			throw new Error("Pi Fleet launch environment is invalid");
+		}
+		bytes += Buffer.byteLength(key) + Buffer.byteLength(value) + 1;
+	}
+	if (bytes > 24 * 1024) throw new Error("Pi Fleet launch environment is too large");
+	return entries;
 }
 
 function quoteShell(value: string): string {

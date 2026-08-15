@@ -18,6 +18,20 @@ export function safeError(error: unknown): string {
 	return safeTerminalLine(error instanceof Error ? error.message : String(error));
 }
 
+export function normalizeOptionalText(
+	value: string | undefined,
+	label: string,
+	maxBytes: number,
+): string | undefined {
+	if (value === undefined) return undefined;
+	const normalized = value.trim();
+	if (!normalized) return undefined;
+	if (normalized.includes("\0") || Buffer.byteLength(normalized) > maxBytes) {
+		throw new Error(`Pi Fleet ${label} is invalid or too large`);
+	}
+	return normalized;
+}
+
 function isTerminalControl(codePoint: number): boolean {
 	return (
 		(codePoint >= 0x00 && codePoint <= 0x08) ||

@@ -12,7 +12,8 @@
 		"fleet",
 		"session",
 		"tmux",
-		"ghostty"
+		"ghostty",
+		"zellij"
 	],
 	"files": [
 		"src",

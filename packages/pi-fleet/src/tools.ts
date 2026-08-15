@@ -3,10 +3,11 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import type { FleetSnapshot, SpawnSessionInput, SpawnSessionResult } from "./fleet-controller.js";
 import type { FleetMessage } from "./protocol.js";
+import { terminalLabel } from "./terminal.js";
 import { safeTerminalLine } from "./text.js";
 import type { FleetDeliveryAck } from "./transport.js";
 
-const TERMINALS = ["tmux", "ghostty"] as const;
+const TERMINALS = ["tmux", "ghostty", "zellij"] as const;
 const DIRECTIONS = ["right", "down", "left", "up"] as const;
 const BUS_ACTIONS = ["list", "send", "reply"] as const;
 const SEND_MODES = ["notify", "request"] as const;
@@ -36,7 +37,8 @@ const spawnSchema = Type.Object(
 	{
 		terminal: Type.Optional(
 			StringEnum(TERMINALS, {
-				description: "Terminal split backend; defaults to tmux, while ghostty is explicit opt-in",
+				description:
+					"Explicit terminal split backend override; omission uses the configured Pi Fleet default",
 			}),
 		),
 		direction: Type.Optional(StringEnum(DIRECTIONS, { description: "Terminal split direction" })),
@@ -83,33 +85,35 @@ export function registerFleetTools(pi: ExtensionAPI, controller: FleetToolContro
 		name: "session_spawn",
 		label: "Spawn Pi Session",
 		description:
-			"Create a separate Pi process in a terminal split, wait for authenticated readiness, and optionally send its first task. tmux is the default backend; Ghostty is used only when terminal is explicitly ghostty. This preserves the current session and requires user confirmation.",
-		promptSnippet: "Start a collaborating Pi session in a confirmed terminal split",
+			"Create a separate Pi process in a terminal split, wait for authenticated readiness, and optionally send its first task. An omitted terminal uses the configured Pi Fleet default, while an explicit terminal overrides it. This preserves the current session and follows the configured launch-confirmation policy.",
+		promptSnippet: "Start a collaborating Pi session in a configured terminal split",
 		promptGuidelines: [
 			"Use session_spawn only when the user explicitly asks to open or start another Pi session.",
-			"Use session_spawn with terminal ghostty only when the user explicitly requests Ghostty; otherwise omit terminal to use tmux.",
+			"Omit session_spawn terminal to use the user's configured Pi Fleet default; pass terminal only when the user explicitly requests a backend override.",
 			"Do not claim the child is ready until session_spawn returns authenticated readiness metadata.",
 		],
 		parameters: spawnSchema,
 		executionMode: "sequential",
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const requestedTerminal = params.terminal === "ghostty" ? "Ghostty" : "tmux";
+			const requestedTerminal = params.terminal
+				? terminalLabel(params.terminal)
+				: "the configured terminal";
 			onUpdate?.({
 				content: [
 					{
 						type: "text",
-						text: `Preparing a confirmed ${requestedTerminal} Pi session launch…`,
+						text: `Preparing a Pi session launch using ${requestedTerminal}…`,
 					},
 				],
-				details: { phase: "preparing", terminal: params.terminal ?? "tmux" },
+				details: { phase: "preparing", terminal: params.terminal ?? "configured" },
 			});
 			const result = await controller.spawn(ctx, params, signal);
-			const terminalLabel = result.terminal === "ghostty" ? "Ghostty" : "tmux";
+			const resultTerminalLabel = terminalLabel(result.terminal);
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in ${terminalLabel} (${safeTerminalLine(result.cwd)}).${result.kickoffAccepted ? " Its first task was accepted." : " No first task was sent."}`,
+						text: `Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in ${resultTerminalLabel} (${safeTerminalLine(result.cwd)}).${result.kickoffAccepted ? " Its first task was accepted." : " No first task was sent."}`,
 					},
 				],
 				details: result,

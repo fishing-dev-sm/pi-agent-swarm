@@ -7,7 +7,6 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { GhosttyAdapter } from "./ghostty.js";
 import {
 	consumeLaunchEnvelope,
 	type FleetLaunchEnvelope,
@@ -30,15 +29,18 @@ import {
 } from "./protocol.js";
 import { putReloadHandoff, takeReloadHandoff } from "./reload-handoff.js";
 import { FLEET_MESSAGE_TYPE, type FleetMessageDetails } from "./renderer.js";
+import { createInMemoryFleetSettingsRuntime, type FleetSettingsRuntime } from "./settings.js";
 import {
+	createDefaultTerminalPort,
 	createTerminalLaunchError,
 	type FleetTerminal,
+	type FleetTerminalPort,
 	isTerminalLaunchError,
 	normalizeTerminal,
 	type TerminalSplitDirection,
+	terminalLabel,
 } from "./terminal.js";
-import { safeError, safeTerminalLine } from "./text.js";
-import { TmuxAdapter } from "./tmux.js";
+import { normalizeOptionalText, safeError, safeTerminalLine } from "./text.js";
 import {
 	type FleetDeliveryAck,
 	type FleetDiscoveryIssue,
@@ -75,26 +77,19 @@ export interface FleetTransportPort {
 		| undefined;
 }
 
-export type { FleetTerminal } from "./terminal.js";
-
-export interface FleetTerminalPort {
-	assertAvailable(signal?: AbortSignal): Promise<string>;
-	spawnSplit(options: {
-		direction: TerminalSplitDirection;
-		cwd: string;
-		launcherCommand: string;
-		environment: Readonly<Record<string, string>>;
-		signal?: AbortSignal;
-		isCurrent(): boolean;
-	}): Promise<{ terminalId: string; version: string }>;
-}
+export type { FleetTerminal, FleetTerminalPort } from "./terminal.js";
 
 export interface FleetControllerDependencies {
 	createTransport(options: FleetTransportOptions): FleetTransportPort;
 	createTmux(): FleetTerminalPort;
 	createGhostty(): FleetTerminalPort;
+	createZellij(): FleetTerminalPort;
 	resolveInvocation(args: string[]): PiInvocation;
-	createLauncher(invocation: PiInvocation, directory: string): Promise<PiLauncher>;
+	createLauncher(
+		invocation: PiInvocation,
+		directory: string,
+		embeddedEnvironment?: Readonly<Record<string, string>>,
+	): Promise<PiLauncher>;
 	realpath(value: string): Promise<string>;
 	isDirectory(value: string): Promise<boolean>;
 	now(): number;
@@ -149,24 +144,12 @@ interface Membership {
 export function defaultFleetControllerDependencies(pi: ExtensionAPI): FleetControllerDependencies {
 	return {
 		createTransport: (options) => new FleetTransport(options),
-		createTmux: () =>
-			new TmuxAdapter({
-				execute: async (command, args, options) =>
-					pi.exec(command, args, {
-						...(options.signal ? { signal: options.signal } : {}),
-						timeout: options.timeoutMs,
-					}),
-			}),
-		createGhostty: () =>
-			new GhosttyAdapter({
-				execute: async (command, args, options) =>
-					pi.exec(command, args, {
-						...(options.signal ? { signal: options.signal } : {}),
-						timeout: options.timeoutMs,
-					}),
-			}),
+		createTmux: () => createDefaultTerminalPort(pi, "tmux"),
+		createGhostty: () => createDefaultTerminalPort(pi, "ghostty"),
+		createZellij: () => createDefaultTerminalPort(pi, "zellij"),
 		resolveInvocation: (args) => resolvePiInvocation(args),
-		createLauncher: (invocation, directory) => createPiLauncher(invocation, directory),
+		createLauncher: (invocation, directory, embeddedEnvironment) =>
+			createPiLauncher(invocation, directory, embeddedEnvironment),
 		realpath,
 		isDirectory: async (value) => (await stat(value)).isDirectory(),
 		now: Date.now,
@@ -190,6 +173,7 @@ export class FleetController {
 	constructor(
 		private readonly pi: ExtensionAPI,
 		private readonly deps: FleetControllerDependencies = defaultFleetControllerDependencies(pi),
+		private readonly settings: FleetSettingsRuntime = createInMemoryFleetSettingsRuntime(),
 	) {}
 
 	async sessionStart(
@@ -211,6 +195,14 @@ export class FleetController {
 			envelope = consumeLaunchEnvelope(this.deps.environment);
 		} catch (error) {
 			this.notify(ctx, `Pi Fleet ignored an invalid launch envelope: ${safeError(error)}`, "error");
+		}
+		try {
+			const settings = await this.settings.reload(this.controller.signal);
+			if (!this.isCurrent(owner, ownerGeneration)) return;
+			if (settings.issue) this.notify(ctx, settings.issue.message, "warning");
+		} catch (error) {
+			if (!this.isCurrent(owner, ownerGeneration)) return;
+			this.notify(ctx, `Pi Fleet could not load settings: ${safeError(error)}`, "error");
 		}
 		const handoff =
 			event.reason === "reload" ? takeReloadHandoff(owner, this.deps.now()) : undefined;
@@ -276,8 +268,12 @@ export class FleetController {
 				expiresAt: this.deps.now() + RELOAD_HANDOFF_TTL_MS,
 			});
 		}
-		await this.cleanupActive(event.reason === "reload");
-		this.clearStatus(ctx);
+		try {
+			await this.cleanupActive(event.reason === "reload");
+		} finally {
+			this.clearStatus(ctx);
+			await this.settings.flush();
+		}
 	}
 
 	get sessionSignal(): AbortSignal {
@@ -465,49 +461,57 @@ export class FleetController {
 		const owner = ctx.sessionManager;
 		const ownerGeneration = this.generation;
 		const operationSignal = combineSignals(signal, this.controller.signal);
-		const terminal = normalizeTerminal(input.terminal);
-		const terminalLabel = terminal === "tmux" ? "tmux" : "Ghostty";
+		await this.settings.flush();
+		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
+		const launchSettings = this.settings.get().settings;
+		const terminal = normalizeTerminal(input.terminal ?? launchSettings.defaultTerminal);
+		const selectedTerminalLabel = terminalLabel(terminal);
 		const direction = input.direction ?? "right";
 		const cwd = await this.resolveSpawnCwd(ctx, input.cwd);
 		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
-		const task = normalizeOptional(input.task, "task", MAX_MESSAGE_BYTES);
+		const task = normalizeOptionalText(input.task, "task", MAX_MESSAGE_BYTES);
 		const launchId = this.deps.randomId("launch");
 		const kickoffCapability = this.deps.randomId("kickoff");
-		const name = normalizeOptional(input.name, "name", 200) ?? `Fleet ${launchId.slice(-6)}`;
+		const name = normalizeOptionalText(input.name, "name", 200) ?? `Fleet ${launchId.slice(-6)}`;
 		const terminalAdapter =
-			terminal === "tmux" ? this.deps.createTmux() : this.deps.createGhostty();
+			terminal === "tmux"
+				? this.deps.createTmux()
+				: terminal === "ghostty"
+					? this.deps.createGhostty()
+					: this.deps.createZellij();
 		const terminalVersion = await terminalAdapter.assertAvailable(operationSignal);
 		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
 		if (!(await this.acceptExperimentalWarning(ctx, operationSignal))) {
 			throw abortError("Pi Fleet launch cancelled before creating a split");
 		}
-		const confirmed = await ctx.ui.confirm(
-			"Create a new Pi session?",
-			[
-				`${terminalLabel} split: ${direction}`,
-				`Name: ${safeTerminalLine(name)}`,
-				`Cwd: ${safeTerminalLine(cwd)}`,
-				`Model: ${safeTerminalLine(ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "Pi default")}`,
-				"The child may spend model tokens and edit the same workspace concurrently.",
-			].join("\n"),
-			{ signal: operationSignal },
-		);
-		if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
-		if (!confirmed) throw abortError("Pi Fleet launch cancelled before creating a split");
+		if (launchSettings.confirmSessionLaunch) {
+			const confirmed = await ctx.ui.confirm(
+				"Create a new Pi session?",
+				[
+					`${selectedTerminalLabel} split: ${direction}`,
+					`Name: ${safeTerminalLine(name)}`,
+					`Cwd: ${safeTerminalLine(cwd)}`,
+					`Model: ${safeTerminalLine(ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "Pi default")}`,
+					"The child may spend model tokens and edit the same workspace concurrently.",
+				].join("\n"),
+				{ signal: operationSignal },
+			);
+			if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
+			if (!confirmed) throw abortError("Pi Fleet launch cancelled before creating a split");
+		}
 		const rollbackOwner = {};
 		let claimedMembership: Membership | undefined;
 		let splitCreated = false;
 		let terminalId: string | undefined;
 		let actualTerminalVersion = terminalVersion;
 		let launcher: PiLauncher | undefined;
-		const statusToken = this.beginStatus(ctx, `fleet: launching ${terminalLabel} split`);
+		const statusToken = this.beginStatus(ctx, `fleet: launching ${selectedTerminalLabel} split`);
 		try {
 			const membership = await this.claimSpawnMembership(ctx, operationSignal, rollbackOwner);
 			claimedMembership = membership;
 			const directory = membership.transport.endpointManifest?.directory;
 			if (!directory) throw new Error("Pi Fleet runtime directory is unavailable");
 			const invocation = this.deps.resolveInvocation(["--name", name]);
-			launcher = await this.deps.createLauncher(invocation, directory);
 			const envelope: FleetLaunchEnvelope = {
 				invite: membership.invite,
 				parentSessionId: ctx.sessionManager.getSessionId(),
@@ -525,11 +529,18 @@ export class FleetController {
 						}
 					: {}),
 			};
+			const launchEnvironment = launchEnvelopeEnvironment(envelope);
+			launcher = await this.deps.createLauncher(
+				invocation,
+				directory,
+				terminal === "zellij" ? launchEnvironment : undefined,
+			);
+			if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
 			const split = await terminalAdapter.spawnSplit({
 				direction,
 				cwd,
 				launcherCommand: launcher.command,
-				environment: launchEnvelopeEnvironment(envelope),
+				environment: terminal === "zellij" ? {} : launchEnvironment,
 				signal: operationSignal,
 				isCurrent: () => this.isCurrent(owner, ownerGeneration),
 			});
@@ -570,7 +581,7 @@ export class FleetController {
 				if (!acknowledgement.accepted) {
 					throw createTerminalLaunchError(
 						terminal,
-						`${terminalLabel} created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
+						`${selectedTerminalLabel} created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
 						true,
 						terminalId,
 					);
@@ -599,7 +610,7 @@ export class FleetController {
 			if (partial && !isTerminalLaunchError(error)) {
 				throw createTerminalLaunchError(
 					terminal,
-					`${terminalLabel} created the split, but the child session did not become ready: ${safeError(error)}`,
+					`${selectedTerminalLabel} created the split, but the child session did not become ready: ${safeError(error)}`,
 					true,
 					terminalId,
 				);
@@ -929,20 +940,6 @@ function recentFleetState(ctx: ExtensionContext): {
 		}
 	}
 	return { messageIds, consumedLaunchIds };
-}
-
-function normalizeOptional(
-	value: string | undefined,
-	label: string,
-	maxBytes: number,
-): string | undefined {
-	if (value === undefined) return undefined;
-	const normalized = value.trim();
-	if (!normalized) return undefined;
-	if (normalized.includes("\0") || Buffer.byteLength(normalized) > maxBytes) {
-		throw new Error(`Pi Fleet ${label} is invalid or too large`);
-	}
-	return normalized;
 }
 
 function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {

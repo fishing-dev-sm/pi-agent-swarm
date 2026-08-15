@@ -12,6 +12,7 @@ const SAFE_ENDPOINT_ID = /^[a-f0-9]{24}$/u;
 const SAFE_SOCKET_NAME = /^([a-f0-9]{24})\.sock$/u;
 const SAFE_MANIFEST_NAME = /^([a-f0-9]{24})\.json$/u;
 const SAFE_TEMPORARY_NAME = /^\.([a-f0-9]{24})\.json\.[a-f0-9]{16}\.tmp$/u;
+const SAFE_LAUNCHER_NAME = /^launch-[a-f0-9]{16}\.sh$/u;
 
 export interface RuntimeDirectoryOptions {
 	baseDirectory?: string;
@@ -146,7 +147,7 @@ export async function cleanupStaleRuntimeEntries(
 			}
 			continue;
 		}
-		if (SAFE_TEMPORARY_NAME.test(name)) {
+		if (SAFE_TEMPORARY_NAME.test(name) || SAFE_LAUNCHER_NAME.test(name)) {
 			if (await removeStaleOwnedEntry(directory, name, "file", now)) {
 				removedTemporaryFiles += 1;
 			}

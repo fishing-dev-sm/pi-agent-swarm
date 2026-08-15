@@ -94,7 +94,7 @@ posixTest(
 );
 
 posixTest(
-	"old orphan sockets and temporary files are removed while fresh entries survive",
+	"old orphan sockets and temporary launch files are removed while fresh entries survive",
 	async () => {
 		await fixture(async (base) => {
 			const group = createGroup(Buffer.alloc(32, 6));
@@ -103,6 +103,10 @@ posixTest(
 			await createOrphanSocket(orphanSocket);
 			const oldTemporary = join(directory, `.${"c".repeat(24)}.json.${"d".repeat(16)}.tmp`);
 			await writeFile(oldTemporary, "old", { mode: 0o600 });
+			const oldLauncher = join(directory, `launch-${"a".repeat(16)}.sh`);
+			await writeFile(oldLauncher, "private launch values", { mode: 0o700 });
+			const unrelatedScript = join(directory, "launch-not-owned.sh");
+			await writeFile(unrelatedScript, "keep", { mode: 0o700 });
 			const pairedSocket = join(directory, `${"7".repeat(24)}.sock`);
 			await createOrphanSocket(pairedSocket);
 			await writeFile(join(directory, `${"7".repeat(24)}.json`), "paired", { mode: 0o600 });
@@ -112,17 +116,21 @@ posixTest(
 			);
 			assert.deepEqual(oldResult, {
 				removedSockets: 1,
-				removedTemporaryFiles: 1,
+				removedTemporaryFiles: 2,
 				saturated: false,
 			});
 			await assert.rejects(lstat(orphanSocket));
 			await assert.rejects(lstat(oldTemporary));
+			await assert.rejects(lstat(oldLauncher));
+			assert.equal((await lstat(unrelatedScript)).isFile(), true);
 			assert.equal((await lstat(pairedSocket)).isSocket(), true);
 
 			const freshSocket = join(directory, `${"8".repeat(24)}.sock`);
 			await createOrphanSocket(freshSocket);
 			const freshTemporary = join(directory, `.${"e".repeat(24)}.json.${"f".repeat(16)}.tmp`);
 			await writeFile(freshTemporary, "fresh", { mode: 0o600 });
+			const freshLauncher = join(directory, `launch-${"b".repeat(16)}.sh`);
+			await writeFile(freshLauncher, "fresh", { mode: 0o700 });
 			assert.deepEqual(await cleanupStaleRuntimeEntries(directory, Date.now()), {
 				removedSockets: 0,
 				removedTemporaryFiles: 0,
@@ -130,6 +138,7 @@ posixTest(
 			});
 			assert.equal((await lstat(freshSocket)).isSocket(), true);
 			assert.equal((await lstat(freshTemporary)).isFile(), true);
+			assert.equal((await lstat(freshLauncher)).isFile(), true);
 		});
 	},
 );

@@ -4,6 +4,11 @@ import { createMockContext, createMockPi } from "../../../test/support.js";
 import type { FleetControllerDependencies } from "../src/fleet-controller.js";
 import { createPiFleetExtension } from "../src/pi-fleet.js";
 import { createGroup, formatInvite } from "../src/protocol.js";
+import {
+	DEFAULT_FLEET_SETTINGS,
+	type FleetSettingsRuntime,
+	type FleetSettingsState,
+} from "../src/settings.js";
 
 function dependencies(): FleetControllerDependencies {
 	return {
@@ -32,6 +37,10 @@ function dependencies(): FleetControllerDependencies {
 			assertAvailable: async () => "1.3.1",
 			spawnSplit: async () => ({ terminalId: "child", version: "1.3.1" }),
 		}),
+		createZellij: () => ({
+			assertAvailable: async () => "0.44.3",
+			spawnSplit: async () => ({ terminalId: "terminal_42", version: "0.44.3" }),
+		}),
 		resolveInvocation: () => ({ command: "/bin/pi", args: [] }),
 		createLauncher: async () => ({
 			path: "/tmp/launch.sh",
@@ -59,9 +68,11 @@ async function emit(
 
 test("extension registers its command, tools, renderer, and lifecycle without factory resources", async () => {
 	const mock = createMockPi();
+	const settings = memorySettingsRuntime();
 	let menuLoads = 0;
 	createPiFleetExtension({
 		controllerDependencies: dependencies(),
+		settingsRuntime: settings,
 		loadMenu: async () => {
 			menuLoads += 1;
 			return { showFleetMenu: async () => undefined };
@@ -77,7 +88,9 @@ test("extension registers its command, tools, renderer, and lifecycle without fa
 	const context = createMockContext({ mode: "tui", hasUI: true });
 	await emit(mock, "session_start", { reason: "startup" }, context.ctx);
 	assert.equal(menuLoads, 0);
+	assert.equal(settings.calls.reload, 1);
 	await emit(mock, "session_shutdown", { reason: "quit" }, context.ctx);
+	assert.equal(settings.calls.flush, 1);
 });
 
 test("fleet menu loads on demand, caches success, retries failure, and suppresses stale loads", async () => {
@@ -87,6 +100,7 @@ test("fleet menu loads on demand, caches success, retries failure, and suppresse
 	let release: (() => void) | undefined;
 	createPiFleetExtension({
 		controllerDependencies: dependencies(),
+		settingsRuntime: memorySettingsRuntime(),
 		loadMenu: async () => {
 			loads += 1;
 			if (loads === 1) throw new Error("temporary menu failure");
@@ -125,7 +139,10 @@ test("fleet menu loads on demand, caches success, retries failure, and suppresse
 test("direct invite joins in TUI and RPC but rejects unknown, trailing, JSON, and print input", async () => {
 	for (const mode of ["tui", "rpc"] as const) {
 		const mock = createMockPi();
-		createPiFleetExtension({ controllerDependencies: dependencies() })(mock.pi);
+		createPiFleetExtension({
+			controllerDependencies: dependencies(),
+			settingsRuntime: memorySettingsRuntime(),
+		})(mock.pi);
 		const context = createMockContext({ mode, hasUI: true, confirm: async () => true });
 		await emit(mock, "session_start", { reason: "startup" }, context.ctx);
 		const command = mock.commands.get("fleet");
@@ -143,7 +160,10 @@ test("direct invite joins in TUI and RPC but rejects unknown, trailing, JSON, an
 	}
 	for (const mode of ["json", "print"] as const) {
 		const mock = createMockPi();
-		createPiFleetExtension({ controllerDependencies: dependencies() })(mock.pi);
+		createPiFleetExtension({
+			controllerDependencies: dependencies(),
+			settingsRuntime: memorySettingsRuntime(),
+		})(mock.pi);
 		const context = createMockContext({ mode, hasUI: false });
 		await emit(mock, "session_start", { reason: "startup" }, context.ctx);
 		const command = mock.commands.get("fleet");
@@ -153,3 +173,27 @@ test("direct invite joins in TUI and RPC but rejects unknown, trailing, JSON, an
 		await emit(mock, "session_shutdown", { reason: "quit" }, context.ctx);
 	}
 });
+
+function memorySettingsRuntime(): FleetSettingsRuntime & {
+	calls: { reload: number; flush: number };
+} {
+	const state: FleetSettingsState = {
+		settings: { ...DEFAULT_FLEET_SETTINGS },
+		sources: { defaultTerminal: "built-in", confirmSessionLaunch: "built-in" },
+		canSave: true,
+	};
+	const calls = { reload: 0, flush: 0 };
+	return {
+		calls,
+		get: () => state,
+		getPath: () => "/tmp/pi-fleet.json",
+		reload: async () => {
+			calls.reload += 1;
+			return state;
+		},
+		update: async () => state,
+		flush: async () => {
+			calls.flush += 1;
+		},
+	};
+}

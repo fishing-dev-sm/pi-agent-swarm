@@ -3,6 +3,8 @@ import { FleetController, type FleetControllerDependencies } from "./fleet-contr
 import type { FleetMenuSource } from "./menu.js";
 import { parseInvite } from "./protocol.js";
 import { FLEET_MESSAGE_TYPE, renderFleetMessage } from "./renderer.js";
+import { createFleetSettingsRuntime, type FleetSettingsRuntime } from "./settings.js";
+import { terminalLabel } from "./terminal.js";
 import { safeError, safeTerminalLine } from "./text.js";
 import { registerFleetTools } from "./tools.js";
 
@@ -12,6 +14,7 @@ type FleetMenuModule = Pick<typeof import("./menu.js"), "showFleetMenu">;
 
 export interface PiFleetDependencies {
 	controllerDependencies?: FleetControllerDependencies;
+	settingsRuntime?: FleetSettingsRuntime;
 	loadMenu?: () => Promise<FleetMenuModule>;
 }
 
@@ -19,7 +22,8 @@ export function createPiFleetExtension(
 	dependencies: PiFleetDependencies = {},
 ): (pi: ExtensionAPI) => void {
 	return function piFleetExtension(pi: ExtensionAPI): void {
-		const controller = new FleetController(pi, dependencies.controllerDependencies);
+		const settings = dependencies.settingsRuntime ?? createFleetSettingsRuntime();
+		const controller = new FleetController(pi, dependencies.controllerDependencies, settings);
 		const loadMenu = cachedModuleLoader(dependencies.loadMenu ?? (() => import("./menu.js")));
 
 		pi.registerMessageRenderer(FLEET_MESSAGE_TYPE, renderFleetMessage);
@@ -46,7 +50,7 @@ export function createPiFleetExtension(
 				const ownerSignal = controller.sessionSignal;
 				const menuModule = await loadMenu();
 				if (ownerSignal.aborted || !controller.isCurrent(ctx)) return;
-				await menuModule.showFleetMenu(ctx, menuSource(controller, ctx), {
+				await menuModule.showFleetMenu(ctx, menuSource(controller, settings, ctx), {
 					signal: ownerSignal,
 					isCurrent: () => controller.isCurrent(ctx) && !ownerSignal.aborted,
 				});
@@ -79,17 +83,25 @@ async function joinDirectInvite(
 	}
 }
 
-function menuSource(controller: FleetController, ctx: ExtensionCommandContext): FleetMenuSource {
+function menuSource(
+	controller: FleetController,
+	settings: FleetSettingsRuntime,
+	ctx: ExtensionCommandContext,
+): FleetMenuSource {
 	return {
-		snapshot: (signal) => controller.snapshot(signal),
+		snapshot: async (signal) => ({
+			...(await controller.snapshot(signal)),
+			...settings.get(),
+			settingsPath: settings.getPath(),
+		}),
 		acceptExperimentalWarning: (commandContext, signal) =>
 			controller.acceptExperimentalWarning(commandContext, signal),
 		spawn: async (commandContext, input, signal) => {
 			const result = await controller.spawn(commandContext, input, signal);
 			if (controller.isCurrent(commandContext)) {
-				const terminalLabel = result.terminal === "ghostty" ? "Ghostty" : "tmux";
+				const resultTerminalLabel = terminalLabel(result.terminal);
 				commandContext.ui.notify(
-					`Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in ${terminalLabel}.`,
+					`Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in ${resultTerminalLabel}.`,
 					"info",
 				);
 			}
@@ -120,6 +132,9 @@ function menuSource(controller: FleetController, ctx: ExtensionCommandContext): 
 					"info",
 				);
 			}
+		},
+		updateSettings: async (patch) => {
+			await settings.update(patch);
 		},
 		setAcceptsRequests: (value) => controller.setAcceptsRequests(ctx, value),
 		leave: () => controller.leave(ctx),
