@@ -8,6 +8,13 @@ import {
 	type FleetTransportPort,
 } from "../src/fleet-controller.js";
 import type { FleetMessage, FleetPeerDescription } from "../src/protocol.js";
+import {
+	DEFAULT_FLEET_SETTINGS,
+	type FleetSettings,
+	type FleetSettingsPatch,
+	type FleetSettingsRuntime,
+	type FleetSettingsState,
+} from "../src/settings.js";
 import { TmuxLaunchError } from "../src/tmux.js";
 import type {
 	FleetDeliveryAck,
@@ -58,34 +65,46 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
 	const transports: SpawnTransport[] = [];
 	const tmuxSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
 	const ghosttySplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
+	const zellijSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
 	let now = 1_800_000_000_000;
 	let tmuxCreated = 0;
 	let ghosttyCreated = 0;
+	let zellijCreated = 0;
 	let launcherCleaned = false;
+	const launcherEnvironments: Array<Readonly<Record<string, string>> | undefined> = [];
 	let cleanupStateAtFirstPoll: boolean | undefined;
 	let pendingPeer: FleetPeerDescription | undefined;
 	const spawnSplit = async (
-		terminal: "tmux" | "ghostty",
+		terminal: "tmux" | "ghostty" | "zellij",
 		spawnOptions: Parameters<FleetTerminalPort["spawnSplit"]>[0],
 	) => {
-		const calls = terminal === "tmux" ? tmuxSplitCalls : ghosttySplitCalls;
+		const calls =
+			terminal === "tmux"
+				? tmuxSplitCalls
+				: terminal === "ghostty"
+					? ghosttySplitCalls
+					: zellijSplitCalls;
 		calls.push(spawnOptions);
 		if (options.launchError) throw options.launchError;
 		if (options.ready !== false) {
+			const childEnvironment =
+				Object.keys(spawnOptions.environment).length > 0
+					? spawnOptions.environment
+					: (launcherEnvironments.at(-1) ?? {});
 			pendingPeer = {
 				protocolVersion: 2,
 				sessionId: "child-session",
 				endpointId: "b".repeat(24),
-				name: spawnOptions.environment.PI_FLEET_CHILD_NAME,
+				name: childEnvironment.PI_FLEET_CHILD_NAME,
 				cwd: spawnOptions.cwd,
 				pid: 456,
-				launchId: spawnOptions.environment.PI_FLEET_LAUNCH_ID,
+				launchId: childEnvironment.PI_FLEET_LAUNCH_ID,
 				acceptsRequests: false,
 			};
 		}
 		return {
 			terminalId: `${terminal}-child`,
-			version: terminal === "tmux" ? "3.4" : "1.3.1",
+			version: terminal === "tmux" ? "3.4" : terminal === "ghostty" ? "1.3.1" : "0.44.3",
 		};
 	};
 	const deps: FleetControllerDependencies = {
@@ -93,7 +112,9 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
 			const transport = new SpawnTransport(transportOptions);
 			transport.beforeList = () => {
 				if (
-					(tmuxSplitCalls.length > 0 || ghosttySplitCalls.length > 0) &&
+					(tmuxSplitCalls.length > 0 ||
+						ghosttySplitCalls.length > 0 ||
+						zellijSplitCalls.length > 0) &&
 					cleanupStateAtFirstPoll === undefined
 				) {
 					cleanupStateAtFirstPoll = launcherCleaned;
@@ -120,14 +141,24 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
 				spawnSplit: (spawnOptions) => spawnSplit("ghostty", spawnOptions),
 			};
 		},
+		createZellij: () => {
+			zellijCreated += 1;
+			return {
+				assertAvailable: async () => "0.44.3",
+				spawnSplit: (spawnOptions) => spawnSplit("zellij", spawnOptions),
+			};
+		},
 		resolveInvocation: (args) => ({ command: "/bin/pi", args }),
-		createLauncher: async () => ({
-			path: "/tmp/pi-fleet-spawn-test/launch.sh",
-			command: "/tmp/pi-fleet-spawn-test/launch.sh",
-			cleanup: async () => {
-				launcherCleaned = true;
-			},
-		}),
+		createLauncher: async (_invocation, _directory, environment) => {
+			launcherEnvironments.push(environment);
+			return {
+				path: "/tmp/pi-fleet-spawn-test/launch.sh",
+				command: "/tmp/pi-fleet-spawn-test/launch.sh",
+				cleanup: async () => {
+					launcherCleaned = true;
+				},
+			};
+		},
 		realpath: async (value) => `/real${value}`,
 		isDirectory: async () => true,
 		now: () => now,
@@ -144,11 +175,16 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
 		transports,
 		splitCalls: tmuxSplitCalls,
 		ghosttySplitCalls,
+		zellijSplitCalls,
+		launcherEnvironments,
 		get tmuxCreated() {
 			return tmuxCreated;
 		},
 		get ghosttyCreated() {
 			return ghosttyCreated;
+		},
+		get zellijCreated() {
+			return zellijCreated;
 		},
 		get launcherCleaned() {
 			return launcherCleaned;
@@ -193,6 +229,7 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
 	assert.equal(runtime.ghosttyCreated, 0);
 	assert.equal(splitCalls[0]?.direction, "down");
 	assert.equal(runtime.cleanupStateAtFirstPoll, false);
+	assert.equal(runtime.launcherEnvironments[0], undefined);
 	assert.equal(splitCalls[0]?.cwd, "/real/project/worktree");
 	assert.equal(splitCalls[0]?.environment.PI_FLEET_MODEL_PROVIDER, "provider");
 	assert.equal(splitCalls[0]?.environment.PI_FLEET_MODEL_ID, "model");
@@ -228,6 +265,86 @@ test("spawn reuses an existing group and supports all split directions", async (
 		assert.equal(splitCalls[0]?.direction, direction);
 		await controller.sessionShutdown({ reason: "quit" }, context.ctx);
 	}
+});
+
+test("spawn uses the configured terminal when omitted and lets an explicit argument override it", async () => {
+	for (const explicitTerminal of [undefined, "tmux"] as const) {
+		const runtime = harness();
+		const settings = memorySettingsRuntime({ defaultTerminal: "ghostty" });
+		const controller = new FleetController(runtime.mock.pi, runtime.deps, settings);
+		const context = createMockContext({
+			mode: "tui",
+			hasUI: true,
+			confirm: async () => true,
+		});
+		await controller.sessionStart({ reason: "startup" }, context.ctx);
+		const result = await controller.spawn(context.ctx, {
+			...(explicitTerminal ? { terminal: explicitTerminal } : {}),
+		});
+		assert.equal(result.terminal, explicitTerminal ?? "ghostty");
+		assert.equal(runtime.tmuxCreated, explicitTerminal === "tmux" ? 1 : 0);
+		assert.equal(runtime.ghosttyCreated, explicitTerminal === "tmux" ? 0 : 1);
+		await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+	}
+});
+
+test("spawn routes configured and explicit Zellij launches without changing the tmux default", async () => {
+	for (const configured of [false, true]) {
+		const runtime = harness();
+		const settings = memorySettingsRuntime(configured ? { defaultTerminal: "zellij" } : {});
+		const controller = new FleetController(runtime.mock.pi, runtime.deps, settings);
+		const context = createMockContext({
+			mode: "tui",
+			hasUI: true,
+			confirm: async () => true,
+		});
+		await controller.sessionStart({ reason: "startup" }, context.ctx);
+		const result = await controller.spawn(
+			context.ctx,
+			configured ? {} : { terminal: "zellij", direction: "up" },
+		);
+		assert.equal(result.terminal, "zellij");
+		assert.equal(result.terminalVersion, "0.44.3");
+		assert.equal(runtime.zellijCreated, 1);
+		assert.equal(runtime.zellijSplitCalls.length, 1);
+		assert.equal(runtime.zellijSplitCalls[0]?.direction, configured ? "right" : "up");
+		assert.deepEqual(runtime.zellijSplitCalls[0]?.environment, {});
+		assert.match(runtime.launcherEnvironments[0]?.PI_FLEET_INVITE ?? "", /^pifleet:v1:/u);
+		assert.equal(runtime.tmuxCreated, 0);
+		assert.equal(runtime.ghosttyCreated, 0);
+		await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+	}
+});
+
+test("disabled launch confirmation skips the preview but preserves experimental consent", async () => {
+	const runtime = harness();
+	const settings = memorySettingsRuntime({ confirmSessionLaunch: false });
+	const controller = new FleetController(runtime.mock.pi, runtime.deps, settings);
+	const confirmationTitles: string[] = [];
+	const context = createMockContext({
+		mode: "tui",
+		hasUI: true,
+		confirm: async (title: string) => {
+			confirmationTitles.push(title);
+			return true;
+		},
+	});
+	await controller.sessionStart({ reason: "startup" }, context.ctx);
+	await controller.spawn(context.ctx, {});
+	assert.deepEqual(confirmationTitles, ["Use experimental Pi Fleet?"]);
+	await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("settings reload on session start, report invalid data, and flush on shutdown", async () => {
+	const runtime = harness();
+	const settings = memorySettingsRuntime({}, "invalid settings");
+	const controller = new FleetController(runtime.mock.pi, runtime.deps, settings);
+	const context = createMockContext({ mode: "tui", hasUI: true });
+	await controller.sessionStart({ reason: "startup" }, context.ctx);
+	assert.equal(settings.calls.reload, 1);
+	assert.match(context.notifications.at(-1)?.message ?? "", /invalid settings/u);
+	await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+	assert.equal(settings.calls.flush, 1);
 });
 
 test("spawn uses Ghostty only after explicit selection and reports compatible metadata", async () => {
@@ -340,6 +457,41 @@ test("spawn rejects unsupported modes and cancellation before side effects", asy
 	await second.sessionShutdown({ reason: "quit" }, cancelled.ctx);
 });
 
+test("session shutdown suppresses a split after delayed launcher creation", async () => {
+	const runtime = harness();
+	let signalLauncherStarted!: () => void;
+	const launcherStarted = new Promise<void>((resolve) => {
+		signalLauncherStarted = resolve;
+	});
+	let releaseLauncher!: () => void;
+	const launcherReleased = new Promise<void>((resolve) => {
+		releaseLauncher = resolve;
+	});
+	let launcherCleaned = false;
+	runtime.deps.createLauncher = async () => {
+		signalLauncherStarted();
+		await launcherReleased;
+		return {
+			path: "/tmp/pi-fleet-test/launch.sh",
+			command: "/tmp/pi-fleet-test/launch.sh",
+			cleanup: async () => {
+				launcherCleaned = true;
+			},
+		};
+	};
+	const controller = new FleetController(runtime.mock.pi, runtime.deps);
+	const context = createMockContext({ mode: "tui", hasUI: true, confirm: async () => true });
+	await controller.sessionStart({ reason: "startup" }, context.ctx);
+	const spawning = controller.spawn(context.ctx, {});
+	await launcherStarted;
+	const shuttingDown = controller.sessionShutdown({ reason: "quit" }, context.ctx);
+	releaseLauncher();
+	await assert.rejects(spawning, /stale|aborted/u);
+	await shuttingDown;
+	assert.equal(runtime.splitCalls.length, 0);
+	assert.equal(launcherCleaned, true);
+});
+
 test("session shutdown waits for an in-flight launch to release its launcher", async () => {
 	const runtime = harness({ ready: false });
 	let signalSleepEntered!: () => void;
@@ -415,3 +567,41 @@ test("pre-split failure rolls back an automatic group while readiness timeout ke
 	assert.equal((await timeout.snapshot()).connected, true);
 	await timeout.sessionShutdown({ reason: "quit" }, secondContext.ctx);
 });
+
+function memorySettingsRuntime(
+	overrides: Partial<FleetSettings> = {},
+	issue?: string,
+): FleetSettingsRuntime & {
+	calls: { reload: number; flush: number };
+	patches: FleetSettingsPatch[];
+} {
+	let state: FleetSettingsState = {
+		settings: { ...DEFAULT_FLEET_SETTINGS, ...overrides },
+		sources: {
+			defaultTerminal: Object.hasOwn(overrides, "defaultTerminal") ? "user" : "built-in",
+			confirmSessionLaunch: Object.hasOwn(overrides, "confirmSessionLaunch") ? "user" : "built-in",
+		},
+		canSave: issue === undefined,
+		...(issue ? { issue: { kind: "invalid", message: issue } } : {}),
+	};
+	const calls = { reload: 0, flush: 0 };
+	const patches: FleetSettingsPatch[] = [];
+	return {
+		calls,
+		patches,
+		get: () => state,
+		getPath: () => "/tmp/pi-fleet.json",
+		reload: async () => {
+			calls.reload += 1;
+			return state;
+		},
+		update: async (patch) => {
+			patches.push(patch);
+			state = { ...state, settings: { ...state.settings, ...patch } };
+			return state;
+		},
+		flush: async () => {
+			calls.flush += 1;
+		},
+	};
+}

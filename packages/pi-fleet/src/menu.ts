@@ -1,10 +1,16 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { MenuDefinition } from "@narumitw/pi-tui-kit";
 import type { FleetSnapshot, SpawnSessionInput } from "./fleet-controller.js";
+import type { FleetSettingsPatch, FleetSettingsState } from "./settings.js";
+import { type FleetTerminal, terminalLabel } from "./terminal.js";
 import { safeError, safeTerminalLine } from "./text.js";
 
+export interface FleetMenuState extends FleetSnapshot, FleetSettingsState {
+	settingsPath: string;
+}
+
 export interface FleetMenuSource {
-	snapshot(signal?: AbortSignal): Promise<FleetSnapshot>;
+	snapshot(signal?: AbortSignal): Promise<FleetMenuState>;
 	acceptExperimentalWarning(ctx: ExtensionCommandContext, signal?: AbortSignal): Promise<boolean>;
 	spawn(
 		ctx: ExtensionCommandContext,
@@ -18,6 +24,7 @@ export interface FleetMenuSource {
 		options: { targetSessionId: string; text: string; mode: "notify" | "request" },
 		signal?: AbortSignal,
 	): Promise<void>;
+	updateSettings(patch: FleetSettingsPatch, signal?: AbortSignal): Promise<void>;
 	setAcceptsRequests(value: boolean): void;
 	leave(): Promise<void>;
 }
@@ -28,17 +35,26 @@ type Screen =
 	| "sessions"
 	| "invite"
 	| "requestPolicy"
+	| "settings"
+	| "settingsInvalid"
 	| "status"
 	| "help"
 	| "leave";
-type Action = "spawn" | "start" | "join" | "send" | "setPolicy" | "leave";
+type Action =
+	| "spawn"
+	| "start"
+	| "join"
+	| "send"
+	| "setTerminal"
+	| "setConfirmation"
+	| "setPolicy"
+	| "leave";
 
-const TERMINAL_OPTIONS = ["tmux — default", "Ghostty — explicit opt-in"] as const;
 const DIRECTION_OPTIONS = ["Right", "Down", "Left", "Up"] as const;
 
 export function createFleetMenu(source: FleetMenuSource) {
 	const getState = ({ signal }: { signal?: AbortSignal } = {}) => source.snapshot(signal);
-	const menu: MenuDefinition<FleetSnapshot, Screen, Action> = {
+	const menu: MenuDefinition<FleetMenuState, Screen, Action> = {
 		start: "main",
 		screens: {
 			main: ({ state }) => mainScreen(state),
@@ -102,6 +118,38 @@ export function createFleetMenu(source: FleetMenuSource) {
 				viewportSize: 4,
 				hint: "back",
 			}),
+			settings: ({ state }) => ({
+				kind: "settings",
+				title: "Pi Fleet Settings",
+				lines: [`User settings · ${safeTerminalLine(state.settingsPath)}`],
+				items: [
+					{
+						id: "defaultTerminal",
+						label: "Default terminal",
+						description: "Use this backend when a launch does not explicitly choose one.",
+						currentValue: terminalLabel(state.settings.defaultTerminal),
+						values: ["tmux", "Ghostty", "Zellij"],
+						action: "setTerminal",
+					},
+					{
+						id: "confirmSessionLaunch",
+						label: "Confirm new sessions",
+						description: "Ask before a new Pi process may spend tokens or edit the workspace.",
+						currentValue: state.settings.confirmSessionLaunch ? "Ask" : "Skip",
+						values: ["Ask", "Skip"],
+						action: "setConfirmation",
+					},
+				],
+			}),
+			settingsInvalid: ({ state }) => ({
+				kind: "detail",
+				title: "Pi Fleet Settings · Read only",
+				lines: [
+					`Invalid settings file. Fix ${safeTerminalLine(state.settingsPath)} and run /reload. The file will not be overwritten.`,
+					...(state.issue ? [`Issue: ${safeTerminalLine(state.issue.message)}`] : []),
+				],
+				hint: "back",
+			}),
 			status: ({ state }) => ({
 				kind: "detail",
 				title: "Pi Fleet status",
@@ -112,9 +160,16 @@ export function createFleetMenu(source: FleetMenuSource) {
 							`Cwd: ${safeTerminalLine(state.self?.cwd ?? "unknown")}`,
 							`Other live sessions: ${state.peers.length}`,
 							`Incoming requests: ${state.acceptsRequests ? "allowed" : "blocked"}`,
+							`Default terminal: ${terminalLabel(state.settings.defaultTerminal)}`,
+							`Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
 							"Delivery acknowledgement means extension acceptance, not remote task completion.",
 						]
-					: ["State: disconnected", "No socket, group secret, or background discovery is active."],
+					: [
+							"State: disconnected",
+							"No socket, group secret, or background discovery is active.",
+							`Default terminal: ${terminalLabel(state.settings.defaultTerminal)}`,
+							`Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
+						],
 				hint: "back",
 			}),
 			help: () => ({
@@ -123,7 +178,7 @@ export function createFleetMenu(source: FleetMenuSource) {
 				lines: [
 					"Pi Fleet is experimental and connects explicit sessions owned by one OS user.",
 					"New Pi session creates a separate process in a terminal split and preserves the parent.",
-					"tmux 3.2 or newer is the default; Ghostty 1.3 on macOS requires explicit selection.",
+					"tmux remains the built-in default; Settings can select Ghostty 1.3+ on macOS or Zellij 0.44+.",
 					"Notify messages do not start turns, requests require recipient permission, and replies do not auto-trigger another turn.",
 					"Groups, invites, peer state, and message deduplication are ephemeral.",
 				],
@@ -143,16 +198,10 @@ export function createFleetMenu(source: FleetMenuSource) {
 			}),
 		},
 		actions: {
-			spawn: async ({ ctx, signal }) => {
-				const terminalChoice = await ctx.ui.select(
-					"Terminal split backend",
-					[...TERMINAL_OPTIONS],
-					{ signal },
-				);
-				if (!terminalChoice || signal.aborted) return { kind: "stay" };
-				const terminal = terminalChoice === TERMINAL_OPTIONS[0] ? "tmux" : "ghostty";
+			spawn: async ({ ctx, signal, state }) => {
+				const terminal = state.settings.defaultTerminal;
 				const directionChoice = await ctx.ui.select(
-					`${terminal === "tmux" ? "tmux" : "Ghostty"} split direction`,
+					`${terminalLabel(terminal)} split direction`,
 					[...DIRECTION_OPTIONS],
 					{ signal },
 				);
@@ -232,6 +281,22 @@ export function createFleetMenu(source: FleetMenuSource) {
 				);
 				return { kind: "stay" };
 			},
+			setTerminal: ({ ctx, signal, value }) =>
+				saveSettingsPatch(
+					source,
+					ctx,
+					signal,
+					{ defaultTerminal: terminalSettingValue(value) },
+					`Default terminal: ${value}.`,
+				),
+			setConfirmation: ({ ctx, signal, value }) =>
+				saveSettingsPatch(
+					source,
+					ctx,
+					signal,
+					{ confirmSessionLaunch: value !== "Skip" },
+					`Confirm new sessions: ${value}.`,
+				),
 			setPolicy: async ({ ctx, signal, itemId }) => {
 				const allow = itemId === "allow";
 				if (itemId !== "allow" && itemId !== "block") {
@@ -277,12 +342,60 @@ export async function showFleetMenu(
 	});
 }
 
-function mainScreen(state: FleetSnapshot) {
+function terminalSettingValue(value: string | undefined): FleetTerminal {
+	switch (value) {
+		case "tmux":
+			return "tmux";
+		case "Ghostty":
+			return "ghostty";
+		case "Zellij":
+			return "zellij";
+		default:
+			throw new Error("Pi Fleet terminal setting is invalid");
+	}
+}
+
+async function saveSettingsPatch(
+	source: FleetMenuSource,
+	ctx: ExtensionCommandContext,
+	signal: AbortSignal,
+	patch: FleetSettingsPatch,
+	successMessage: string,
+) {
+	if (signal.aborted) return { kind: "rejected" as const };
+	try {
+		await source.updateSettings(patch, signal);
+		if (signal.aborted) return { kind: "rejected" as const };
+		ctx.ui.notify(successMessage, "info");
+		return { kind: "stay" as const };
+	} catch (error) {
+		if (!signal.aborted) {
+			ctx.ui.notify(
+				`Could not save Pi Fleet settings; the previous value remains: ${safeError(error)}`,
+				"error",
+			);
+		}
+		return { kind: "rejected" as const };
+	}
+}
+
+function settingsMenuItem(state: FleetMenuState) {
+	return state.issue
+		? {
+				id: "settings",
+				label: "Settings",
+				description: "Read-only until the invalid settings file is fixed.",
+				to: "settingsInvalid" as const,
+			}
+		: { id: "settings", label: "Settings", to: "settings" as const };
+}
+
+function mainScreen(state: FleetMenuState) {
 	if (!state.connected) {
 		return {
 			kind: "actions" as const,
 			title: "Pi Fleet · disconnected",
-			lines: ["Experimental local Pi sessions with confirmed terminal launch and messaging."],
+			lines: ["Experimental local Pi sessions with configured terminal launches and messaging."],
 			items: [
 				{
 					id: "spawn",
@@ -292,6 +405,7 @@ function mainScreen(state: FleetSnapshot) {
 				},
 				{ id: "join", label: "Join with invite", to: "join" as const },
 				{ id: "start", label: "Start local group", action: "start" as const },
+				settingsMenuItem(state),
 				{ id: "status", label: "Status", to: "status" as const },
 				{ id: "help", label: "Help", to: "help" as const },
 			],
@@ -316,6 +430,7 @@ function mainScreen(state: FleetSnapshot) {
 			{ id: "sessions", label: "Sessions", to: "sessions" as const },
 			{ id: "invite", label: "Invite another session", to: "invite" as const },
 			{ id: "policy", label: "Request policy", to: "requestPolicy" as const },
+			settingsMenuItem(state),
 			{ id: "status", label: "Status", to: "status" as const },
 			{ id: "help", label: "Help", to: "help" as const },
 			{ id: "leave", label: "Leave group…", to: "leave" as const },

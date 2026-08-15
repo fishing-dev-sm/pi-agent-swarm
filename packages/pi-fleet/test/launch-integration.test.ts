@@ -54,6 +54,10 @@ posixTest(
 				assertAvailable: async () => "1.3.1",
 				spawnSplit: async (options) => ({ ...(await spawnChild(options)), version: "1.3.1" }),
 			}),
+			createZellij: () => ({
+				assertAvailable: async () => "0.44.3",
+				spawnSplit: async (options) => ({ ...(await spawnChild(options)), version: "0.44.3" }),
+			}),
 			resolveInvocation: () => ({ command: "/bin/pi", args: [] }),
 			createLauncher: async () => ({
 				path: join(runtimeBase, "launcher.sh"),
