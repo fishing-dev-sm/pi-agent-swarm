@@ -34,7 +34,7 @@ test("Zellij adapter requires a current pane and Zellij 0.44 or newer", async ()
 	assert.equal(await adapter(async () => result("zellij 0.44.3\n")).assertAvailable(), "0.44.3");
 });
 
-test("Zellij split uses a private launcher path and pane-targeted placement for every direction", async () => {
+test("Zellij split uses a visible private-launcher pane and pane-targeted placement for every direction", async () => {
 	for (const direction of ["right", "down", "left", "up"] as const) {
 		const calls: Array<{ command: string; args: string[] }> = [];
 		const zellij = adapter(async (command, args) => {
@@ -64,12 +64,14 @@ test("Zellij split uses a private launcher path and pane-targeted placement for 
 				direction === "down" || direction === "up" ? "down" : "right",
 				"--cwd",
 				"/tmp/project ' quoted",
-				"--near-current-pane",
 				"--",
 				"/tmp/launcher path",
 			],
 		});
-		assert.doesNotMatch(JSON.stringify(calls[1]), /PI_FLEET|secret-placeholder/u);
+		assert.doesNotMatch(
+			JSON.stringify(calls[1]),
+			/PI_FLEET|secret-placeholder|--near-current-pane/u,
+		);
 		if (direction === "left" || direction === "up") {
 			assert.deepEqual(calls[2], {
 				command: "zellij",

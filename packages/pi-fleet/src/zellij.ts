@@ -109,7 +109,6 @@ export class ZellijAdapter {
 					nativeDirection,
 					"--cwd",
 					options.cwd,
-					"--near-current-pane",
 					"--",
 					options.launcherCommand,
 				],
