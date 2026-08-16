@@ -44,7 +44,7 @@
 		"smoke:pi-fleet:ghostty": "cd packages/pi-fleet && tsc -p tsconfig.process-smoke.json && node ../../node_modules/.cache/pi-fleet-process/scripts/ghostty-smoke.js",
 		"check": "npm run build && node ./scripts/run-checks.mjs",
 		"precommit": "npm run biome:check && npm run typecheck",
-		"prepare": "husky",
+		"prepare": "node .husky/install.mjs",
 		"changeset": "changeset",
 		"changeset:status": "changeset status --verbose",
 		"version-packages": "changeset version && npm install --package-lock-only --ignore-scripts",
