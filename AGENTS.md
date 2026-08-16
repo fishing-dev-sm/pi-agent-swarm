@@ -151,7 +151,6 @@ Run commands from the repository root unless a command says otherwise.
 
 - Prefer `gh --json` for GitHub issue and pull-request links; use web tools only when `gh` cannot expose the required content.
 - Keep a predecessor extension active while its successor soaks and deprecate it only after an explicit follow-up decision.
-- Create, verify, and archive an executable repository plan for non-trivial implementation work.
 - Keep package versions out of long-lived guidance and derive them from manifests, lockfiles, or workflows.
 - Keep `just` recipes straightforward, require a clean worktree for dependency maintenance, and prefer Git-based recovery over embedded rollback logic.
 - Make `just` install recipes verify registry visibility first and fall back to the local workspace only when that fixes the current install path.

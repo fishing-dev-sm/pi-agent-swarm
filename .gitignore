@@ -202,3 +202,5 @@ vite.config.ts.timestamp-*
 
 # Project
 .pi/agent/
+docs/plans/archived/
+docs/roadmaps/archived/
