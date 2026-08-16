@@ -9,7 +9,6 @@ import { settingsFilePath as firecrawlSettingsPath } from "../packages/pi-firecr
 import { langfuseConfigPath } from "../packages/pi-langfuse/src/config.js";
 
 const SETTINGS_PUBLICATION_SOURCES = [
-	"packages/pi-webui/src/settings.ts",
 	"packages/pi-accounts/src/account-store.ts",
 	"packages/pi-caffeinate/src/settings.ts",
 	"packages/pi-chrome-devtools/src/settings.ts",

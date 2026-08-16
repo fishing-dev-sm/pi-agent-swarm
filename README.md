@@ -109,7 +109,6 @@ commands, settings persistence, confirmations, and specialized UI.
 | [`pi-file-context`](./packages/pi-file-context) | Browse project files, preview text, select exact lines or Git diff hunks, and attach immutable snapshots with Git provenance to the next prompt. Open it with configurable `F8` or `/file-context`. | `pi install npm:@narumitw/pi-file-context` |
 | [`pi-fleet`](./packages/pi-fleet) | Start a separate Pi process in a Ghostty split and connect explicit local Pi sessions for bounded messages and one-turn requests. | `pi install npm:@narumitw/pi-fleet` |
 | [`pi-recall`](./packages/pi-recall) | Save selected text messages locally and preview or quote them across Pi sessions. | `pi install npm:@narumitw/pi-recall` |
-| [`pi-webui`](./packages/pi-webui) | Use a private loopback browser companion for the current terminal session with live activity and text/image input. | `pi install npm:@narumitw/pi-webui` |
 | [`pi-workflow`](./packages/pi-workflow) | Combine `/plan` and `/goal` in one experimental package with an integrated, recoverable Plan-to-Goal handoff. | `pi install npm:@narumitw/pi-workflow` |
 
 ## 🔧 Advanced installation
@@ -241,6 +240,7 @@ The following packages remain available as source references but are excluded fr
 - `pi-retry` — replaced by Pi's built-in provider retry and timeout behavior
 - `pi-google-genai` — replaced by the `grounding-with-google-genai` agent skill
 - `pi-jupyter` — deprecated without a replacement
+- `pi-webui` — deprecated without a replacement
 - `pi-auto-thinking`
 - `pi-sidebar`
 - `pi-telegram-bot`
