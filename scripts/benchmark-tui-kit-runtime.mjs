@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_RUNS = 5;
 const DEFAULT_TIMEOUT_MS = 30_000;
-const SCENARIOS = ["import", "actions", "review", "task"];
+const SCENARIOS = ["import", "actions", "review", "mermaid", "task"];
 
 const options = parseArguments(process.argv.slice(2));
 if (options.worker) {
@@ -35,6 +35,9 @@ if (options.worker) {
 						.filter((value) => value !== undefined),
 				),
 				codingAgentLoaded: measurements[scenario].some((result) => result.codingAgentLoaded),
+				mermaidRendererLoaded: measurements[scenario].some(
+					(result) => result.mermaidRendererLoaded,
+				),
 			},
 		]),
 	);
@@ -94,6 +97,14 @@ async function runWorker(scenario) {
 			format: { kind: "code", filePath: "benchmark.ts" },
 			hint: "close",
 		});
+	} else if (scenario === "mermaid") {
+		firstFrameMs = await runMenuFrame(kit, startedAt, {
+			kind: "review",
+			title: "Benchmark Mermaid",
+			content: "```mermaid\nflowchart LR\n A[Start] --> B[Done]\n```",
+			format: { kind: "markdown" },
+			hint: "close",
+		});
 	} else if (scenario === "task") {
 		const context = benchmarkContext(
 			(elapsed) => {
@@ -124,6 +135,7 @@ async function runWorker(scenario) {
 			codingAgentLoaded: packageUrls.some((url) =>
 				url.includes("/@earendil-works/pi-coding-agent/"),
 			),
+			mermaidRendererLoaded: packageUrls.some((url) => url.includes("/grok-mermaid/")),
 			packageUrls,
 		})}\n`,
 	);
