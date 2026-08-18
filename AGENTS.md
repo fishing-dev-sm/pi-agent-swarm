@@ -2,9 +2,11 @@
 
 ## Documentation and communication
 
-- Keep documents and conversations concise, clear, and accurate.
-- Explain things simply enough for a child to understand.
-- Write one sentence per line in prose.
+- Lead with the most important relevant information, then add only necessary detail.
+- Use clear, familiar words and concise, accurate sentences without repetition.
+- Explain the main idea simply before adding technical detail.
+- Make documented rules specific and verifiable.
+- Write one sentence per source line in prose.
 
 ## Repository structure
 
@@ -24,19 +26,15 @@
 Run commands from the repository root unless a command says otherwise.
 
 - Run `npm install` to install dependencies.
-- Run `npm run check` or `just check` for the CI-equivalent verification gate.
-- Run `npm test` to execute all active tests.
 - Run `npm run format` or `just format` to format with Biome.
 - Run `npm run typecheck` to typecheck every workspace.
-- Run `just pack <unscoped-name>` to preview a package.
-- Run `just try <unscoped-name>` to test a local extension in Pi.
 - Run `just --list` before adding or documenting a workflow command.
 
 ## Tooling and dependency safety
 
 - Do not run root checks and the `pi-tui-kit` build or check concurrently because both clear `packages/pi-tui-kit/dist`.
 - Rebuild `pi-tui-kit` before consumer tests because consumers resolve its built output.
-- After raising a consumer's Kit floor, run root `npm install` and verify the resolved consumer version before typechecking.
+- After raising a consumer's Kit floor, run root `npm install`, then use `npm ls @narumitw/pi-tui-kit` to verify the resolved version before typechecking.
 - Keep imported Pi packages as root devDependencies so tests compiled beneath root `node_modules/.cache` resolve the intended versions.
 - Prefer Pi AI root exports; use a variable-specifier dynamic import only when a required subpath has no root export because official Pi can misresolve static `@earendil-works/pi-ai/api/*` imports.
 - Treat Pi's user and project managed npm roots as separate install scopes because deduplication is guaranteed only within one root.
@@ -44,50 +42,45 @@ Run commands from the repository root unless a command says otherwise.
 
 ## Code and package rules
 
+- Follow KISS and YAGNI: prefer simple, minimal solutions and avoid unnecessary complexity.
 - Root TypeScript uses NodeNext modules, ES2022, strict mode, and no emit.
-- Publishable libraries emit through their own build configuration.
 - Biome requires tabs, double quotes, semicolons, a 100-column line width, and recommended lint rules.
-- Keep extension packages small.
 - Add dependencies only for current package needs.
 - Use a Pi core function when Pi already provides the required behavior.
 - Upgrade an outdated dependency instead of hiding its type errors by removing or downgrading code.
 - Keep every extension independently installable and functional by itself.
 - Do not import or depend on another extension package.
 - Do not assume another extension's names, schemas, settings, events, installation state, version, or behavior.
-- Keep policy in the extension that owns the affected behavior.
+- Keep each behavior policy in the extension that enforces it.
 - Share code only through Pi's public extension-neutral APIs or reusable non-extension libraries.
 - Do not make reusable libraries coordinate specific extensions.
 - Consume shared Pi APIs without extension-specific branches.
 - Give every active extension a thin `src/index.ts` default-export forwarder.
 - Declare exactly `"pi": { "extensions": ["./src/index.ts"] }` in every active extension manifest.
 - Keep extension implementation in descriptively named modules.
-- Publish reusable libraries as JavaScript with declarations and without `pi.extensions` or `piExtension`.
+- Build and publish reusable libraries as JavaScript with declarations through their own build configuration and without `pi.extensions`.
 - Run `npm run check:boundaries` to verify package boundaries.
 - List every stable extension entrypoint in the root `package.json` under `pi.extensions`.
 - Do not list experimental extension entrypoints in the root `package.json` under `pi.extensions`.
-- Add root workspace scripts or recipes when users need them.
+- Add a root workspace script or recipe only for a workflow users must run from the repository root.
 - Use `@narumitw/pi-tui-kit` for new standard action, detail, settings, and multi-select menus.
 - Keep domain state, persistence, confirmations, and specialized UI inside the owning extension.
-- Preserve each README's emoji title, npm badge, Pi badge, license badge, standard emoji sections, and `## 🗂️ Package layout`.
-- Keep standalone experimental extensions under `packages/` with `"piExtension": { "lifecycle": "experimental" }`.
+- Preserve each README's emoji title; npm, Pi, and license badges; and applicable `✨ Features`, `📦 Install`, `🚀 Quick start`, `⚙️ Settings`, `💬 Commands`, `🗂️ Package layout`, `🔎 Keywords`, and `📄 License` sections.
 - Show a user-facing warning for experimental extensions and features.
-- Keep experimental packages in root checks and publishing unless they are private.
-- Gate an experimental feature inside a stable package with explicit configuration and compatible default behavior.
+- Keep experimental packages in root checks unless they are private.
+- Gate an experimental feature inside a stable package with explicit configuration that defaults to the existing stable behavior.
 - Split source files over 1,000 lines by clear responsibilities or document why they must stay intact.
 - Do not mechanically split generated, vendored, migration, snapshot, or mainly declarative files.
 
 ## Extension change gates
 
-- Read `docs/extension-conventions.md` completely before planning or editing any extension.
-- This gate covers package metadata, lifecycle, commands, menus, custom TUI, settings, status, documentation, and verification behavior.
-- Also read `docs/extension-settings.md` completely before changing extension-owned settings.
-- This settings gate covers loading, persistence, validation, precedence, migration, commands, and UI.
-- Before implementation, map every touched area to its applicable **MUST** rules and verification methods.
+- Read `docs/extension-conventions.md` completely before planning or editing extension metadata, lifecycle, commands, menus, TUI, status, documentation, or verification behavior.
+- Read `docs/extension-settings.md` completely before changing extension-owned settings, persistence, validation, precedence, migration, commands, or UI.
+- Before implementation, list each touched area with its applicable **MUST** rules and named verification methods.
 - Audit user cancellation, component disposal, session replacement, and shutdown for every asynchronous UI or lifecycle flow.
 - Cancel or release every task owned by the flow.
 - Revalidate stale sessions, generations, contexts, and mutable state after each `await`.
-- Treat settings reads and writes as one concurrency protocol.
-- Audit settings ordering, failure recovery, stale reads, invalid-file protection, unknown-field preservation, and atomic publication together.
+- Audit settings reads and writes together for ordering, failure recovery, stale reads, invalid-file protection, unknown-field preservation, and atomic publication.
 - Audit the final diff against the guides' touched-area and verification checklists.
 - Do not use a passing `npm run check` as a substitute for the semantic audit.
 - When review finds one convention failure, inspect the whole pull-request diff for the same failure class.
@@ -113,9 +106,9 @@ Run commands from the repository root unless a command says otherwise.
 
 - Keep active tests under `packages/<package>/test/*.test.ts` and run them with `npm test`.
 - Keep archived tests under `deprecated/` and outside active checks.
-- Use `npm run check` as the CI-equivalent gate for Biome, boundaries, typechecks, and tests.
+- Use `npm run check` or `just check` as the CI-equivalent gate for Biome, boundaries, typechecks, and tests.
 - Run `just pack <unscoped-name>` and inspect the tarball after package metadata or publishing changes.
-- Run `just try <unscoped-name>` or an equivalent `pi -e` command for Pi runtime behavior when practical.
+- Run `just try <unscoped-name>` or an equivalent `pi -e` smoke after extension runtime-loading changes; record why and what remains unverified if the smoke is impractical.
 - Start subprocess timing deadlines only after a child readiness handshake.
 - Synchronize concurrent HTTP tests on a server-observable response or callback instead of a fixed sleep after `fetch()`.
 - Set `PI_CODING_AGENT_DIR` before importing an extension in lifecycle tests and use fresh imports for module-cached paths.
@@ -133,11 +126,9 @@ Run commands from the repository root unless a command says otherwise.
 - Release experimental packages through the same Changesets workflow as stable packages.
 - Preserve experimental warnings in documentation and runtime behavior.
 - Use `just npm-public <package>` only to change the visibility of an existing package.
-- Use `npm publish --workspace <package> --access public` for the first approved publication of a new scoped package that still returns 404.
-- Treat initial publication as a manually approved exception.
-- Let `publish.yml` manage the version pull request, package tags, publications, and GitHub releases.
-- Publish a new `pi-tui-kit` API before raising a consumer's compatibility floor.
-- Do not release an unpublished Kit API together with its first consumer.
+- Use `npm publish --workspace <package> --access public` only for the explicitly approved first publication of a new scoped package that still returns 404.
+- Except for that initial-publication exception, let `publish.yml` manage the version pull request, package tags, publications, and GitHub releases.
+- Publish a new `pi-tui-kit` API before raising its first consumer's compatibility floor, and do not release the API with that consumer.
 
 ## Git and pull requests
 
@@ -145,12 +136,13 @@ Run commands from the repository root unless a command says otherwise.
 - Use `<type>[scope][!]: <description>` based on the actual diff.
 - Prefer `feat`, `fix`, `refactor`, or `docs`, and omit unused scope, body, or footers.
 - Stage only intended paths, recheck the index, reject empty commits, and report the commit ID and remaining changes.
-- Include checks and publish or visibility evidence in pull-request or handoff notes.
+- Include completed checks and any relevant publish or visibility evidence in pull-request or handoff notes.
 
 ## Working preferences
 
 - Prefer `gh --json` for GitHub issue and pull-request links; use web tools only when `gh` cannot expose the required content.
-- Keep a predecessor extension active while its successor soaks and deprecate it only after an explicit follow-up decision.
+- Keep a predecessor extension active until an explicit follow-up decision approves deprecation.
 - Keep package versions out of long-lived guidance and derive them from manifests, lockfiles, or workflows.
-- Keep `just` recipes straightforward, require a clean worktree for dependency maintenance, and prefer Git-based recovery over embedded rollback logic.
+- Require a clean worktree before dependency-maintenance recipes.
+- Use Git-based recovery instead of embedding rollback logic in `just` recipes.
 - Make `just` install recipes verify registry visibility first and fall back to the local workspace only when that fixes the current install path.
