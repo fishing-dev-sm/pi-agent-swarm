@@ -1,6 +1,6 @@
 {
 	"name": "@narumitw/pi-fleet",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Experimental Pi extension for spawning and connecting local Pi sessions.",
 	"type": "module",
 	"license": "MIT",
@@ -34,7 +34,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@narumitw/pi-tui-kit": "^0.49.1"
+		"@narumitw/pi-tui-kit": "^0.55.0"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
