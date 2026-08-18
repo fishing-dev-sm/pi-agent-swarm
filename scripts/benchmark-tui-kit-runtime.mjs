@@ -7,7 +7,24 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_RUNS = 5;
 const DEFAULT_TIMEOUT_MS = 30_000;
-const SCENARIOS = ["import", "actions", "review", "mermaid", "task"];
+const SCENARIOS = [
+	"import",
+	"terminal-text-import",
+	"interaction-hints-import",
+	"actions",
+	"review",
+	"mermaid",
+	"task",
+];
+const IMPORT_SPECIFIERS = {
+	import: "@narumitw/pi-tui-kit",
+	"terminal-text-import": "@narumitw/pi-tui-kit/terminal-text",
+	"interaction-hints-import": "@narumitw/pi-tui-kit/interaction-hints",
+	actions: "@narumitw/pi-tui-kit",
+	review: "@narumitw/pi-tui-kit",
+	mermaid: "@narumitw/pi-tui-kit",
+	task: "@narumitw/pi-tui-kit",
+};
 
 const options = parseArguments(process.argv.slice(2));
 if (options.worker) {
@@ -28,13 +45,18 @@ if (options.worker) {
 		SCENARIOS.map((scenario) => [
 			scenario,
 			{
+				importSpecifier: IMPORT_SPECIFIERS[scenario],
 				importMs: summarize(measurements[scenario].map((result) => result.importMs)),
 				firstFrameMs: summarize(
 					measurements[scenario]
 						.map((result) => result.firstFrameMs)
 						.filter((value) => value !== undefined),
 				),
+				kitRootLoaded: measurements[scenario].some((result) => result.kitRootLoaded),
+				kitRuntimeLoaded: measurements[scenario].some((result) => result.kitRuntimeLoaded),
+				kitComponentsLoaded: measurements[scenario].some((result) => result.kitComponentsLoaded),
 				codingAgentLoaded: measurements[scenario].some((result) => result.codingAgentLoaded),
+				highlightJsLoaded: measurements[scenario].some((result) => result.highlightJsLoaded),
 				mermaidRendererLoaded: measurements[scenario].some(
 					(result) => result.mermaidRendererLoaded,
 				),
@@ -61,6 +83,8 @@ if (options.worker) {
 
 async function runWorker(scenario) {
 	if (!SCENARIOS.includes(scenario)) fail(`Unknown worker scenario: ${scenario}`);
+	const importSpecifier = IMPORT_SPECIFIERS[scenario];
+	if (!importSpecifier) fail(`Missing import specifier for worker scenario: ${scenario}`);
 	const loadedUrls = [];
 	const { registerHooks } = await import("node:module");
 	registerHooks({
@@ -72,7 +96,7 @@ async function runWorker(scenario) {
 	});
 
 	const startedAt = performance.now();
-	const kit = await import("@narumitw/pi-tui-kit");
+	const kit = await import(importSpecifier);
 	const importMs = performance.now() - startedAt;
 	const kitLoadedCodingAgent = loadedUrls.some((url) =>
 		url.includes("/@earendil-works/pi-coding-agent/"),
@@ -127,18 +151,32 @@ async function runWorker(scenario) {
 	const packageUrls = [...new Set(loadedUrls)]
 		.filter((url) => /\/(?:node_modules|packages)\//u.test(url))
 		.sort();
+	const kitDistPaths = packageUrls.map(kitDistRelativePath).filter((path) => path !== undefined);
 	process.stdout.write(
 		`${JSON.stringify({
 			scenario,
+			importSpecifier,
 			importMs: round(importMs),
 			firstFrameMs: firstFrameMs === undefined ? undefined : round(firstFrameMs),
+			kitRootLoaded: kitDistPaths.includes("index.js"),
+			kitRuntimeLoaded: kitDistPaths.includes("runtime.js"),
+			kitComponentsLoaded: kitDistPaths.some((path) => path.startsWith("components/")),
 			codingAgentLoaded: packageUrls.some((url) =>
 				url.includes("/@earendil-works/pi-coding-agent/"),
 			),
+			highlightJsLoaded: packageUrls.some((url) => url.includes("/highlight.js/")),
 			mermaidRendererLoaded: packageUrls.some((url) => url.includes("/grok-mermaid/")),
 			packageUrls,
 		})}\n`,
 	);
+}
+
+function kitDistRelativePath(url) {
+	for (const marker of ["/packages/pi-tui-kit/dist/", "/node_modules/@narumitw/pi-tui-kit/dist/"]) {
+		const index = url.lastIndexOf(marker);
+		if (index >= 0) return url.slice(index + marker.length);
+	}
+	return undefined;
 }
 
 async function runMenuFrame(kit, startedAt, screen) {
