@@ -2,9 +2,11 @@
 
 ## Documentation and communication
 
-- Keep documents and conversations concise, clear, and accurate.
-- Explain things simply enough for a child to understand.
-- Write one sentence per line in prose.
+- Lead with the most important relevant information, then add only necessary detail.
+- Use clear, familiar words and concise, accurate sentences without repetition.
+- Explain the main idea simply before adding technical detail.
+- Make documented rules specific and verifiable.
+- Write one sentence per source line in prose.
 
 ## Repository structure
 
@@ -44,6 +46,7 @@ Run commands from the repository root unless a command says otherwise.
 
 ## Code and package rules
 
+- Follow KISS and YAGNI: prefer simple, minimal solutions and avoid unnecessary complexity.
 - Root TypeScript uses NodeNext modules, ES2022, strict mode, and no emit.
 - Publishable libraries emit through their own build configuration.
 - Biome requires tabs, double quotes, semicolons, a 100-column line width, and recommended lint rules.
