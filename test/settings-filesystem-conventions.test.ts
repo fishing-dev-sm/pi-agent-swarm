@@ -17,7 +17,7 @@ const SETTINGS_PUBLICATION_SOURCES = [
 	"packages/pi-plan-mode/src/settings.ts",
 	"packages/pi-starship/src/config.ts",
 	"packages/pi-statusline/src/settings.ts",
-	"packages/pi-sync/src/config-file.ts",
+	"packages/pi-sync/src/settings/config-file.ts",
 ] as const;
 
 test("settings publishers do not use hard links or direct canonical copies", () => {
@@ -29,7 +29,7 @@ test("settings publishers do not use hard links or direct canonical copies", () 
 });
 
 test("pi-sync publishes a complete, durable temporary inode", () => {
-	const source = readFileSync("packages/pi-sync/src/config-file.ts", "utf8");
+	const source = readFileSync("packages/pi-sync/src/settings/config-file.ts", "utf8");
 	assert.doesNotMatch(source, /\bcopyFile\s*\(/u);
 	assert.match(source, /await publishedHandle\.sync\(\)/u);
 });
