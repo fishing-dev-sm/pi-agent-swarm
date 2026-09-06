@@ -307,6 +307,7 @@ export function createMockContext(overrides: Record<string, unknown> = {}) {
 		hasUI: overrides.hasUI ?? (overrides.mode === "tui" || overrides.mode === "rpc"),
 		model: overrides.model,
 		ui: {
+			theme: overrides.theme ?? { fg: (_role: string, text: string) => text },
 			notify(message: string, level?: string) {
 				notifications.push({ message, level });
 			},
