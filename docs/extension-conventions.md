@@ -300,6 +300,14 @@ a distinct setup workflow.
 
 ### Status and persistent UI
 
+- **MUST:** Start each widget displayed above the editor with a full-width horizontal separator using
+  the callback-provided `borderMuted` theme role; keep every line within the supplied width, including
+  zero-width rendering. **Verification:** `Test` separator placement, theme role, and width bounds.
+
+Prefer `@narumitw/pi-tui-kit`'s `EditorStatusWidget` for passive widgets above the editor; it owns the
+standard separator and width bounds while the extension renders its body. Use `HorizontalRule` for
+standalone dividers instead of repeating the drawing logic.
+
 - **MUST:** Use a stable package-specific key for statuses or widgets, clear the exact key that was
   set, and clear session-owned UI on shutdown, replacement, and failed initialization.
   **Verification:** `Test` of lifecycle cleanup and `Review` of key ownership.
