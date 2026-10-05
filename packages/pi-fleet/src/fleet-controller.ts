@@ -220,7 +220,15 @@ export class FleetController {
     }
     const handoff = event.reason === "reload" ? takeReloadHandoff(owner, this.deps.now()) : undefined;
     this.parentSessionId = envelope?.parentSessionId ?? handoff?.parentSessionId;
-    if (!envelope && !handoff) return;
+    if (!envelope && !handoff) {
+      // A human-started session (not spawned and not a reload) defaults to a
+      // manager name; it becomes the lead of its own group when it first starts
+      // a group (see startNewGroup).
+      if (!this.pi.getSessionName()) {
+        this.pi.setSessionName(`MANAGER-${ctx.sessionManager.getSessionId().slice(0, 8)}`);
+      }
+      return;
+    }
     try {
       if (envelope?.childName) this.pi.setSessionName(envelope.childName);
       if (envelope?.childColor) this.color = envelope.childColor;
@@ -323,6 +331,15 @@ export class FleetController {
           combineSignals(signal, this.controller.signal),
         );
       }
+      // A human-started session defaults to being the lead of its own group.
+      const self = this.membership?.transport.peerDescription;
+      if (self) {
+        try {
+          await this.setLead(ctx, self, combineSignals(signal, this.controller.signal));
+        } catch {
+          // Best-effort: a manager can still run a group without an explicit lead record.
+        }
+      }
       return this.snapshot(signal);
     });
   }
@@ -338,7 +355,15 @@ export class FleetController {
     return this.mutateMembership(async () => {
       this.assertCurrentContext(ctx);
       if (this.membership) {
-        throw new Error("Leave the current Pi Fleet group before joining another");
+        // Join intent wins over the auto-started manager group: leave it first.
+        const membership = this.membership;
+        this.membership = undefined;
+        this.pendingKickoffIds.clear();
+        try {
+          await membership.transport.stop();
+        } finally {
+          membership.group.secret.fill(0);
+        }
       }
       await this.startGroupOwned(group, invite, acceptsRequests, ctx, combineSignals(signal, this.controller.signal));
       return this.snapshot(signal);
@@ -703,6 +728,12 @@ export class FleetController {
       const group = createGroup();
       const membership = await this.startGroupOwned(group, formatInvite(group.secret), false, ctx, signal);
       membership.rollbackLaunch = rollbackOwner;
+      // A human-started session spawning a worker is the lead of its auto-created group.
+      try {
+        await this.setLead(ctx, membership.transport.peerDescription, signal);
+      } catch {
+        // Best-effort: a manager can still spawn without an explicit lead record.
+      }
       return membership;
     });
   }
@@ -922,6 +953,8 @@ export class FleetController {
   private leaveGroupInternal(): Promise<void> {
     return this.mutateMembership(async () => {
       const membership = this.membership;
+      const directory = membership?.transport.endpointManifest?.directory;
+      const self = membership?.transport.peerDescription;
       this.membership = undefined;
       // Leaving a group drops any outstanding kickoff confluence so a stale,
       // never-answered kickoff cannot suppress a later group's wake-up.
@@ -931,6 +964,12 @@ export class FleetController {
       } finally {
         membership?.group.secret.fill(0);
       }
+      // A lead that leaves removes its own lead record so a stale lead.json does
+      // not outlive the session (the next lead overwrites it anyway).
+      if (directory && self && this.leadSessionId === self.sessionId) {
+        await rm(join(directory, "lead.json"), { force: true }).catch(() => undefined);
+      }
+      this.leadSessionId = undefined;
     });
   }
 
