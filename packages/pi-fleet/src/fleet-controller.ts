@@ -215,6 +215,10 @@ export class FleetController {
     try {
       if (envelope?.childName) this.pi.setSessionName(envelope.childName);
       if (envelope?.childColor) this.color = envelope.childColor;
+      // A reload drops the envelope, so restore the identity saved at shutdown: the color
+      // always (sessionStart reset it), and the name only if the session manager lost it.
+      if (!envelope?.childColor && handoff?.color) this.color = handoff.color;
+      if (handoff?.name && !this.pi.getSessionName()) this.pi.setSessionName(handoff.name);
       if (envelope?.model) {
         const model = ctx.modelRegistry.find(envelope.model.provider, envelope.model.id);
         if (!model) throw new Error("The requested parent model is unavailable in the child");
@@ -253,12 +257,17 @@ export class FleetController {
     if (ctx.sessionManager !== this.activeSessionManager) return;
     this.stopLeadWatcher();
     if (event.reason === "reload" && this.membership) {
+      const membership = this.membership;
+      const peerName = this.pi.getSessionName() ?? membership.transport.peerDescription.name;
+      const peerColor = this.color ?? membership.transport.peerDescription.color;
       putReloadHandoff(ctx.sessionManager, {
-        invite: this.membership.invite,
-        acceptsRequests: this.membership.acceptsRequests,
-        ...(this.membership.launchId ? { launchId: this.membership.launchId } : {}),
-        ...(this.membership.kickoffCapability ? { kickoffCapability: this.membership.kickoffCapability } : {}),
-        kickoffConsumed: this.membership.kickoffConsumed,
+        invite: membership.invite,
+        acceptsRequests: membership.acceptsRequests,
+        ...(membership.launchId ? { launchId: membership.launchId } : {}),
+        ...(membership.kickoffCapability ? { kickoffCapability: membership.kickoffCapability } : {}),
+        kickoffConsumed: membership.kickoffConsumed,
+        ...(peerName ? { name: peerName } : {}),
+        ...(peerColor ? { color: peerColor } : {}),
         expiresAt: this.deps.now() + RELOAD_HANDOFF_TTL_MS,
       });
     }

@@ -6,6 +6,8 @@ export interface FleetReloadHandoff {
   launchId?: string;
   kickoffCapability?: string;
   kickoffConsumed: boolean;
+  name?: string;
+  color?: string;
   expiresAt: number;
 }
 
