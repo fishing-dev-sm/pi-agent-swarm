@@ -34,6 +34,10 @@ export function createPiFleetExtension(dependencies: PiFleetDependencies = {}): 
     pi.on("session_shutdown", async (event, ctx) => {
       await controller.sessionShutdown(event, ctx);
     });
+    pi.on("input", async (event, ctx) => {
+      if (event.source !== "interactive") return;
+      await controller.relaySteerInput(event.text, ctx);
+    });
 
     pi.registerCommand("fleet", {
       description: "Spawn and connect local Pi sessions",

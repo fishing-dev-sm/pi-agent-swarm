@@ -8,6 +8,7 @@ export interface FleetReloadHandoff {
   kickoffConsumed: boolean;
   name?: string;
   color?: string;
+  parentSessionId?: string;
   expiresAt: number;
 }
 

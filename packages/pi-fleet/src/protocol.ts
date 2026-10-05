@@ -33,6 +33,9 @@ export interface FleetGroup {
 
 export type FleetMessageMode = "notify" | "request" | "reply" | "kickoff";
 
+/** Distinguishes control messages: lead broadcasts vs worker steer relays. */
+export type FleetMessageKind = "lead" | "steer";
+
 export interface FleetMessage {
   id: string;
   fromSessionId: string;
@@ -46,6 +49,7 @@ export interface FleetMessage {
   replyTo?: string;
   launchId?: string;
   control?: boolean;
+  kind?: FleetMessageKind;
 }
 
 export interface FleetPeerDescription {
@@ -241,6 +245,7 @@ export function validateMessage(value: unknown): FleetMessage {
       "fromSessionId",
       "id",
       "issuedAt",
+      "kind",
       "launchId",
       "mode",
       "replyTo",
@@ -272,6 +277,9 @@ export function validateMessage(value: unknown): FleetMessage {
   if (value.control !== undefined && typeof value.control !== "boolean") {
     throw new Error("Pi Fleet message control flag is invalid");
   }
+  if (value.kind !== undefined && value.kind !== "lead" && value.kind !== "steer") {
+    throw new Error("Pi Fleet message kind is invalid");
+  }
   if (mode === "reply" && !replyTo) throw new Error("Pi Fleet reply requires a reply message id");
   if (mode === "kickoff" && !launchId) throw new Error("Pi Fleet kickoff requires a launch id");
   return {
@@ -287,6 +295,7 @@ export function validateMessage(value: unknown): FleetMessage {
     ...(replyTo ? { replyTo } : {}),
     ...(launchId ? { launchId } : {}),
     ...(value.control === true ? { control: true } : {}),
+    ...(value.kind !== undefined ? { kind: value.kind as FleetMessageKind } : {}),
   };
 }
 
