@@ -724,7 +724,21 @@ export class FleetController {
         const activeContext = this.activeContext;
         if (message.kind === "shutdown") {
           // Control-plane graceful shutdown: exit without entering the model context.
+          // Pi consumes the shutdown request only when an agent run settles
+          // (agent_settled), which an idle session never emits again. Trigger an
+          // empty follow-up turn and abort it immediately: the aborted run settles
+          // without a provider request and the settle boundary performs the
+          // shutdown. A busy session settles on its own and needs no trigger.
+          const idle = activeContext?.isIdle() ?? false;
           activeContext?.shutdown();
+          if (idle && activeContext) {
+            const details: FleetMessageDetails = { message };
+            this.pi.sendMessage(
+              { customType: FLEET_MESSAGE_TYPE, content: "", display: false, details },
+              { deliverAs: "followUp", triggerTurn: true },
+            );
+            activeContext.abort();
+          }
           return;
         }
         if (!message.control) this.receiveMessage(message);
