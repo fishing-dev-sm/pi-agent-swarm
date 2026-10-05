@@ -180,6 +180,8 @@ export class FleetController {
   private parentSessionId: string | undefined;
   private leadSessionId: string | undefined;
   private leadWatcher: ReturnType<typeof setInterval> | undefined;
+  private readonly pendingKickoffIds = new Set<string>();
+  private relayChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly pi: ExtensionAPI,
@@ -197,6 +199,8 @@ export class FleetController {
     this.activeContext = ctx;
     this.color = undefined;
     this.parentSessionId = undefined;
+    this.pendingKickoffIds.clear();
+    this.relayChain = Promise.resolve();
     this.startLeadWatcher();
     const owner = ctx.sessionManager;
     const ownerGeneration = this.generation;
@@ -253,8 +257,22 @@ export class FleetController {
       if (this.isCurrent(owner, ownerGeneration)) {
         this.notify(ctx, `Pi Fleet could not join the launch group: ${safeError(error)}`, "error");
         await this.leaveGroupInternal();
+        if (envelope && this.isCurrent(owner, ownerGeneration)) {
+          // The launch envelope failed before this child could join a group, so an
+          // idle session never emits agent_settled and ctx.shutdown() alone would
+          // leave the window behind. Queue an empty follow-up turn and abort it:
+          // the aborted run settles without a provider request and the settle
+          // boundary consumes the shutdown flag (matching the onMessage shutdown
+          // path). The isCurrent re-check prevents a session replacement race from
+          // shutting down the replacement session.
+          ctx.shutdown();
+          this.pi.sendMessage(
+            { customType: FLEET_MESSAGE_TYPE, content: "", display: false, details: {} },
+            { deliverAs: "followUp", triggerTurn: true },
+          );
+          ctx.abort();
+        }
       }
-      if (envelope) ctx.shutdown();
     }
   }
 
@@ -437,7 +455,6 @@ export class FleetController {
       toSessionId: targetSessionId,
       mode: "notify",
       text: "shutdown request",
-      control: true,
       kind: "shutdown",
       issuedAt,
       expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
@@ -600,21 +617,29 @@ export class FleetController {
           expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
           launchId,
         };
-        const acknowledgement = await membership.transport.send(child.sessionId, kickoff, operationSignal, {
-          kickoffCapability,
-        });
-        if (this.membership !== membership || !this.isCurrent(owner, ownerGeneration) || operationSignal.aborted) {
-          throw staleError();
+        // Register before sending so a fast worker reply can match during the
+        // acknowledgement wait; remove it again if the kickoff never goes out.
+        this.pendingKickoffIds.add(kickoff.id);
+        try {
+          const acknowledgement = await membership.transport.send(child.sessionId, kickoff, operationSignal, {
+            kickoffCapability,
+          });
+          if (this.membership !== membership || !this.isCurrent(owner, ownerGeneration) || operationSignal.aborted) {
+            throw staleError();
+          }
+          if (!acknowledgement.accepted) {
+            throw createTerminalLaunchError(
+              terminal,
+              `${selectedTerminalLabel} created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
+              true,
+              terminalId,
+            );
+          }
+          kickoffAccepted = true;
+        } catch (error) {
+          this.pendingKickoffIds.delete(kickoff.id);
+          throw error;
         }
-        if (!acknowledgement.accepted) {
-          throw createTerminalLaunchError(
-            terminal,
-            `${selectedTerminalLabel} created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
-            true,
-            terminalId,
-          );
-        }
-        kickoffAccepted = true;
       }
       void this.primeFooter(ctx);
       return {
@@ -719,12 +744,17 @@ export class FleetController {
       seenMessageIds: recent.messageIds,
       ...(kickoffCapability ? { kickoffCapability } : {}),
       kickoffConsumed: acceptedKickoff,
+      authorizeShutdown: (message) =>
+        message.fromSessionId === this.parentSessionId ||
+        (this.leadSessionId !== undefined && message.fromSessionId === this.leadSessionId),
       onMessage: async (message, deliverySignal) => {
         if (deliverySignal?.aborted || !this.isCurrent(owner, ownerGeneration)) return;
         const activeContext = this.activeContext;
         if (message.kind === "shutdown") {
           // Control-plane graceful shutdown: exit without entering the model context.
-          // Pi consumes the shutdown request only when an agent run settles
+          // Authorization (parent or current lead) is enforced by the transport's
+          // messagePolicyError, so only permitted senders reach this branch. Pi
+          // consumes the shutdown request only when an agent run settles
           // (agent_settled), which an idle session never emits again. Trigger an
           // empty follow-up turn and abort it immediately: the aborted run settles
           // without a provider request and the settle boundary performs the
@@ -741,7 +771,12 @@ export class FleetController {
           }
           return;
         }
-        if (!message.control) this.receiveMessage(message);
+        if (message.kind === "lead") {
+          // Lead broadcasts only update the role badge; they never enter the model
+          // context. refreshLead below reconciles the same information.
+        } else {
+          this.receiveMessage(message);
+        }
         void this.refreshLead().then((changed) => {
           if (changed && activeContext && this.isCurrent(owner, ownerGeneration)) {
             void this.renderFooterStatus(activeContext);
@@ -811,9 +846,21 @@ export class FleetController {
       },
       {
         deliverAs: "followUp",
-        triggerTurn: message.mode === "request" || message.mode === "kickoff",
+        triggerTurn: this.resolveTriggerTurn(message),
       },
     );
+  }
+
+  private resolveTriggerTurn(message: FleetMessage): boolean {
+    if (message.mode === "request" || message.mode === "kickoff") return true;
+    if (message.mode !== "reply" || !message.replyTo) return false;
+    // A reply to a pending kickoff is a completion report: it enters the context
+    // now but only wakes the leader once every outstanding kickoff has reported.
+    if (this.pendingKickoffIds.delete(message.replyTo)) {
+      return this.pendingKickoffIds.size === 0;
+    }
+    // Any other reply (request or notify) is an answer and wakes the peer.
+    return true;
   }
 
   private async waitForChild(
@@ -876,6 +923,9 @@ export class FleetController {
     return this.mutateMembership(async () => {
       const membership = this.membership;
       this.membership = undefined;
+      // Leaving a group drops any outstanding kickoff confluence so a stale,
+      // never-answered kickoff cannot suppress a later group's wake-up.
+      this.pendingKickoffIds.clear();
       try {
         await membership?.transport.stop();
       } finally {
@@ -1034,8 +1084,12 @@ export class FleetController {
     await this.renderFooterStatus(ctx);
   }
 
-  /** Best-effort relay of a direct user steer to the parent session so it stays aligned. */
-  async relaySteerInput(text: string, ctx: ExtensionContext): Promise<void> {
+  /**
+   * Best-effort, ordered relay of a direct user steer to the parent session so it
+   * stays aligned. This returns immediately: sends are chained so ordering is
+   * preserved while the input event path is never blocked by a slow parent.
+   */
+  relaySteerInput(text: string, ctx: ExtensionContext): void {
     if (!this.isCurrent(ctx)) return;
     const membership = this.membership;
     const parentSessionId = this.parentSessionId;
@@ -1055,11 +1109,12 @@ export class FleetController {
       issuedAt,
       expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
     };
-    try {
-      await membership.transport.send(parentSessionId, message, this.controller.signal);
-    } catch {
-      // Best-effort: the steer already landed locally, so a failed relay is not actionable.
-    }
+    this.relayChain = this.relayChain
+      .then(() => membership.transport.send(parentSessionId, message, this.controller.signal))
+      .then(
+        () => undefined,
+        () => undefined,
+      );
   }
 
   private async broadcastLeadChange(target: FleetPeerDescription): Promise<void> {
@@ -1084,7 +1139,6 @@ export class FleetController {
         toSessionId: peer.sessionId,
         mode: "notify",
         text,
-        control: true,
         kind: "lead",
         issuedAt,
         expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,

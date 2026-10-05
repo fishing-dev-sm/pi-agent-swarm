@@ -36,7 +36,7 @@ export function createPiFleetExtension(dependencies: PiFleetDependencies = {}): 
     });
     pi.on("input", async (event, ctx) => {
       if (event.source !== "interactive") return;
-      await controller.relaySteerInput(event.text, ctx);
+      void controller.relaySteerInput(event.text, ctx);
     });
 
     pi.registerCommand("fleet", {

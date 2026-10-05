@@ -74,6 +74,8 @@ export interface FleetTransportOptions {
   discoveryProbeTimeoutMs?: number;
   kickoffCapability?: string;
   onMessage(message: FleetMessage, signal: AbortSignal): Promise<void> | void;
+  /** Resolve whether a shutdown control message from the given sender is authorized. */
+  authorizeShutdown?: (message: FleetMessage) => boolean;
   seenMessageIds?: readonly string[];
   kickoffConsumed?: boolean;
   now?: () => number;
@@ -549,6 +551,14 @@ export class FleetTransport {
   }
 
   private messagePolicyError(message: FleetMessage, kickoffCapability?: string): FleetAckPayload | undefined {
+    if (message.kind === "shutdown" && !(this.options.authorizeShutdown?.(message) ?? false)) {
+      return {
+        kind: "ack",
+        status: "rejected",
+        code: "shutdown_unauthorized",
+        error: "Sender is not authorized to shut down this session",
+      };
+    }
     if (message.mode === "request" && !this.peer.acceptsRequests) {
       return {
         kind: "ack",

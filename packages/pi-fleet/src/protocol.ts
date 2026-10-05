@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { TextDecoder } from "node:util";
 
-export const FLEET_PROTOCOL_VERSION = 2;
+export const FLEET_PROTOCOL_VERSION = 3;
 export const INVITE_PREFIX = "pifleet:v1:";
 export const MAX_FRAME_BYTES = 32 * 1024;
 export const MAX_MESSAGE_BYTES = 16 * 1024;
@@ -23,6 +23,7 @@ const ACK_CODES = new Set<FleetAckCode>([
   "launch_mismatch",
   "rate_limited",
   "requests_disabled",
+  "shutdown_unauthorized",
   "target_busy",
 ]);
 
@@ -33,7 +34,10 @@ export interface FleetGroup {
 
 export type FleetMessageMode = "notify" | "request" | "reply" | "kickoff";
 
-/** Distinguishes control messages: lead broadcasts, worker steer relays, and graceful shutdown requests. */
+/**
+ * Routes a message: `undefined` or `"steer"` enter the model context, while
+ * `"lead"` and `"shutdown"` stay on the control plane and never reach the model.
+ */
 export type FleetMessageKind = "lead" | "steer" | "shutdown";
 
 export interface FleetMessage {
@@ -48,7 +52,6 @@ export interface FleetMessage {
   expiresAt: number;
   replyTo?: string;
   launchId?: string;
-  control?: boolean;
   kind?: FleetMessageKind;
 }
 
@@ -74,6 +77,7 @@ export type FleetAckCode =
   | "launch_mismatch"
   | "rate_limited"
   | "requests_disabled"
+  | "shutdown_unauthorized"
   | "target_busy";
 
 export interface FleetAckPayload {
@@ -238,7 +242,6 @@ export function validateMessage(value: unknown): FleetMessage {
   assertExactKeys(
     value,
     [
-      "control",
       "expiresAt",
       "fromCwd",
       "fromName",
@@ -274,9 +277,6 @@ export function validateMessage(value: unknown): FleetMessage {
   }
   const replyTo = optionalId(value.replyTo, "reply message id");
   const launchId = optionalId(value.launchId, "launch id");
-  if (value.control !== undefined && typeof value.control !== "boolean") {
-    throw new Error("Pi Fleet message control flag is invalid");
-  }
   if (value.kind !== undefined && value.kind !== "lead" && value.kind !== "steer" && value.kind !== "shutdown") {
     throw new Error("Pi Fleet message kind is invalid");
   }
@@ -294,7 +294,6 @@ export function validateMessage(value: unknown): FleetMessage {
     expiresAt,
     ...(replyTo ? { replyTo } : {}),
     ...(launchId ? { launchId } : {}),
-    ...(value.control === true ? { control: true } : {}),
     ...(value.kind !== undefined ? { kind: value.kind as FleetMessageKind } : {}),
   };
 }

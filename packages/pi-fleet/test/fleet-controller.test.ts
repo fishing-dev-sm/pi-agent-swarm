@@ -276,7 +276,7 @@ test("snapshot rejects a result that completes after session shutdown", async ()
   await assert.rejects(snapshot, /stale/u);
 });
 
-test("incoming modes use follow-up delivery and only requests trigger a turn", async () => {
+test("incoming messages use follow-up delivery and replies wake the peer", async () => {
   const mock = createMockPi();
   const deps = dependencies();
   const controller = new FleetController(mock.pi, deps);
@@ -341,7 +341,7 @@ test("incoming modes use follow-up delivery and only requests trigger a turn", a
     [
       { deliverAs: "followUp", triggerTurn: false },
       { deliverAs: "followUp", triggerTurn: true },
-      { deliverAs: "followUp", triggerTurn: false },
+      { deliverAs: "followUp", triggerTurn: true },
       { deliverAs: "followUp", triggerTurn: true },
     ],
   );
