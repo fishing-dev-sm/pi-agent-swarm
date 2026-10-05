@@ -9,7 +9,7 @@ import { terminalLabel } from "./terminal.js";
 import { safeError, safeTerminalLine } from "./text.js";
 import { registerFleetTools } from "./tools.js";
 
-const USAGE = "Usage: /fleet or /fleet <pifleet:v1:invite>";
+const USAGE = "Usage: /fleet, /fleet start, or /fleet <pifleet:v1:invite>";
 
 type FleetMenuModule = Pick<typeof import("./menu.js"), "showFleetMenu">;
 
@@ -45,6 +45,10 @@ export function createPiFleetExtension(dependencies: PiFleetDependencies = {}): 
         const args = rawArgs.trim();
         if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
           throw new Error(`Pi Fleet is unavailable in ${ctx.mode} mode. ${USAGE}`);
+        }
+        if (args === "start") {
+          await startGroupDirectly(controller, ctx);
+          return;
         }
         if (args) {
           await joinDirectInvite(controller, args, ctx);
@@ -108,6 +112,15 @@ async function joinDirectInvite(
   await controller.joinInvite(ctx, invite, false, signal);
   if (controller.isCurrent(ctx)) {
     ctx.ui.notify("Joined the local Pi Fleet group.", "info");
+  }
+}
+
+async function startGroupDirectly(controller: FleetController, ctx: ExtensionCommandContext): Promise<void> {
+  const signal = controller.sessionSignal;
+  if (signal.aborted) return;
+  await controller.startNewGroup(ctx, false, signal);
+  if (controller.isCurrent(ctx)) {
+    ctx.ui.notify("Started a local Pi Fleet group. You are its lead.", "info");
   }
 }
 
