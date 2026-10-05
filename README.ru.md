@@ -1,4 +1,4 @@
-# 🪟 Pi Fleet WM
+# 🪟 Pi Agent Swarm
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE) [![Pi extension](https://img.shields.io/badge/Pi-extension-blue)](https://pi.dev)
 
@@ -14,19 +14,19 @@
   <a href="README.ru.md"><strong>Русский</strong></a>
 </p>
 
-Форк [`pi-fleet`](./packages/pi-fleet), переработанный под оконный менеджер для [Pi Coding Agent](https://pi.dev).
+Форк [`pi-agent-swarm`](./packages/pi-agent-swarm), переработанный под оконный менеджер для [Pi Coding Agent](https://pi.dev).
 Вместо tmux или фоновых подпроцессов каждый агент — это **настоящее окно терминала** с полноценным Pi TUI, размещаемое любым тайловым оконным менеджером.
 
-![Pi Fleet WM в работе](docs/images/pi-fleet-wm.png)
+![Pi Agent Swarm в работе](docs/images/pi-agent-swarm.png)
 
 ## Введение
 
-pi-fleet-wm перерабатывает pi-fleet вокруг тайлового оконного менеджера.
+pi-agent-swarm перерабатывает pi-agent-swarm вокруг тайлового оконного менеджера.
 Каждый агент работает как настоящее окно терминала с полноценным Pi TUI — а не как фоновый подпроцесс.
 Новые окна закрепляются на рабочем пространстве сессии-лидера, а бейдж в подвале каждого окна
 (● имя · sessionId · LEADER / WORKER) позволяет с первого взгляда отличить лидера от воркеров.
 
-## Отличия от апстримного pi-fleet
+## Отличия от апстримного pi-agent-swarm
 
 - **Настоящие окна, без мультиплексора** — бэкенд `external` открывает обычное окно терминала, которое ваш тайловый менеджер раскладывает плиткой; tmux, Zellij и Ghostty не нужны.
 - **`pinToLeadWorkspace`** — новые внешние окна попадают на рабочее пространство сессии-лидера, а не на сфокусированное. Рабочее пространство лидера определяется обходом дерева процессов до `_NET_WM_PID` терминала, затем окно перемещается оконным менеджером; размещение — best-effort и никогда не блокирует запуск.
@@ -35,7 +35,7 @@ pi-fleet-wm перерабатывает pi-fleet вокруг тайловог�
 - **`session_bus shutdown`** — лидер может корректно завершить окно воркера.
 - Сессии, запущенные человеком, по умолчанию именуются `MANAGER-<id>` и автоматически становятся лидером.
 
-Полную историю изменений см. в [`docs/pi-fleet-project-history.md`](docs/pi-fleet-project-history.md), а полную справку по расширению — в [`packages/pi-fleet/README.md`](packages/pi-fleet/README.md).
+Полную историю изменений см. в [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-history.md), а полную справку по расширению — в [`packages/pi-agent-swarm/README.md`](packages/pi-agent-swarm/README.md).
 
 ## 🚀 Быстрый старт
 
@@ -43,14 +43,14 @@ pi-fleet-wm перерабатывает pi-fleet вокруг тайловог�
 
 ```bash
 npm install
-npm --workspace @narumitw/pi-fleet run build
-pi --no-extensions -e ./packages/pi-fleet
+npm --workspace pi-agent-swarm run build
+pi --no-extensions -e ./packages/pi-agent-swarm
 ```
 
 Или установите его как локальный пакет:
 
 ```bash
-pi install ./packages/pi-fleet
+pi install ./packages/pi-agent-swarm
 ```
 
 Запуск с внешним бэкендом:
@@ -66,12 +66,12 @@ pi install ./packages/pi-fleet
 
 Стандартная команда `externalCommand` — `alacritty -e`; используйте любую удобную команду терминала.
 
-Используйте `/fleet`, `session_spawn` и `session_bus`, чтобы запускать, направлять и останавливать флот.
+Используйте `/swarm`, `session_spawn` и `session_bus`, чтобы запускать, направлять и останавливать флот.
 
 ## 🗂️ Структура репозитория
 
 ```text
-packages/pi-fleet/        Расширение pi-fleet-wm (основная реализация под src/)
+packages/pi-agent-swarm/        Расширение pi-agent-swarm (основная реализация под src/)
 docs/                     История проекта, изображения и соглашения репозитория
 deprecated/               Пакеты апстрима, исключённые из активных скриптов workspace
 packages/                 Полный апстрим-монорепозиторий pi-extensions, сохранённый из форка

@@ -1,4 +1,4 @@
-# 🪟 Pi Fleet WM
+# 🪟 Pi Agent Swarm
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE) [![Pi extension](https://img.shields.io/badge/Pi-extension-blue)](https://pi.dev)
 
@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-[Pi Coding Agent](https://pi.dev) 向け [`pi-fleet`](./packages/pi-fleet) のウィンドウマネージャネイティブなフォークです。
+[Pi Coding Agent](https://pi.dev) 向け [`pi-agent-swarm`](./packages/pi-agent-swarm) のウィンドウマネージャネイティブなフォークです。
 tmux やヘッドレスな子プロセスの代わりに、各エージェントは完全な Pi TUI を実行する**実体のターミナルウィンドウ**であり、**任意のタイル型ウィンドウマネージャ**によってタイル配置されます。
 
-![Pi Fleet WM の実行画面](docs/images/pi-fleet-wm.png)
+![Pi Agent Swarm の実行画面](docs/images/pi-agent-swarm.png)
 
 ## はじめに
 
-pi-fleet-wm は、pi-fleet をタイル型ウィンドウマネージャ中心に作り直します。
+pi-agent-swarm は、pi-agent-swarm をタイル型ウィンドウマネージャ中心に作り直します。
 各エージェントは完全な Pi TUI を備えた実体のターミナルウィンドウとして動作し、ヘッドレスな子プロセスにはなりません。
 新しく生成されたウィンドウはリーダーセッションのワークスペースに配置され、各ウィンドウのフッターバッジ
 （● 名前 · sessionId · LEADER / WORKER）でリーダーとワーカーを一目で区別できます。
 
-## アップストリームの pi-fleet との違い
+## アップストリームの pi-agent-swarm との違い
 
 - **実体のウィンドウ、マルチプレクサ不要** — `external` バックエンドが通常のターミナルウィンドウを開き、タイル型ウィンドウマネージャがタイル配置します。tmux、Zellij、Ghostty は不要です。
 - **`pinToLeadWorkspace`** — 新しい外部ウィンドウは、フォーカス中のワークスペースではなくリーダーセッションのワークスペースに配置されます。リーダーのワークスペースは、プロセスツリーを辿ってターミナルの `_NET_WM_PID` を特定して見つけ、ウィンドウマネージャで移動します。配置はベストエフォートで、起動を妨げることはありません。
@@ -35,7 +35,7 @@ pi-fleet-wm は、pi-fleet をタイル型ウィンドウマネージャ中心�
 - **`session_bus shutdown`** — リーダーがワーカーウィンドウをグレースフルに終了できます。
 - 人が起動したセッションはデフォルトで `MANAGER-<id>` と名付けられ、自動的にリーダーになります。
 
-変更履歴の全容は [`docs/pi-fleet-project-history.md`](docs/pi-fleet-project-history.md) を、拡張機能の完全なリファレンスは [`packages/pi-fleet/README.md`](packages/pi-fleet/README.md) を参照してください。
+変更履歴の全容は [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-history.md) を、拡張機能の完全なリファレンスは [`packages/pi-agent-swarm/README.md`](packages/pi-agent-swarm/README.md) を参照してください。
 
 ## 🚀 クイックスタート
 
@@ -43,14 +43,14 @@ pi-fleet-wm は、pi-fleet をタイル型ウィンドウマネージャ中心�
 
 ```bash
 npm install
-npm --workspace @narumitw/pi-fleet run build
-pi --no-extensions -e ./packages/pi-fleet
+npm --workspace pi-agent-swarm run build
+pi --no-extensions -e ./packages/pi-agent-swarm
 ```
 
 またはローカルパッケージとしてインストールします:
 
 ```bash
-pi install ./packages/pi-fleet
+pi install ./packages/pi-agent-swarm
 ```
 
 external バックエンドで実行します:
@@ -66,12 +66,12 @@ external バックエンドで実行します:
 
 デフォルトの `externalCommand` は `alacritty -e` です。お好みのターミナルコマンドに変更できます。
 
-`/fleet`、`session_spawn`、`session_bus` でフリートを起動・操作・シャットダウンします。
+`/swarm`、`session_spawn`、`session_bus` でフリートを起動・操作・シャットダウンします。
 
 ## 🗂️ リポジトリ構成
 
 ```text
-packages/pi-fleet/        pi-fleet-wm 拡張機能（正式な実装は src/ 配下）
+packages/pi-agent-swarm/        pi-agent-swarm 拡張機能（正式な実装は src/ 配下）
 docs/                     プロジェクト履歴、画像、リポジトリの規約
 deprecated/               アクティブなワークスペーススクリプトから除外されたアップストリームのパッケージ
 packages/                 フォークから引き継いだ完全なアップストリーム pi-extensions モノレポ

@@ -1,4 +1,4 @@
-# 🪟 Pi Fleet WM
+# 🪟 Pi Agent Swarm
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE) [![Pi extension](https://img.shields.io/badge/Pi-extension-blue)](https://pi.dev)
 
@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-Ein Fenstermanager-nativer Fork von [`pi-fleet`](./packages/pi-fleet) für den [Pi Coding Agent](https://pi.dev).
+Ein Fenstermanager-nativer Fork von [`pi-agent-swarm`](./packages/pi-agent-swarm) für den [Pi Coding Agent](https://pi.dev).
 Statt tmux oder headless Subprozessen ist jeder Agent ein **echtes Terminalfenster**, das eine vollständige Pi-TUI ausführt und von einem beliebigen kachelnden Fenstermanager gekachelt wird.
 
-![Pi Fleet WM in Aktion](docs/images/pi-fleet-wm.png)
+![Pi Agent Swarm in Aktion](docs/images/pi-agent-swarm.png)
 
 ## Einführung
 
-pi-fleet-wm baut pi-fleet rund um einen kachelnden Fenstermanager neu auf.
+pi-agent-swarm baut pi-agent-swarm rund um einen kachelnden Fenstermanager neu auf.
 Jeder Agent läuft als echtes Terminalfenster mit einer vollständigen Pi-TUI — nie als headless Kindprozess.
 Neue Fenster werden auf den Arbeitsbereich der Leader-Sitzung verschoben, und jedes Fenster zeigt ein Fußzeilen-Badge
 (● Name · sessionId · LEADER / WORKER), um Leader und Worker auf einen Blick zu unterscheiden.
 
-## Unterschiede zum Upstream-pi-fleet
+## Unterschiede zum Upstream-pi-agent-swarm
 
 - **Echte Fenster, kein Multiplexer** — das `external`-Backend öffnet ein gewöhnliches Terminalfenster, das dein kachelnder Fenstermanager anordnet; kein tmux, Zellij oder Ghostty nötig.
 - **`pinToLeadWorkspace`** — neue externe Fenster landen auf dem Arbeitsbereich der Leader-Sitzung statt auf dem fokussierten. Der Leader-Arbeitsbereich wird ermittelt, indem der Prozessbaum bis zum `_NET_WM_PID` des Terminals durchlaufen wird, und dann mit dem Fenstermanager verschoben; die Platzierung ist best-effort und blockiert niemals den Start.
@@ -35,7 +35,7 @@ Neue Fenster werden auf den Arbeitsbereich der Leader-Sitzung verschoben, und je
 - **`session_bus shutdown`** — der Leader kann ein Worker-Fenster sauber beenden.
 - Von Menschen gestartete Sitzungen heißen standardmäßig `MANAGER-<id>` und ernennen sich automatisch selbst zum Leader.
 
-Siehe [`docs/pi-fleet-project-history.md`](docs/pi-fleet-project-history.md) für die vollständige Änderungshistorie und [`packages/pi-fleet/README.md`](packages/pi-fleet/README.md) für die vollständige Erweiterungsreferenz.
+Siehe [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-history.md) für die vollständige Änderungshistorie und [`packages/pi-agent-swarm/README.md`](packages/pi-agent-swarm/README.md) für die vollständige Erweiterungsreferenz.
 
 ## 🚀 Schnellstart
 
@@ -43,14 +43,14 @@ Erweiterung aus diesem Checkout bauen und laden:
 
 ```bash
 npm install
-npm --workspace @narumitw/pi-fleet run build
-pi --no-extensions -e ./packages/pi-fleet
+npm --workspace pi-agent-swarm run build
+pi --no-extensions -e ./packages/pi-agent-swarm
 ```
 
 Oder als lokales Paket installieren:
 
 ```bash
-pi install ./packages/pi-fleet
+pi install ./packages/pi-agent-swarm
 ```
 
 Mit dem externen Backend ausführen:
@@ -66,12 +66,12 @@ Mit dem externen Backend ausführen:
 
 Der Standard-`externalCommand` ist `alacritty -e`; verwende den Terminal-Befehl deiner Wahl.
 
-Nutze `/fleet`, `session_spawn` und `session_bus`, um die Flotte zu starten, zu steuern und herunterzufahren.
+Nutze `/swarm`, `session_spawn` und `session_bus`, um die Flotte zu starten, zu steuern und herunterzufahren.
 
 ## 🗂️ Repository-Struktur
 
 ```text
-packages/pi-fleet/        Die pi-fleet-wm-Erweiterung (maßgebliche Implementierung unter src/)
+packages/pi-agent-swarm/        Die pi-agent-swarm-Erweiterung (maßgebliche Implementierung unter src/)
 docs/                     Projekthistorie, Bilder und Repository-Konventionen
 deprecated/               Upstream-Pakete, die aus den aktiven Workspace-Skripten ausgeschlossen sind
 packages/                 Das vollständige Upstream-Monorepo pi-extensions, aus dem Fork erhalten

@@ -32,7 +32,7 @@ All 29 original builders were compared with `pi-analytics` after normalizing onl
 | pi-chat | Network, directory, menu, chat-view and widget lazy; alternate banner | Declarative; migrate |
 | pi-chrome-devtools | Menus and WebMCP modules lazy; alternate banner | Declarative; migrate |
 | pi-codex-compact | Settings menu lazy; alternate banner | Declarative; migrate |
-| pi-fleet | Menu lazy; alternate banner | Declarative; migrate |
+| pi-agent-swarm | Menu lazy; alternate banner | Declarative; migrate |
 | pi-goal | Menu and settings UI lazy; alternate banner | Declarative; migrate |
 | pi-herdr | Menu lazy; allow two exact Kit presentation leaves | Declarative; migrate |
 | pi-plan-mode | Seven UI modules lazy; alternate banner | Declarative; migrate |

@@ -1,4 +1,4 @@
-# 🪟 Pi Fleet WM
+# 🪟 Pi Agent Swarm
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE) [![Pi extension](https://img.shields.io/badge/Pi-extension-blue)](https://pi.dev)
 
@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-Un fork de [`pi-fleet`](./packages/pi-fleet) pensé pour le gestionnaire de fenêtres, destiné au [Pi Coding Agent](https://pi.dev).
+Un fork de [`pi-agent-swarm`](./packages/pi-agent-swarm) pensé pour le gestionnaire de fenêtres, destiné au [Pi Coding Agent](https://pi.dev).
 Au lieu de tmux ou de sous-processus sans interface, chaque agent est une **véritable fenêtre de terminal** exécutant une TUI Pi complète, agencée en mosaïque par n'importe quel gestionnaire de fenêtres en mosaïque.
 
-![Pi Fleet WM en fonctionnement](docs/images/pi-fleet-wm.png)
+![Pi Agent Swarm en fonctionnement](docs/images/pi-agent-swarm.png)
 
 ## Introduction
 
-pi-fleet-wm repense pi-fleet autour d'un gestionnaire de fenêtres en mosaïque.
+pi-agent-swarm repense pi-agent-swarm autour d'un gestionnaire de fenêtres en mosaïque.
 Chaque agent s'exécute dans une vraie fenêtre de terminal avec une TUI Pi complète — jamais comme un sous-processus sans interface.
 Les nouvelles fenêtres sont épinglées à l'espace de travail de la session leader, et chaque fenêtre affiche un badge en pied
 (● nom · sessionId · LEADER / WORKER) pour distinguer le leader des travailleurs d'un coup d'œil.
 
-## Différences avec le pi-fleet d'upstream
+## Différences avec le pi-agent-swarm d'upstream
 
 - **Vraies fenêtres, sans multiplexeur** — le backend `external` ouvre une fenêtre de terminal ordinaire agencée par ton gestionnaire de fenêtres ; aucun besoin de tmux, Zellij ou Ghostty.
 - **`pinToLeadWorkspace`** — les nouvelles fenêtres externes arrivent sur l'espace de travail de la session leader plutôt que sur l'espace focalisé. L'espace de travail leader est localisé en remontant l'arbre des processus jusqu'au `_NET_WM_PID` du terminal, puis déplacé avec le gestionnaire de fenêtres ; le placement est au mieux et ne bloque jamais le lancement.
@@ -35,7 +35,7 @@ Les nouvelles fenêtres sont épinglées à l'espace de travail de la session le
 - **`session_bus shutdown`** — le leader peut fermer proprement une fenêtre travailleuse.
 - Les sessions lancées par un humain sont nommées `MANAGER-<id>` par défaut et s'autoproclament leader automatiquement.
 
-Voir [`docs/pi-fleet-project-history.md`](docs/pi-fleet-project-history.md) pour l'historique complet et [`packages/pi-fleet/README.md`](packages/pi-fleet/README.md) pour la référence complète de l'extension.
+Voir [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-history.md) pour l'historique complet et [`packages/pi-agent-swarm/README.md`](packages/pi-agent-swarm/README.md) pour la référence complète de l'extension.
 
 ## 🚀 Démarrage rapide
 
@@ -43,14 +43,14 @@ Compilez et chargez l'extension depuis ce checkout :
 
 ```bash
 npm install
-npm --workspace @narumitw/pi-fleet run build
-pi --no-extensions -e ./packages/pi-fleet
+npm --workspace pi-agent-swarm run build
+pi --no-extensions -e ./packages/pi-agent-swarm
 ```
 
 Ou installez-la comme paquet local :
 
 ```bash
-pi install ./packages/pi-fleet
+pi install ./packages/pi-agent-swarm
 ```
 
 Exécutez avec le backend externe :
@@ -66,12 +66,12 @@ Exécutez avec le backend externe :
 
 La commande `externalCommand` par défaut est `alacritty -e` ; utilisez la commande de terminal de votre choix.
 
-Utilisez `/fleet`, `session_spawn` et `session_bus` pour lancer, diriger et éteindre la flotte.
+Utilisez `/swarm`, `session_spawn` et `session_bus` pour lancer, diriger et éteindre la flotte.
 
 ## 🗂️ Structure du dépôt
 
 ```text
-packages/pi-fleet/        L'extension pi-fleet-wm (implémentation de référence sous src/)
+packages/pi-agent-swarm/        L'extension pi-agent-swarm (implémentation de référence sous src/)
 docs/                     Historique du projet, images et conventions du dépôt
 deprecated/               Paquets upstream exclus des scripts actifs du workspace
 packages/                 Le monorepo upstream pi-extensions complet, conservé depuis le fork
