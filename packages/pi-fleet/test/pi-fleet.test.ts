@@ -16,6 +16,9 @@ function dependencies(): FleetControllerDependencies {
       setAcceptsRequests: (value) => {
         options.peer.acceptsRequests = value;
       },
+      setColor: (color) => {
+        options.peer.color = color;
+      },
       get peerDescription() {
         return { ...options.peer, endpointId: "a".repeat(24) };
       },

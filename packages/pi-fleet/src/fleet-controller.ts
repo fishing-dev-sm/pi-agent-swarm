@@ -67,6 +67,7 @@ export interface FleetTransportPort {
     authorization?: FleetSendAuthorization,
   ): Promise<FleetDeliveryAck>;
   setAcceptsRequests(value: boolean): void;
+  setColor(color: string): void;
   readonly peerDescription: FleetPeerDescription;
   readonly endpointManifest:
     | {
@@ -191,6 +192,7 @@ export class FleetController {
     this.controller = new AbortController();
     this.activeSessionManager = ctx.sessionManager;
     this.activeContext = ctx;
+    this.color = undefined;
     this.startLeadWatcher();
     const owner = ctx.sessionManager;
     const ownerGeneration = this.generation;
@@ -243,6 +245,7 @@ export class FleetController {
         this.notify(ctx, `Pi Fleet could not join the launch group: ${safeError(error)}`, "error");
         await this.leaveGroupInternal();
       }
+      if (envelope) ctx.shutdown();
     }
   }
 
@@ -448,7 +451,11 @@ export class FleetController {
       if (!ctx.modelRegistry.find(provider, id)) {
         throw new Error(`session_spawn model "${modelSpec}" is unavailable`);
       }
-      childModel = { provider, id };
+      childModel = {
+        provider,
+        id,
+        ...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
+      };
     } else {
       childModel = ctx.model
         ? {
@@ -664,7 +671,7 @@ export class FleetController {
       kickoffConsumed: acceptedKickoff,
       onMessage: async (message, deliverySignal) => {
         if (deliverySignal?.aborted || !this.isCurrent(owner, ownerGeneration)) return;
-        this.receiveMessage(message);
+        if (!message.control) this.receiveMessage(message);
         const activeContext = this.activeContext;
         void this.refreshLead().then((changed) => {
           if (changed && activeContext && this.isCurrent(owner, ownerGeneration)) {
@@ -901,7 +908,7 @@ export class FleetController {
       this.clearRosterStatus(ctx);
       return;
     }
-    const color = self.color ?? pickFleetColor(self.sessionId);
+    const color = this.color ?? self.color ?? pickFleetColor(self.sessionId);
     const name = self.name ?? self.sessionId;
     const role = this.leadSessionId === self.sessionId ? "LEAD" : "WORKER";
     try {
@@ -914,9 +921,10 @@ export class FleetController {
   /** Resolve a peer by name or session id from the current snapshot. */
   async resolvePeer(target: string, signal?: AbortSignal): Promise<FleetPeerDescription | undefined> {
     const snapshot = await this.snapshot(signal);
-    const byId = snapshot.peers.find((p) => p.sessionId === target);
+    const candidates = snapshot.self ? [snapshot.self, ...snapshot.peers] : snapshot.peers;
+    const byId = candidates.find((p) => p.sessionId === target);
     if (byId) return byId;
-    return snapshot.peers.find((p) => p.name === target);
+    return candidates.find((p) => p.name === target);
   }
 
   async setLead(ctx: ExtensionContext, target: FleetPeerDescription, signal?: AbortSignal): Promise<void> {
@@ -944,6 +952,7 @@ export class FleetController {
   async setOwnColor(ctx: ExtensionContext, color: string): Promise<void> {
     this.assertCurrentContext(ctx);
     this.color = color;
+    this.membership?.transport.setColor(color);
     await this.renderFooterStatus(ctx);
   }
 
@@ -969,6 +978,7 @@ export class FleetController {
         toSessionId: peer.sessionId,
         mode: "notify",
         text,
+        control: true,
         issuedAt,
         expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
       };

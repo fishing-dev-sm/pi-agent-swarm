@@ -45,6 +45,7 @@ export interface FleetMessage {
   expiresAt: number;
   replyTo?: string;
   launchId?: string;
+  control?: boolean;
 }
 
 export interface FleetPeerDescription {
@@ -233,6 +234,7 @@ export function validateMessage(value: unknown): FleetMessage {
   assertExactKeys(
     value,
     [
+      "control",
       "expiresAt",
       "fromCwd",
       "fromName",
@@ -267,6 +269,9 @@ export function validateMessage(value: unknown): FleetMessage {
   }
   const replyTo = optionalId(value.replyTo, "reply message id");
   const launchId = optionalId(value.launchId, "launch id");
+  if (value.control !== undefined && typeof value.control !== "boolean") {
+    throw new Error("Pi Fleet message control flag is invalid");
+  }
   if (mode === "reply" && !replyTo) throw new Error("Pi Fleet reply requires a reply message id");
   if (mode === "kickoff" && !launchId) throw new Error("Pi Fleet kickoff requires a launch id");
   return {
@@ -281,6 +286,7 @@ export function validateMessage(value: unknown): FleetMessage {
     expiresAt,
     ...(replyTo ? { replyTo } : {}),
     ...(launchId ? { launchId } : {}),
+    ...(value.control === true ? { control: true } : {}),
   };
 }
 

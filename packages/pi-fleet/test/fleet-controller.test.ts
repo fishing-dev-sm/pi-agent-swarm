@@ -40,6 +40,9 @@ class FakeTransport {
   setAcceptsRequests(value: boolean) {
     this.options.peer.acceptsRequests = value;
   }
+  setColor(color: string) {
+    this.options.peer.color = color;
+  }
   get peerDescription() {
     return { ...this.options.peer, endpointId: "a".repeat(24) };
   }

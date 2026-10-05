@@ -192,6 +192,10 @@ export class FleetTransport {
     this.peer.acceptsRequests = value;
   }
 
+  setColor(color: string): void {
+    this.peer.color = color;
+  }
+
   get peerDescription(): FleetPeerDescription {
     return { ...this.peer };
   }
