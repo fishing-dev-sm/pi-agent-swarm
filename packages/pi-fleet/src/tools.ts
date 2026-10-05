@@ -10,7 +10,7 @@ import type { FleetDeliveryAck } from "./transport.js";
 
 const TERMINALS = ["tmux", "ghostty", "zellij", "external"] as const;
 const DIRECTIONS = ["right", "down", "left", "up"] as const;
-const BUS_ACTIONS = ["list", "send", "reply"] as const;
+const BUS_ACTIONS = ["list", "send", "reply", "shutdown"] as const;
 const SEND_MODES = ["notify", "request"] as const;
 const MAX_LISTED_PEERS = 64;
 const MAX_LIST_RESULT_BYTES = 40 * 1024;
@@ -26,6 +26,11 @@ export interface FleetToolController {
       mode: "notify" | "request" | "reply";
       replyTo?: string;
     },
+    signal?: AbortSignal,
+  ): Promise<{ message: FleetMessage; acknowledgement: FleetDeliveryAck }>;
+  shutdownPeer(
+    ctx: ExtensionContext,
+    targetSessionId: string,
     signal?: AbortSignal,
   ): Promise<{ message: FleetMessage; acknowledgement: FleetDeliveryAck }>;
 }
@@ -72,7 +77,9 @@ const spawnSchema = Type.Object(
 
 const busSchema = Type.Object(
   {
-    action: StringEnum(BUS_ACTIONS, { description: "List sessions, send a message, or reply" }),
+    action: StringEnum(BUS_ACTIONS, {
+      description: "List sessions, send a message, reply, or request a graceful shutdown",
+    }),
     targetSessionId: Type.Optional(
       Type.String({ description: "Destination Pi session id", minLength: 1, maxLength: 128 }),
     ),
@@ -152,6 +159,15 @@ export function registerFleetTools(pi: ExtensionAPI, controller: FleetToolContro
         return peerListResult(snapshot);
       }
 
+      if (params.action === "shutdown") {
+        assertAbsent(params.message, "message", "shutdown");
+        assertAbsent(params.mode, "mode", "shutdown");
+        assertAbsent(params.replyTo, "replyTo", "shutdown");
+        const shutdownTarget = required(params.targetSessionId, "targetSessionId");
+        const result = await controller.shutdownPeer(ctx, shutdownTarget, signal);
+        return shutdownResult(result, shutdownTarget);
+      }
+
       const targetSessionId = required(params.targetSessionId, "targetSessionId");
       const message = required(params.message, "message");
       if (params.action === "send") {
@@ -219,6 +235,32 @@ function deliveryResult(result: { message: FleetMessage; acknowledgement: FleetD
       {
         type: "text" as const,
         text: `Pi Fleet session ${safeTerminalLine(targetSessionId)} accepted message ${safeTerminalLine(result.message.id)}${result.acknowledgement.duplicate ? " as an already-seen duplicate" : ""}. This does not prove remote task completion.`,
+      },
+    ],
+    details: {
+      messageId: result.message.id,
+      targetSessionId,
+      accepted: true,
+      duplicate: result.acknowledgement.duplicate,
+    },
+  };
+}
+
+function shutdownResult(result: { message: FleetMessage; acknowledgement: FleetDeliveryAck }, targetSessionId: string) {
+  if (!result.acknowledgement.accepted) {
+    const code = result.acknowledgement.code ? ` [${result.acknowledgement.code}]` : "";
+    const retry = result.acknowledgement.retryAfterMs
+      ? ` Retry after about ${result.acknowledgement.retryAfterMs}ms.`
+      : "";
+    throw new Error(
+      `Pi Fleet session ${safeTerminalLine(targetSessionId)} rejected the shutdown request${code}: ${safeTerminalLine(result.acknowledgement.error ?? "unknown reason")}.${retry}`,
+    );
+  }
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Pi Fleet session ${safeTerminalLine(targetSessionId)} accepted the shutdown request (message ${safeTerminalLine(result.message.id)}). The peer was asked to shut down gracefully; this does not guarantee it has exited yet.`,
       },
     ],
     details: {

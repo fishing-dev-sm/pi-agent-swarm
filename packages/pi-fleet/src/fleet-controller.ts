@@ -417,6 +417,41 @@ export class FleetController {
     return { message, acknowledgement };
   }
 
+  /** Send a control-plane shutdown request asking the target peer to exit gracefully. */
+  async shutdownPeer(
+    ctx: ExtensionContext,
+    targetSessionId: string,
+    signal?: AbortSignal,
+  ): Promise<{ message: FleetMessage; acknowledgement: FleetDeliveryAck }> {
+    this.assertCurrentContext(ctx);
+    const membership = this.membership;
+    if (!membership) throw new Error("Pi Fleet is not connected");
+    membership.rollbackLaunch = undefined;
+    const self = membership.transport.peerDescription;
+    const issuedAt = this.deps.now();
+    const message: FleetMessage = {
+      id: this.deps.randomId("msg"),
+      fromSessionId: self.sessionId,
+      ...(self.name ? { fromName: self.name } : {}),
+      fromCwd: self.cwd,
+      toSessionId: targetSessionId,
+      mode: "notify",
+      text: "shutdown request",
+      control: true,
+      kind: "shutdown",
+      issuedAt,
+      expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
+    };
+    const owner = ctx.sessionManager;
+    const ownerGeneration = this.generation;
+    const operationSignal = combineSignals(signal, this.controller.signal);
+    const acknowledgement = await membership.transport.send(targetSessionId, message, operationSignal);
+    if (operationSignal.aborted || this.membership !== membership || !this.isCurrent(owner, ownerGeneration)) {
+      throw staleError();
+    }
+    return { message, acknowledgement };
+  }
+
   spawn(ctx: ExtensionContext, input: SpawnSessionInput, signal?: AbortSignal): Promise<SpawnSessionResult> {
     return this.track(this.spawnOwned(ctx, input, signal));
   }
@@ -687,6 +722,11 @@ export class FleetController {
       onMessage: async (message, deliverySignal) => {
         if (deliverySignal?.aborted || !this.isCurrent(owner, ownerGeneration)) return;
         const activeContext = this.activeContext;
+        if (message.kind === "shutdown") {
+          // Control-plane graceful shutdown: exit without entering the model context.
+          activeContext?.shutdown();
+          return;
+        }
         if (!message.control) this.receiveMessage(message);
         void this.refreshLead().then((changed) => {
           if (changed && activeContext && this.isCurrent(owner, ownerGeneration)) {
