@@ -116,3 +116,13 @@ lead / color / external / model / reload 全链路**零测试覆盖**。
 4. **README 多语言**：根 README 拆分为 9 种语言的独立文件（English / 简体中文 / Español / Français / Deutsch / 日本語 / 한국어 / Português / Русский），每个文件顶部放语言切换栏，全文翻译并补上 npm 安装方式。
 
 GitHub 仓库：`fishing-dev-sm/pi-agent-swarm`，npm 包：`pi-agent-swarm`。
+
+## 10. 环境配置修复（2026-10-05 深夜）
+
+改名后新开 pi 未显示 LEADER badge、`/lead` 命令失效（报 "Operation aborted"）。排查后确认是**环境配置残留**，非代码缺陷：
+
+- 根因：pi 的扩展安装记录存于用户配置 `~/.pi/agent/settings.json` 的 `packages` 列表，改名后仍指向旧路径 `../../code/pi-fleet/packages/pi-fleet`（该目录已被 `git mv` 删除），导致新会话静默加载失败——无 `/lead` 命令、无 `session_start` hook，`/lead 测试` 被当作普通消息发给模型。
+- 修复两处：① `settings.json` 的 `packages[3]` 改为 `../../code/pi-fleet/packages/pi-agent-swarm`；② settings 文件 `pi-fleet.json` 改名 `pi-agent-swarm.json` 并删除已废弃的 `defaultTerminal` 字段（保留 externalCommand / confirmSessionLaunch / pinToLeadWorkspace 三项）。
+- 验证：用修复后的 packages 配置跑 smoke，session 文件自动生成 `"name":"MANAGER-<sessionId前8位>"`，确认扩展加载 + session_start hook + 自动命名 + defaultLead 逻辑正常。
+
+教训：**目录改名除仓库外，还需同步检查用户级 `~/.pi/agent` 的安装指向**（settings.json 的 packages 列表、settings 文件本身），这些不在 git 跟踪内，git 检查无法发现。
