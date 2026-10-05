@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-[Pi Coding Agent](https://pi.dev) 向け [`pi-agent-swarm`](./packages/pi-agent-swarm) のウィンドウマネージャネイティブなフォークです。
+[Pi Coding Agent](https://pi.dev) 向け [`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet) のウィンドウマネージャネイティブなフォークです。
 tmux やヘッドレスな子プロセスの代わりに、各エージェントは完全な Pi TUI を実行する**実体のターミナルウィンドウ**であり、**任意のタイル型ウィンドウマネージャ**によってタイル配置されます。
 
 ![Pi Agent Swarm の実行画面](docs/images/pi-agent-swarm.png)
 
 ## はじめに
 
-pi-agent-swarm は、pi-agent-swarm をタイル型ウィンドウマネージャ中心に作り直します。
+pi-agent-swarm は、pi-fleet をタイル型ウィンドウマネージャ中心に作り直します。
 各エージェントは完全な Pi TUI を備えた実体のターミナルウィンドウとして動作し、ヘッドレスな子プロセスにはなりません。
 新しく生成されたウィンドウはリーダーセッションのワークスペースに配置され、各ウィンドウのフッターバッジ
 （● 名前 · sessionId · LEADER / WORKER）でリーダーとワーカーを一目で区別できます。
 
-## アップストリームの pi-agent-swarm との違い
+## アップストリームの pi-fleet との違い
 
 - **実体のウィンドウ、マルチプレクサ不要** — `external` バックエンドが通常のターミナルウィンドウを開き、タイル型ウィンドウマネージャがタイル配置します。tmux、Zellij、Ghostty は不要です。
 - **`pinToLeadWorkspace`** — 新しい外部ウィンドウは、フォーカス中のワークスペースではなくリーダーセッションのワークスペースに配置されます。リーダーのワークスペースは、プロセスツリーを辿ってターミナルの `_NET_WM_PID` を特定して見つけ、ウィンドウマネージャで移動します。配置はベストエフォートで、起動を妨げることはありません。
@@ -39,7 +39,13 @@ pi-agent-swarm は、pi-agent-swarm をタイル型ウィンドウマネージ�
 
 ## 🚀 クイックスタート
 
-このチェックアウトから拡張機能をビルドして読み込みます:
+npm からインストールします:
+
+```bash
+pi install pi-agent-swarm
+```
+
+またはこのチェックアウトから拡張機能をビルドして読み込みます:
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ external バックエンドで実行します:
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true

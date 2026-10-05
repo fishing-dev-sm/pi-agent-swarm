@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-[Pi Coding Agent](https://pi.dev)용 [`pi-agent-swarm`](./packages/pi-agent-swarm)의 창 관리자 네이티브 포크입니다.
+[Pi Coding Agent](https://pi.dev)용 [`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet)의 창 관리자 네이티브 포크입니다.
 tmux나 헤드리스 하위 프로세스 대신, 각 에이전트는 완전한 Pi TUI를 실행하는 **실제 터미널 창**이며 **임의의 타일링 창 관리자**가 타일로 배치합니다.
 
 ![Pi Agent Swarm 실행 화면](docs/images/pi-agent-swarm.png)
 
 ## 소개
 
-pi-agent-swarm은 pi-agent-swarm을 타일링 창 관리자 중심으로 다시 만듭니다.
+pi-agent-swarm은 pi-fleet을 타일링 창 관리자 중심으로 다시 만듭니다.
 각 에이전트는 완전한 Pi TUI를 갖춘 실제 터미널 창으로 실행되며, 헤드리스 하위 프로세스가 아닙니다.
 새로 생성된 창은 리더 세션의 워크스페이스에 배치되고, 각 창의 푸터 배지
 (● 이름 · sessionId · LEADER / WORKER)로 리더와 워커를 한눈에 구분할 수 있습니다.
 
-## 업스트림 pi-agent-swarm과의 차이점
+## 업스트림 pi-fleet과의 차이점
 
 - **실제 창, 멀티플렉서 불필요** — `external` 백엔드가 일반 터미널 창을 열고 타일링 창 관리자가 타일로 배치합니다. tmux, Zellij, Ghostty가 필요 없습니다.
 - **`pinToLeadWorkspace`** — 새 외부 창은 포커스된 워크스페이스가 아닌 리더 세션의 워크스페이스에 배치됩니다. 리더 워크스페이스는 프로세스 트리를 따라 터미널의 `_NET_WM_PID`를 찾아 위치를 파악한 뒤 창 관리자로 이동합니다. 배치는 최선 노력이며 실행을 막지 않습니다.
@@ -39,7 +39,13 @@ pi-agent-swarm은 pi-agent-swarm을 타일링 창 관리자 중심으로 다시 
 
 ## 🚀 빠른 시작
 
-이 체크아웃에서 확장을 빌드하고 로드합니다:
+npm에서 설치합니다:
+
+```bash
+pi install pi-agent-swarm
+```
+
+또는 이 체크아웃에서 확장을 빌드하고 로드합니다:
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ external 백엔드로 실행합니다:
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true

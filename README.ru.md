@@ -14,19 +14,19 @@
   <a href="README.ru.md"><strong>Русский</strong></a>
 </p>
 
-Форк [`pi-agent-swarm`](./packages/pi-agent-swarm), переработанный под оконный менеджер для [Pi Coding Agent](https://pi.dev).
+Форк [`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet), переработанный под оконный менеджер для [Pi Coding Agent](https://pi.dev).
 Вместо tmux или фоновых подпроцессов каждый агент — это **настоящее окно терминала** с полноценным Pi TUI, размещаемое любым тайловым оконным менеджером.
 
 ![Pi Agent Swarm в работе](docs/images/pi-agent-swarm.png)
 
 ## Введение
 
-pi-agent-swarm перерабатывает pi-agent-swarm вокруг тайлового оконного менеджера.
+pi-agent-swarm перерабатывает pi-fleet вокруг тайлового оконного менеджера.
 Каждый агент работает как настоящее окно терминала с полноценным Pi TUI — а не как фоновый подпроцесс.
 Новые окна закрепляются на рабочем пространстве сессии-лидера, а бейдж в подвале каждого окна
 (● имя · sessionId · LEADER / WORKER) позволяет с первого взгляда отличить лидера от воркеров.
 
-## Отличия от апстримного pi-agent-swarm
+## Отличия от апстримного pi-fleet
 
 - **Настоящие окна, без мультиплексора** — бэкенд `external` открывает обычное окно терминала, которое ваш тайловый менеджер раскладывает плиткой; tmux, Zellij и Ghostty не нужны.
 - **`pinToLeadWorkspace`** — новые внешние окна попадают на рабочее пространство сессии-лидера, а не на сфокусированное. Рабочее пространство лидера определяется обходом дерева процессов до `_NET_WM_PID` терминала, затем окно перемещается оконным менеджером; размещение — best-effort и никогда не блокирует запуск.
@@ -39,7 +39,13 @@ pi-agent-swarm перерабатывает pi-agent-swarm вокруг тайл
 
 ## 🚀 Быстрый старт
 
-Соберите и загрузите расширение из этой рабочей копии:
+Установите из npm:
+
+```bash
+pi install pi-agent-swarm
+```
+
+Или соберите и загрузите расширение из этой рабочей копии:
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ pi install ./packages/pi-agent-swarm
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true

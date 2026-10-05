@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-A window-manager-native fork of [`pi-agent-swarm`](./packages/pi-agent-swarm) for the [Pi Coding Agent](https://pi.dev).
+A window-manager-native fork of [`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet) for the [Pi Coding Agent](https://pi.dev).
 Instead of tmux or headless subprocesses, every agent is a **real terminal window** running a full Pi TUI, tiled by any tiling window manager.
 
 ![Pi Agent Swarm running under a tiling window manager](docs/images/pi-agent-swarm.png)
 
 ## Introduction
 
-pi-agent-swarm reworks pi-agent-swarm around a tiling window manager.
+pi-agent-swarm reworks pi-fleet around a tiling window manager.
 Each agent runs as a real terminal window with a complete Pi TUI — never a headless child process.
 Newly spawned windows are pinned to the lead session's workspace, and every window shows a footer badge
 (● name · sessionId · LEADER / WORKER) so you can tell the leader from the workers at a glance.
 
-## What's different from upstream pi-agent-swarm
+## What's different from upstream pi-fleet
 
 - **Real windows, no multiplexer** — an `external` backend spawns a plain terminal window that your tiling window manager tiles; no tmux, Zellij, or Ghostty needed.
 - **`pinToLeadWorkspace`** — new external windows land on the lead session's workspace instead of the focused one. The lead workspace is located by walking the process tree to the terminal's `_NET_WM_PID`, then moved with the window manager; placement is best-effort and never blocks launch.
@@ -39,7 +39,13 @@ See [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-histo
 
 ## 🚀 Quick start
 
-Build and load the extension from this checkout:
+Install from npm:
+
+```bash
+pi install pi-agent-swarm
+```
+
+Or build and load it from this checkout:
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ Run with the external backend:
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true

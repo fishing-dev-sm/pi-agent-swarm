@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-Un fork de [`pi-agent-swarm`](./packages/pi-agent-swarm) pensé pour le gestionnaire de fenêtres, destiné au [Pi Coding Agent](https://pi.dev).
+Un fork de [`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet) pensé pour le gestionnaire de fenêtres, destiné au [Pi Coding Agent](https://pi.dev).
 Au lieu de tmux ou de sous-processus sans interface, chaque agent est une **véritable fenêtre de terminal** exécutant une TUI Pi complète, agencée en mosaïque par n'importe quel gestionnaire de fenêtres en mosaïque.
 
 ![Pi Agent Swarm en fonctionnement](docs/images/pi-agent-swarm.png)
 
 ## Introduction
 
-pi-agent-swarm repense pi-agent-swarm autour d'un gestionnaire de fenêtres en mosaïque.
+pi-agent-swarm repense pi-fleet autour d'un gestionnaire de fenêtres en mosaïque.
 Chaque agent s'exécute dans une vraie fenêtre de terminal avec une TUI Pi complète — jamais comme un sous-processus sans interface.
 Les nouvelles fenêtres sont épinglées à l'espace de travail de la session leader, et chaque fenêtre affiche un badge en pied
 (● nom · sessionId · LEADER / WORKER) pour distinguer le leader des travailleurs d'un coup d'œil.
 
-## Différences avec le pi-agent-swarm d'upstream
+## Différences avec le pi-fleet d'upstream
 
 - **Vraies fenêtres, sans multiplexeur** — le backend `external` ouvre une fenêtre de terminal ordinaire agencée par ton gestionnaire de fenêtres ; aucun besoin de tmux, Zellij ou Ghostty.
 - **`pinToLeadWorkspace`** — les nouvelles fenêtres externes arrivent sur l'espace de travail de la session leader plutôt que sur l'espace focalisé. L'espace de travail leader est localisé en remontant l'arbre des processus jusqu'au `_NET_WM_PID` du terminal, puis déplacé avec le gestionnaire de fenêtres ; le placement est au mieux et ne bloque jamais le lancement.
@@ -39,7 +39,13 @@ Voir [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-hist
 
 ## 🚀 Démarrage rapide
 
-Compilez et chargez l'extension depuis ce checkout :
+Installez depuis npm :
+
+```bash
+pi install pi-agent-swarm
+```
+
+Ou compilez et chargez l'extension depuis ce checkout :
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ Exécutez avec le backend externe :
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true

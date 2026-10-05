@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-[`pi-agent-swarm`](./packages/pi-agent-swarm) 的窗口管理器原生分支，面向 [Pi Coding Agent](https://pi.dev)。
+[`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet) 的窗口管理器原生分支，面向 [Pi Coding Agent](https://pi.dev)。
 不用 tmux，也不用无头子进程：每个 agent 都是一个由任意平铺窗口管理器平铺的**真实终端窗口**，运行完整的 Pi TUI。
 
 ![Pi Agent Swarm 运行截图](docs/images/pi-agent-swarm.png)
 
 ## 简介
 
-pi-agent-swarm 围绕平铺窗口管理器重新设计 pi-agent-swarm。
+pi-agent-swarm 围绕平铺窗口管理器重新设计 pi-fleet。
 每个 agent 都是一个真实终端窗口，运行完整的 Pi TUI——绝不是无头子进程。
 新生成的窗口会自动钉到 lead 会话所在的工作区，每个窗口底部都有徽章
 （● 名称 · sessionId · LEADER / WORKER），一眼就能分清 leader 和 worker。
 
-## 与上游 pi-agent-swarm 的不同
+## 与上游 pi-fleet 的不同
 
 - **真实窗口，无复用器** —— `external` 后端生成一个普通终端窗口，交给你的平铺窗口管理器平铺；不需要 tmux、Zellij 或 Ghostty。
 - **`pinToLeadWorkspace`** —— 新外部窗口落到 lead 会话的工作区，而不是当前聚焦的工作区。通过沿进程树找到终端的 `_NET_WM_PID` 来定位 lead 工作区，再由窗口管理器移动；放置尽力而为，绝不阻塞启动。
@@ -39,7 +39,13 @@ pi-agent-swarm 围绕平铺窗口管理器重新设计 pi-agent-swarm。
 
 ## 🚀 快速开始
 
-从本仓库构建并加载扩展：
+从 npm 安装：
+
+```bash
+pi install pi-agent-swarm
+```
+
+或从本仓库构建并加载：
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ pi install ./packages/pi-agent-swarm
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true

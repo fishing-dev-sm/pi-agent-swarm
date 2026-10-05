@@ -2,17 +2,19 @@
 
 [![npm](https://img.shields.io/npm/v/pi-agent-swarm)](https://www.npmjs.com/package/pi-agent-swarm) [![Pi extension](https://img.shields.io/badge/Pi-extension-blue)](https://pi.dev) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-Launch another Pi process in a terminal split without replacing the current session.
+Launch another Pi process in an external terminal window without replacing the current session.
 You can also connect trusted local Pi sessions for bounded notifications and one-turn requests.
-Pi Agent Swarm detects tmux, Zellij, or Ghostty automatically, and you can pin a backend when needed.
+Every agent is a real terminal window tiled by your window manager — never a headless child process.
 
 ## ✨ Features
 
-- Opens a distinct Pi process in tmux, Ghostty, or Zellij while preserving the parent session.
+- Opens a distinct Pi process in an external terminal window while preserving the parent session.
+- Pins each new window to the lead session's workspace instead of the focused one.
 - Inherits the cwd, model, thinking level, and optional first task after launch review.
 - Waits for the child to authenticate before reporting that the new session is ready.
 - Connects explicitly joined same-user sessions through owner-only local sockets and ephemeral invites.
 - Delivers notifications without a model turn and bounds each allowed request to one turn.
+- Relays user input from a worker window into the leader's model context.
 - Authenticates and bounds local protocol traffic, peers, retries, rates, deadlines, and diagnostics.
 - Cleans all sockets, launchers, tasks, timers, and status on leave, reload, replacement, or shutdown.
 
@@ -38,51 +40,51 @@ pi --no-extensions --no-skills --no-session -e ./packages/pi-agent-swarm
 ```
 
 The package declares `dist/index.ts`, so an unbuilt local checkout must run the build before Pi loads the package directory.
-A child started in any supported terminal uses normal Pi extension discovery.
-Install Pi Agent Swarm persistently to test split-and-auto-join because the child does not inherit the parent's temporary `-e` argument.
+A child started in any terminal uses normal Pi extension discovery.
+Install Pi Agent Swarm persistently to test spawn-and-auto-join because the child does not inherit the parent's temporary `-e` argument.
 
 Pi extensions execute with your user permissions.
 Review extension source before installing it.
 
 ## 🚀 Quick start
 
-Run `/swarm`, choose **New Pi session…**, select a split direction, and optionally enter a first task.
-Before creating a split, Pi Agent Swarm asks for the configured launch confirmation.
+Run `/swarm`, choose **New Pi session…**, select a window direction, and optionally enter a first task.
+Before creating a window, Pi Agent Swarm asks for the configured launch confirmation.
 
 ## 🧭 Launch flow
 
-Use **Settings** to pin a terminal backend or change final launch confirmation.
-With the default settings, Pi Agent Swarm detects the current supported terminal.
+Use **Settings** to change final launch confirmation or toggle lead-workspace pinning.
+New windows are launched through the configured external terminal command.
 
 After any configured launch confirmation, Pi Agent Swarm:
 
 1. Creates or reuses an ephemeral local group.
-2. Creates the selected terminal split.
+2. Starts the external terminal command.
 3. Starts a separate named Pi process in the selected cwd.
 4. Waits for the child to authenticate and report readiness.
 5. Sends the optional first task through a launch-specific one-time kickoff.
 
-If the terminal creates a split but the child does not become ready, Pi Agent Swarm reports a partial launch.
-It leaves the visible split open instead of closing a potentially useful pane.
+If the terminal creates a window but the child does not become ready, Pi Agent Swarm reports a partial launch.
+It leaves the visible window open instead of closing a potentially useful process.
 
 ## 🛠️ Tools
 
 ### `session_spawn`
 
-Creates a separate Pi process in a terminal split.
+Creates a separate Pi process in an external terminal window.
 
 | Parameter | Required | Description |
 | --- | --- | --- |
-| `terminal` | No | Strict `tmux`, `ghostty`, or `zellij` override; omission uses `defaultTerminal`, initially `auto`. |
 | `direction` | No | `right`, `down`, `left`, or `up`; defaults to `right`. |
 | `task` | No | First task sent only after authenticated readiness. |
 | `name` | No | Child session display name. |
+| `color` | No | Child color: a palette name or a `#rrggbb` hex. |
+| `model` | No | Child model as `provider/id`; defaults to inheriting the current session model. |
 | `cwd` | No | Existing directory; defaults to the current cwd. |
 
 The tool supports only TUI and RPC modes because launch may require confirmation.
-In JSON and print modes, it fails before creating a group, launcher, or split.
-Successful details include `terminal`, `terminalId`, and `terminalVersion`.
-Ghostty results also retain `ghosttyVersion` for compatibility.
+In JSON and print modes, it fails before creating a group, launcher, or window.
+Successful details include `terminalId` and `terminalVersion`.
 
 ### `session_bus`
 
@@ -93,9 +95,10 @@ Lists or messages sessions in the active Pi Agent Swarm group.
 | `list` | none | Lists authenticated live peers and request policy. |
 | `send` | `targetSessionId`, `message`, optional `mode` | Sends `notify` by default or a permitted one-turn `request`. |
 | `reply` | `targetSessionId`, `message`, `replyTo` | Correlates a reply without starting another automatic turn. |
+| `shutdown` | `targetSessionId` | Asks a peer to shut down gracefully. |
 
 An accepted acknowledgement means the recipient extension accepted or deduplicated the message, not that the remote agent completed the work.
-Rejected and busy acknowledgements use stable codes such as `requests_disabled`, `rate_limited`, `target_busy`, and `delivery_failed`.
+Rejected and busy acknowledgements use stable codes such as `requests_disabled`, `rate_limited`, `target_busy`, `shutdown_unauthorized`, and `delivery_failed`.
 Rate-limited responses may include a bounded retry delay.
 Peer-list text and details share a 40 KiB UTF-8 result budget below Pi's tool-output limit.
 
@@ -105,77 +108,19 @@ Peer-list text and details share a 40 KiB UTF-8 result budget below Pi's tool-ou
 | --- | --- |
 | `/swarm` | Launch Pi sessions and manage group messaging, peers, invites, and request policy. |
 | `/swarm <piagentswarm:v1:invite>` | Review the join confirmation and join one ephemeral local group. |
+| `/lead` | Promote a session to leader or inspect the current leader. |
+| `/color` | Set the current session's footer color. |
 
 All routes support TUI and RPC, reject unknown or trailing arguments, and fail in print or JSON mode before opening sockets.
 Review the [launch flow](#-launch-flow) and [Security and privacy](#-security-and-privacy): accepted peer requests can start paid model turns.
 
-## 🖥️ Terminal backends
+## 🖥️ External terminal backend
 
-### Automatic built-in default
+Pi Agent Swarm launches each session as a plain terminal window through a configurable command (default `alacritty -e`).
+The window manager — any tiling window manager — decides where the window appears.
 
-`defaultTerminal: "auto"` resolves one backend from the Pi process environment for each launch.
-It selects the first complete signature in this fixed order:
-
-1. tmux when `TMUX` is non-empty and `TMUX_PANE` is `%` followed by a numeric pane id.
-2. Zellij when `ZELLIJ` is non-empty and `ZELLIJ_PANE_ID` is numeric.
-3. Ghostty when `TERM_PROGRAM` is exactly `ghostty`.
-
-When nested terminals leave multiple signatures, this fixed order may select an outer multiplexer instead of the visible inner pane.
-Pi Agent Swarm does not inspect the process tree.
-If no signature matches, Pi Agent Swarm fails before creating a group, launcher, socket, or split and asks the user to enter a supported context or pin a backend.
-After resolution, Pi Agent Swarm preflights only the selected adapter.
-It does not switch backends after a version, platform, executable, focus, permission, split, child-startup, or kickoff failure.
-
-### tmux
-
-The tmux backend requires:
-
-- tmux 3.2 or newer.
-- Pi running inside the target tmux pane with `TMUX` and `TMUX_PANE` available.
-
-Pi Agent Swarm targets the current pane, uses `split-window`, passes the cwd and launch-only environment to the new pane, and maps left or up to a split inserted before the current pane.
-
-### Ghostty
-
-Automatic selection uses Ghostty when no tmux or Zellij signature matched and `TERM_PROGRAM=ghostty`.
-Choose Ghostty under **Settings**, or pass `terminal: "ghostty"` to pin or strictly override the configured preference.
-
-Ghostty requires:
-
-- macOS.
-- Ghostty 1.3 or newer.
-- Pi running in the currently focused Ghostty terminal.
-- macOS Automation permission for the process hosting Pi to control Ghostty.
-
-Pi Agent Swarm uses Ghostty's native `split` AppleScript command with positional arguments.
-It does not simulate user key presses or depend on customized keybindings.
-
-The first automatically selected or pinned Ghostty launch may trigger a macOS Automation permission prompt during availability checking.
-If permission is denied, enable it in **System Settings → Privacy & Security → Automation** and retry.
-Pi Agent Swarm does not fall back to another backend after denial.
-
-### Zellij
-
-Automatic selection uses Zellij before Ghostty when its complete pane signature is present.
-Choose Zellij under **Settings**, or pass `terminal: "zellij"` to pin or strictly override the configured preference.
-
-Zellij requires:
-
-- Zellij 0.44 or newer.
-- Pi running inside the target Zellij pane with `ZELLIJ` and `ZELLIJ_PANE_ID` available.
-
-Pi Agent Swarm uses `zellij action new-pane` with a private self-deleting launcher path and validates the returned `terminal_<id>` pane identity.
-Right and down use Zellij's native split directions.
-Left and up create the corresponding native pane and then use pane-targeted `move-pane` placement.
-A placement failure is a partial launch because the child pane may already be running and remains visible.
-
-### External
-
-Automatic selection falls back to an external terminal window (default `alacritty -e`) when no tmux, Zellij, or Ghostty signature matches.
-The window manager normally decides where the new window appears.
-
-When `pinToLeadWorkspace` is enabled and Pi runs under i3, Pi Agent Swarm snapshots the window tree before creating the window, treats the focused workspace as the lead session's workspace, and moves the new window onto that workspace as soon as it appears.
-Placement is best-effort: if `i3-msg` cannot move the window, it stays where the window manager put it.
+When `pinToLeadWorkspace` is enabled, Pi Agent Swarm snapshots the window tree before creating the window, locates the lead session's workspace by walking the process tree to the terminal's `_NET_WM_PID`, and moves the new window onto that workspace as soon as it appears.
+Placement is best-effort: if the window manager cannot move the window, it stays where it was placed.
 
 ## ⚙️ Settings
 
@@ -184,7 +129,7 @@ Pi Agent Swarm stores user settings in `<getAgentDir()>/pi-agent-swarm.json`, no
 
 ```json
 {
-  "defaultTerminal": "auto",
+  "externalCommand": "alacritty -e",
   "confirmSessionLaunch": true,
   "pinToLeadWorkspace": false
 }
@@ -192,12 +137,10 @@ Pi Agent Swarm stores user settings in `<getAgentDir()>/pi-agent-swarm.json`, no
 
 | Setting | Values | Default | Behavior |
 | --- | --- | --- | --- |
-| `defaultTerminal` | `auto`, `tmux`, `ghostty`, `zellij` | `auto` | Resolves the current backend automatically or pins one for menu launches and omitted tool values. |
+| `externalCommand` | any terminal command | `alacritty -e` | Command used to open each new window. |
 | `confirmSessionLaunch` | `true`, `false` | `true` | Shows or skips the final launch preview for menu and tool launches. |
-| `pinToLeadWorkspace` | `true`, `false` | `false` | On i3, moves each new external window onto the lead session's workspace instead of the focused one. |
+| `pinToLeadWorkspace` | `true`, `false` | `false` | Moves each new window onto the lead session's workspace instead of the focused one. |
 
-An explicit `session_spawn.terminal` value strictly overrides `defaultTerminal` for that launch and never accepts `auto`.
-Pi Agent Swarm reads standard terminal context variables only for automatic selection and does not treat them as settings overrides.
 Pi Agent Swarm does not read project settings or extension-specific environment-variable overrides.
 A missing file uses the defaults without creating the file.
 Each Settings change saves immediately.
@@ -206,9 +149,9 @@ The Settings screen reports malformed or invalid files and does not overwrite th
 Separate Pi processes do not share a settings lock, so do not edit this file concurrently from multiple sessions.
 A Settings change applies immediately in the current process; other running Pi processes reload it on their next session start or `/reload`.
 
-Group secrets, request permission, peers, readiness state, and deduplication state stay in memory except for the short-lived private Zellij launch copy described below.
-The `piagentswarm:v1` prefix versions the bearer-invite encoding separately from the version-2 socket protocol.
-Version-2 messages normally expire after two minutes and cannot declare a lifetime longer than five minutes.
+Group secrets, request permission, peers, readiness state, and deduplication state stay in memory.
+The `piagentswarm:v1` prefix versions the bearer-invite encoding separately from the version-3 socket protocol.
+Version-3 messages normally expire after two minutes and cannot declare a lifetime longer than five minutes.
 Accepted message ids remain deduplicated for ten minutes, longer than their valid delivery window.
 A copied invite is still a reusable bearer secret, so discard it or start a new group when you need to rotate access.
 A short-lived in-process handoff preserves a group across `/reload` for the same `sessionManager` only.
@@ -238,9 +181,7 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - Bearer invites are shown only on the explicit invite screen or direct join input.
 - Pi Agent Swarm does not retain invites as durable settings or group state, but a recipient can copy and reuse one until every holder discards it or moves to a new group.
 - Invites are not placed in tool output, status, notifications, custom renderers, or model context.
-- Tmux receives launch values through per-pane `-e` arguments and Pi Agent Swarm never publishes them to the tmux global environment.
-- Zellij receives only a launcher path.
-  Launch values briefly exist in a private `0700` launcher that unlinks itself before starting Pi, so Zellij command metadata cannot retain them.
+- Launch values briefly exist in a private `0700` launcher that unlinks itself before starting Pi, so terminal command metadata cannot retain them.
 - Peer names, paths, messages, model ids, and errors are treated as untrusted terminal text and sanitized only at display boundaries.
 - A same-user process or another privileged Pi extension is outside the security boundary and may inspect process arguments, private runtime files, memory, or environment.
 - Pi Agent Swarm separates groups but does not sandbox them from the operating-system user.
@@ -249,15 +190,11 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 
 - Local same-user communication only.
 - POSIX Unix-socket transport only.
-- Tmux spawning requires tmux 3.2 or newer and an active current pane.
-- Ghostty spawning works only on macOS and automatic selection may trigger its Automation permission check.
-- Zellij spawning requires Zellij 0.44 or newer in an active pane.
 - No LAN, internet, cross-user, remote-host, or public-room transport.
 - No daemon, offline mailbox, separate Swarm history, delivery receipt, global ordering, or exactly-once guarantee.
 - No automatic trust or discovery of every Pi process.
-- No backend fallback after automatic resolution, adapter preflight, or launch failure.
-- No automatic close of a split after partial child startup.
-- Protocol version 2 intentionally rejects version-1 manifests and frames.
+- No automatic close of a window after partial child startup.
+- Protocol version 3 intentionally rejects version-1 and version-2 manifests and frames.
 - One request uses one short-lived socket connection; there is no persistent multiplexed channel or delivery stream.
 - Server connections use an absolute request deadline rather than an activity-reset timeout, and at most eight message deliveries run concurrently.
 - Per-sender and endpoint-wide rate limits are fixed windows, so a busy response can require waiting before retrying.
@@ -272,7 +209,8 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 packages/pi-agent-swarm/
 ├── src/                               # Authoritative implementation and helpers
 │   ├── index.ts                       # Thin Pi entrypoint
-│   └── pi-agent-swarm.ts                    # Local session launch and messaging
+│   ├── pi-agent-swarm.ts              # Local session launch and messaging
+│   └── i3-workspace.ts                # Lead-workspace window pinning
 ├── dist/                              # Generated Jiti runtime
 ├── scripts/build-runtime.mjs          # Runtime builder
 └── test/                              # Behavior and lifecycle coverage
@@ -282,7 +220,7 @@ The generated runtime is built from `src/index.ts` and does not import back into
 
 ## 🔎 Keywords
 
-Pi extension, Pi Agent Swarm, Pi sessions, tmux split, Ghostty split, Zellij pane, local agents, agent communication, Unix socket, TypeScript.
+Pi extension, Pi Agent Swarm, Pi sessions, external terminal, tiling window manager, local agents, agent communication, Unix socket, TypeScript.
 
 ## 📄 License
 

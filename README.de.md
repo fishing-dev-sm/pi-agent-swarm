@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-Ein Fenstermanager-nativer Fork von [`pi-agent-swarm`](./packages/pi-agent-swarm) für den [Pi Coding Agent](https://pi.dev).
+Ein Fenstermanager-nativer Fork von [`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet) für den [Pi Coding Agent](https://pi.dev).
 Statt tmux oder headless Subprozessen ist jeder Agent ein **echtes Terminalfenster**, das eine vollständige Pi-TUI ausführt und von einem beliebigen kachelnden Fenstermanager gekachelt wird.
 
 ![Pi Agent Swarm in Aktion](docs/images/pi-agent-swarm.png)
 
 ## Einführung
 
-pi-agent-swarm baut pi-agent-swarm rund um einen kachelnden Fenstermanager neu auf.
+pi-agent-swarm baut pi-fleet rund um einen kachelnden Fenstermanager neu auf.
 Jeder Agent läuft als echtes Terminalfenster mit einer vollständigen Pi-TUI — nie als headless Kindprozess.
 Neue Fenster werden auf den Arbeitsbereich der Leader-Sitzung verschoben, und jedes Fenster zeigt ein Fußzeilen-Badge
 (● Name · sessionId · LEADER / WORKER), um Leader und Worker auf einen Blick zu unterscheiden.
 
-## Unterschiede zum Upstream-pi-agent-swarm
+## Unterschiede zum Upstream-pi-fleet
 
 - **Echte Fenster, kein Multiplexer** — das `external`-Backend öffnet ein gewöhnliches Terminalfenster, das dein kachelnder Fenstermanager anordnet; kein tmux, Zellij oder Ghostty nötig.
 - **`pinToLeadWorkspace`** — neue externe Fenster landen auf dem Arbeitsbereich der Leader-Sitzung statt auf dem fokussierten. Der Leader-Arbeitsbereich wird ermittelt, indem der Prozessbaum bis zum `_NET_WM_PID` des Terminals durchlaufen wird, und dann mit dem Fenstermanager verschoben; die Platzierung ist best-effort und blockiert niemals den Start.
@@ -39,7 +39,13 @@ Siehe [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-his
 
 ## 🚀 Schnellstart
 
-Erweiterung aus diesem Checkout bauen und laden:
+Aus npm installieren:
+
+```bash
+pi install pi-agent-swarm
+```
+
+Oder Erweiterung aus diesem Checkout bauen und laden:
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ Mit dem externen Backend ausführen:
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true

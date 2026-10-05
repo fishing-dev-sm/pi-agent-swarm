@@ -105,3 +105,14 @@ lead / color / external / model / reload 全链路**零测试覆盖**。
 | 2026-10-05 | fixer 完成 6 个 bug 修复，验证全绿，提交 `5faab76` |
 | 2026-10-05 | footer 迭代：显示 name+id（`abcc974`）、reload 恢复 name/color（`a497149`）、badge 样式（`71c4963`、`fbaccdd`） |
 | 2026-10-05 | 信息回转：worker 用户 steer 回转 leader 并进其模型上下文（`e170f69`、`3cbf92d`），E2E 验证通过 |
+
+## 9. 独立重构与发布（2026-10-05 晚）
+
+在信息回转与 footer 迭代完成后，用户决定将本 fork 彻底独立为新产品：
+
+1. **抛掉复用器后端**：删除 tmux / zellij / ghostty 三个后端及其 smoke 测试、`defaultTerminal` 设置、`session_spawn` 的 `terminal` 覆盖参数。external（真实终端窗口）成为唯一后端，配置面收敛为 `externalCommand`、`confirmSessionLaunch`、`pinToLeadWorkspace` 三项。commit `c579d177`。
+2. **改名 pi-agent-swarm**：目录 `packages/pi-fleet` → `packages/pi-agent-swarm`，包名 `@narumitw/pi-fleet` → `pi-agent-swarm`，命令 `/fleet` → `/swarm`，settings 文件 `pi-fleet.json` → `pi-agent-swarm.json`，邀请前缀 `pifleet:v1` → `piagentswarm:v1`，协议常量 `FLEET_*` → `SWARM_*`。runtime 目录缩短为 `pi-swarm` 以留在 Unix socket 103 字节路径预算内。commit `33b5a54f`。
+3. **npm 抢注与发布**：以 `xihuang_hk` 身份抢注裸名 `pi-agent-swarm@0.0.0` 占位，随后以 `0.1.0` 作为首个正式版本发布（含构建产物 dist）。
+4. **README 多语言**：根 README 拆分为 9 种语言的独立文件（English / 简体中文 / Español / Français / Deutsch / 日本語 / 한국어 / Português / Русский），每个文件顶部放语言切换栏，全文翻译并补上 npm 安装方式。
+
+GitHub 仓库：`fishing-dev-sm/pi-agent-swarm`，npm 包：`pi-agent-swarm`。

@@ -14,19 +14,19 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-Um fork de [`pi-agent-swarm`](./packages/pi-agent-swarm) nativo de gerenciador de janelas para o [Pi Coding Agent](https://pi.dev).
+Um fork de [`pi-fleet`](https://github.com/narumiruna/pi-extensions/tree/main/packages/pi-fleet) nativo de gerenciador de janelas para o [Pi Coding Agent](https://pi.dev).
 Em vez de tmux ou subprocessos sem interface, cada agente é uma **janela de terminal real** executando uma TUI do Pi completa, organizada em mosaico por qualquer gerenciador de janelas em mosaico.
 
 ![Pi Agent Swarm em execução](docs/images/pi-agent-swarm.png)
 
 ## Introdução
 
-pi-agent-swarm reconstrói o pi-agent-swarm em torno de um gerenciador de janelas em mosaico.
+pi-agent-swarm reconstrói o pi-fleet em torno de um gerenciador de janelas em mosaico.
 Cada agente roda como uma janela de terminal real com uma TUI do Pi completa — nunca como um subprocesso sem interface.
 Janelas recém-criadas são fixadas no espaço de trabalho da sessão líder, e cada janela mostra um selo no rodapé
 (● nome · sessionId · LEADER / WORKER) para distinguir o líder dos trabalhadores de relance.
 
-## Diferenças em relação ao pi-agent-swarm de upstream
+## Diferenças em relação ao pi-fleet de upstream
 
 - **Janelas reais, sem multiplexador** — o backend `external` abre uma janela de terminal comum que seu gerenciador de janelas organiza em mosaico; sem necessidade de tmux, Zellij ou Ghostty.
 - **`pinToLeadWorkspace`** — novas janelas externas caem no espaço de trabalho da sessão líder em vez do espaço focado. O espaço de trabalho líder é localizado percorrendo a árvore de processos até o `_NET_WM_PID` do terminal e então movido com o gerenciador de janelas; o posicionamento é de melhor esforço e nunca bloqueia o lançamento.
@@ -39,7 +39,13 @@ Consulte [`docs/pi-agent-swarm-project-history.md`](docs/pi-agent-swarm-project-
 
 ## 🚀 Início rápido
 
-Compile e carregue a extensão a partir deste checkout:
+Instale a partir do npm:
+
+```bash
+pi install pi-agent-swarm
+```
+
+Ou compile e carregue a extensão a partir deste checkout:
 
 ```bash
 npm install
@@ -57,7 +63,6 @@ Execute com o backend externo:
 
 ```json
 {
-  "defaultTerminal": "external",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": false,
   "pinToLeadWorkspace": true
