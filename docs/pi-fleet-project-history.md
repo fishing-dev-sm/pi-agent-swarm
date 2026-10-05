@@ -83,6 +83,15 @@ lead / color / external / model / reload 全链路**零测试覆盖**。
 - 已派出一名 dsv4pro「修复 worker」，负责修复 HIGH-1..4 和 MEDIUM-5、7。
 - 本文档由「史官」worker 撰写，作为项目的可审计历史记录。
 
+## 8. 信息回转与 footer 可用性迭代（2026-10-05）
+
+新 leader 接手 HANDOFF.md 后，先等修复 worker（fixer）完成 6 个 bug 修复（HIGH-1 `/color` 不生效、HIGH-2 `/lead` 无法自封、HIGH-3 颜色跨会话泄漏、HIGH-4 子端 model 不可用干等 15s+ 留孤儿窗口、MEDIUM-5 显式 model 丢 thinkingLevel、MEDIUM-7 lead 广播污染上下文），验证 tsc / biome / vitest（110 全过）/ build 全绿后提交 `5faab76`。此后围绕 footer 可用性和 leader-worker 信息对齐做了两轮迭代：
+
+1. **footer 显示 name+id**（`abcc974`）：用户发现 `/lead` 无参数时报「Usage: /lead <session name or id>」，但 UI 上看不到任何 name/id，人类无法使用；修复为 footer 同时显示 name 和 id。
+2. **reload 恢复 name/color**（`a497149`）：reload 后 footer 又丢失 name+id，根因是 reload handoff（FleetReloadHandoff）不保存 name/color；派 K3 agent（footer-fix）在 handoff 中补上这两个字段并在 sessionStart 恢复。
+3. **footer badge 样式**（`71c4963`、`fbaccdd`）：用户直接在 footer-fix 窗口 steer，要求改为三段填充 badge（fleet 色底 + 按 WCAG 对比度选字色、白底黑字 id、米黄底角色），并微调 badge 内部 padding、段间无空格、去掉 `·` 分隔符。期间 leader 一度误判为 scope 蔓延做了回退，确认系用户本意后恢复。
+4. **信息回转（steer relay）**（`e170f69`、`3cbf92d`）：用户指出关键缺陷——在 worker 窗口直接 steer 的信息不回传 leader，导致两端信息不对齐（正是上一项误判的根因）。派 K3 agent（steer-relay）实现：worker 监听 pi 的 `on("input")` 事件（`source === "interactive"`），把用户 steer 原文以 `kind: "steer"` 消息回转 parent；lead 广播用 `kind: "lead"` 区分；协议新增 `FleetMessage.kind` 字段。E2E 验证又发现设计缺陷：steer 消息最初作为 control 消息只弹 UI toast，不进 leader 模型上下文，leader agent 依旧无法对齐；改为走 receiveMessage 作为 followUp 进入 leader 上下文（不 triggerTurn）。最终 E2E 通过：用户在 worker 窗口 steer 后，leader agent 在对话中自动看到「Pi Fleet: user steered <worker>: <原文>」。
+
 ## 附：时间线速览
 
 | 时间 | 事件 |
@@ -93,3 +102,6 @@ lead / color / external / model / reload 全链路**零测试覆盖**。
 | 2026-10-05 | 110 单测全过，E2E 与两轮多 worker 实战验证通过 |
 | 2026-10-05 | 双 reviewer 审查报约 16 个 bug（HIGH/MEDIUM/LOW + 上游问题 + 测试盲区） |
 | 2026-10-05 | 派出修复 worker 处理 HIGH/MEDIUM；史官 worker 撰写本文档 |
+| 2026-10-05 | fixer 完成 6 个 bug 修复，验证全绿，提交 `5faab76` |
+| 2026-10-05 | footer 迭代：显示 name+id（`abcc974`）、reload 恢复 name/color（`a497149`）、badge 样式（`71c4963`、`fbaccdd`） |
+| 2026-10-05 | 信息回转：worker 用户 steer 回转 leader 并进其模型上下文（`e170f69`、`3cbf92d`），E2E 验证通过 |
