@@ -179,6 +179,8 @@ export class FleetController {
   private color: string | undefined;
   private parentSessionId: string | undefined;
   private leadSessionId: string | undefined;
+  /** A human-started session is the default lead of its own (not yet started) group. */
+  private defaultLead = false;
   private leadWatcher: ReturnType<typeof setInterval> | undefined;
   private readonly pendingKickoffIds = new Set<string>();
   private relayChain: Promise<void> = Promise.resolve();
@@ -199,6 +201,8 @@ export class FleetController {
     this.activeContext = ctx;
     this.color = undefined;
     this.parentSessionId = undefined;
+    this.leadSessionId = undefined;
+    this.defaultLead = false;
     this.pendingKickoffIds.clear();
     this.relayChain = Promise.resolve();
     this.startLeadWatcher();
@@ -223,10 +227,13 @@ export class FleetController {
     if (!envelope && !handoff) {
       // A human-started session (not spawned and not a reload) defaults to a
       // manager name; it becomes the lead of its own group when it first starts
-      // a group (see startNewGroup).
+      // a group (see startNewGroup). The footer shows this role immediately so the
+      // window is identifiable as a manager before any group exists.
       if (!this.pi.getSessionName()) {
         this.pi.setSessionName(`MANAGER-${ctx.sessionManager.getSessionId().slice(0, 8)}`);
       }
+      this.defaultLead = true;
+      await this.renderFooterStatus(ctx);
       return;
     }
     try {
@@ -373,6 +380,8 @@ export class FleetController {
   async leave(ctx: ExtensionContext): Promise<void> {
     this.assertCurrentContext(ctx);
     await this.leaveGroupInternal();
+    this.defaultLead = false;
+    this.clearRosterStatus(ctx);
   }
 
   setAcceptsRequests(ctx: ExtensionContext, value: boolean): void {
@@ -1066,17 +1075,21 @@ export class FleetController {
 
   private async renderFooterStatus(ctx: ExtensionContext): Promise<void> {
     const self = this.membership?.transport.peerDescription;
-    if (!self) {
+    // A human-started session shows its manager badge before any group exists; a
+    // worker or a session that left its group shows nothing until it reconnects.
+    if (!self && !this.defaultLead) {
       this.clearRosterStatus(ctx);
       return;
     }
-    const color = this.color ?? self.color ?? pickFleetColor(self.sessionId);
-    const role = this.leadSessionId === self.sessionId ? "LEAD" : "WORKER";
+    const sessionId = self?.sessionId ?? ctx.sessionManager.getSessionId();
+    const name = self?.name ?? this.pi.getSessionName();
+    const color = this.color ?? self?.color ?? pickFleetColor(sessionId);
+    const role = this.leadSessionId === sessionId || (!self && this.defaultLead) ? "LEAD" : "WORKER";
     // Three padded badges joined without gaps: the name on the fleet color (contrast
     // text), the session id in inverse white, and the role on a uniform warning cream.
     // Both the name and the id stay visible because /lead accepts either reference.
-    const nameBadge = badge(self.name ? ` ● ${self.name} ` : " ● ", color, contrastTextColor(color));
-    const idBadge = badge(` ${self.sessionId} `, "#ffffff", "#000000");
+    const nameBadge = badge(name ? ` ● ${name} ` : " ● ", color, contrastTextColor(color));
+    const idBadge = badge(` ${sessionId} `, "#ffffff", "#000000");
     const roleBadge = badge(` ${role} `, ROLE_BADGE_BACKGROUND, "#000000");
     try {
       ctx.ui.setStatus(ROSTER_STATUS_KEY, `${nameBadge}${idBadge}${roleBadge}`);
