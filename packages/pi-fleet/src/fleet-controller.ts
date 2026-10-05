@@ -7,7 +7,7 @@ import type {
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { boldText, colorize, normalizeFleetColor, pickFleetColor } from "./color.js";
+import { badge, contrastTextColor, normalizeFleetColor, pickFleetColor } from "./color.js";
 import { parseExternalCommand } from "./external.js";
 import { consumeLaunchEnvelope, type FleetLaunchEnvelope, launchEnvelopeEnvironment } from "./launch-envelope.js";
 import { createPiLauncher, type PiLauncher } from "./launcher.js";
@@ -51,6 +51,8 @@ import {
 
 const STATUS_KEY = "fleet";
 const ROSTER_STATUS_KEY = "fleet-roster";
+/** Uniform warning-cream background for the footer role badge (LEAD and WORKER alike). */
+const ROLE_BADGE_BACKGROUND = "#ffc85a";
 const DEFAULT_LAUNCH_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const RELOAD_HANDOFF_TTL_MS = 30_000;
@@ -919,11 +921,14 @@ export class FleetController {
     }
     const color = this.color ?? self.color ?? pickFleetColor(self.sessionId);
     const role = this.leadSessionId === self.sessionId ? "LEAD" : "WORKER";
-    // Show both the name and the session id so a human can see either
-    // reference accepted by /lead (name or id), even when both exist.
-    const identity = self.name ? `${colorize(self.name, color)} · ${self.sessionId}` : colorize(self.sessionId, color);
+    // Three filled badges: name on the fleet color (contrast text), the session id in
+    // inverse white, and the role on a uniform warning cream. Both the name and the id
+    // stay visible because /lead accepts either reference.
+    const nameBadge = badge(self.name ? `● ${self.name}` : "●", color, contrastTextColor(color));
+    const idBadge = badge(self.name ? `· ${self.sessionId}` : self.sessionId, "#ffffff", "#000000");
+    const roleBadge = badge(role, ROLE_BADGE_BACKGROUND, "#000000");
     try {
-      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${colorize("●", color)} ${identity} ${boldText(role)}`);
+      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${nameBadge} ${idBadge} ${roleBadge}`);
     } catch {
       // A replaced UI is allowed to reject best-effort status.
     }

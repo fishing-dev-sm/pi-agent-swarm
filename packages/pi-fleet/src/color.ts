@@ -51,10 +51,28 @@ export function colorize(text: string, hex: string): string {
   }
 }
 
-/** Wrap text in a bold escape sequence (ANSI), best-effort. */
-export function boldText(text: string): string {
+/**
+ * Pick black or white text for a filled badge on the given background, using WCAG
+ * relative luminance so the choice is measured rather than eyeballed.
+ */
+export function contrastTextColor(bgHex: string): string {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/u.exec(bgHex.toLowerCase());
+  if (!match) return "#ffffff";
+  const [r, g, b] = match.slice(1).map((pair) => Number.parseInt(pair, 16));
+  const channel = (value: number): number => {
+    const s = value / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  const onBlack = (luminance + 0.05) / 0.05;
+  const onWhite = 1.05 / (luminance + 0.05);
+  return onBlack >= onWhite ? "#000000" : "#ffffff";
+}
+
+/** Wrap text in a filled badge (background with an explicit foreground), best-effort. */
+export function badge(text: string, bgHex: string, fgHex: string): string {
   try {
-    return styleText(text, { bold: true }, getTerminalColorMode());
+    return styleText(text, { fg: parseColor(fgHex), bg: parseColor(bgHex) }, getTerminalColorMode());
   } catch {
     return text;
   }
