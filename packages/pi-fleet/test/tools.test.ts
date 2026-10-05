@@ -25,9 +25,8 @@ function stubController(overrides: Partial<FleetToolController> = {}) {
     sessionId: "child",
     name: "Child",
     cwd: "/tmp/child",
-    terminal: "tmux",
-    terminalId: "%42",
-    terminalVersion: "3.4",
+    terminalId: "win-42",
+    terminalVersion: "alacritty",
     kickoffAccepted: true,
   };
   const controller: FleetToolController = {
@@ -93,9 +92,7 @@ test("registers separate spawn and bus tools with focused schemas", () => {
     "model",
     "name",
     "task",
-    "terminal",
   ]);
-  assert.deepEqual(spawn.parameters.properties?.terminal?.enum, ["tmux", "ghostty", "zellij", "external"]);
   assert.deepEqual(Object.keys(bus.parameters.properties ?? {}).sort(), [
     "action",
     "message",
@@ -126,73 +123,8 @@ test("session_spawn delegates launch input and returns readiness without secrets
       input: { direction: "down", task: "check tests", name: "Child", cwd: "/tmp/child" },
     },
   ]);
-  assert.match(result.content[0]?.text ?? "", /child.*ready.*tmux/iu);
+  assert.match(result.content[0]?.text ?? "", /child.*ready.*external/iu);
   assert.equal(JSON.stringify(result).includes("pifleet:v1"), false);
-});
-
-test("session_spawn forwards an explicit Ghostty override", async () => {
-  const mock = createMockPi();
-  const ghosttyResult: SpawnSessionResult = {
-    sessionId: "ghostty-child",
-    cwd: "/tmp/child",
-    terminal: "ghostty",
-    terminalId: "terminal-child",
-    terminalVersion: "1.3.1",
-    ghosttyVersion: "1.3.1",
-    kickoffAccepted: false,
-  };
-  const { controller, calls } = stubController({
-    spawn: async (_ctx, input) => {
-      calls.push({ kind: "spawn", input });
-      return ghosttyResult;
-    },
-  });
-  registerFleetTools(mock.pi, controller);
-  const tool = mock.tools.find(({ name }) => name === "session_spawn") as {
-    execute(...args: unknown[]): Promise<{ content: Array<{ text: string }>; details: unknown }>;
-  };
-  const context = createMockContext({ mode: "rpc", hasUI: true });
-  const result = await tool.execute(
-    "call-ghostty",
-    { terminal: "ghostty", direction: "right" },
-    undefined,
-    undefined,
-    context.ctx,
-  );
-  assert.deepEqual(calls, [{ kind: "spawn", input: { terminal: "ghostty", direction: "right" } }]);
-  assert.match(result.content[0]?.text ?? "", /ready.*Ghostty/iu);
-});
-
-test("session_spawn forwards and labels an explicit Zellij override", async () => {
-  const mock = createMockPi();
-  const zellijResult: SpawnSessionResult = {
-    sessionId: "zellij-child",
-    cwd: "/tmp/child",
-    terminal: "zellij",
-    terminalId: "terminal_42",
-    terminalVersion: "0.44.3",
-    kickoffAccepted: false,
-  };
-  const { controller, calls } = stubController({
-    spawn: async (_ctx, input) => {
-      calls.push({ kind: "spawn", input });
-      return zellijResult;
-    },
-  });
-  registerFleetTools(mock.pi, controller);
-  const tool = mock.tools.find(({ name }) => name === "session_spawn") as {
-    execute(...args: unknown[]): Promise<{ content: Array<{ text: string }>; details: unknown }>;
-  };
-  const context = createMockContext({ mode: "rpc", hasUI: true });
-  const result = await tool.execute(
-    "call-zellij",
-    { terminal: "zellij", direction: "left" },
-    undefined,
-    undefined,
-    context.ctx,
-  );
-  assert.deepEqual(calls, [{ kind: "spawn", input: { terminal: "zellij", direction: "left" } }]);
-  assert.match(result.content[0]?.text ?? "", /ready.*Zellij/iu);
 });
 
 test("session_bus lists peers, sends requests, and correlates replies", async () => {

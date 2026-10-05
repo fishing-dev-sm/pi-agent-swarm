@@ -68,7 +68,6 @@
     "showcase:tui-kit": "npm --workspace @narumitw/pi-tui-kit run build && pi --no-extensions --no-skills -e ./packages/pi-tui-kit-showcase",
     "smoke:caffeinate-dbus": "node ./packages/pi-caffeinate/test/docker/run-docker.mjs",
     "smoke:chat-network": "node ./scripts/run-pi-chat-network-smoke.mjs",
-    "smoke:pi-fleet:ghostty": "cd packages/pi-fleet && tsc -p tsconfig.process-smoke.json && node ../../node_modules/.cache/pi-fleet-process/scripts/ghostty-smoke.js",
     "package:doctor": "node ./scripts/run-package-workflow.mjs doctor",
     "package:doctor-all": "node ./scripts/run-package-workflow.mjs doctor-all",
     "package:install": "node ./scripts/run-package-workflow.mjs install",

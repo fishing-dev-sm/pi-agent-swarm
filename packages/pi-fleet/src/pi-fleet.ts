@@ -5,7 +5,6 @@ import type { FleetMenuSource } from "./menu.js";
 import { parseInvite } from "./protocol.js";
 import { FLEET_MESSAGE_TYPE, renderFleetMessage } from "./renderer.js";
 import { createFleetSettingsRuntime, type FleetSettingsRuntime } from "./settings.js";
-import { terminalLabel } from "./terminal.js";
 import { safeError, safeTerminalLine } from "./text.js";
 import { registerFleetTools } from "./tools.js";
 
@@ -138,9 +137,8 @@ function menuSource(
     spawn: async (commandContext, input, signal) => {
       const result = await controller.spawn(commandContext, input, signal);
       if (controller.isCurrent(commandContext)) {
-        const resultTerminalLabel = terminalLabel(result.terminal);
         commandContext.ui.notify(
-          `Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in ${resultTerminalLabel}.`,
+          `Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in an external window.`,
           "info",
         );
       }

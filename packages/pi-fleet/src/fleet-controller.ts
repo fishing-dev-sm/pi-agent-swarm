@@ -31,13 +31,9 @@ import { createInMemoryFleetSettingsRuntime, type FleetSettingsRuntime } from ".
 import {
   createDefaultTerminalPort,
   createTerminalLaunchError,
-  type FleetTerminal,
   type FleetTerminalPort,
   isTerminalLaunchError,
-  normalizeTerminal,
-  resolveTerminalPreference,
   type TerminalSplitDirection,
-  terminalLabel,
 } from "./terminal.js";
 import { normalizeOptionalText, safeError, safeTerminalLine } from "./text.js";
 import {
@@ -80,13 +76,10 @@ export interface FleetTransportPort {
     | undefined;
 }
 
-export type { FleetTerminal, FleetTerminalPort } from "./terminal.js";
+export type { FleetTerminalPort } from "./terminal.js";
 
 export interface FleetControllerDependencies {
   createTransport(options: FleetTransportOptions): FleetTransportPort;
-  createTmux(): FleetTerminalPort;
-  createGhostty(): FleetTerminalPort;
-  createZellij(): FleetTerminalPort;
   createExternal(command: readonly string[], pinToLeadWorkspace: boolean): FleetTerminalPort;
   resolveInvocation(args: string[]): PiInvocation;
   createLauncher(
@@ -116,7 +109,6 @@ export interface FleetSnapshot {
 }
 
 export interface SpawnSessionInput {
-  terminal?: FleetTerminal;
   direction?: TerminalSplitDirection;
   task?: string;
   name?: string;
@@ -130,10 +122,8 @@ export interface SpawnSessionResult {
   name?: string;
   color?: string;
   cwd: string;
-  terminal: FleetTerminal;
   terminalId: string;
   terminalVersion: string;
-  ghosttyVersion?: string;
   kickoffAccepted: boolean;
 }
 
@@ -151,11 +141,7 @@ interface Membership {
 export function defaultFleetControllerDependencies(pi: ExtensionAPI): FleetControllerDependencies {
   return {
     createTransport: (options) => new FleetTransport(options),
-    createTmux: () => createDefaultTerminalPort(pi, "tmux"),
-    createGhostty: () => createDefaultTerminalPort(pi, "ghostty"),
-    createZellij: () => createDefaultTerminalPort(pi, "zellij"),
-    createExternal: (command, pinToLeadWorkspace) =>
-      createDefaultTerminalPort(pi, "external", command, pinToLeadWorkspace),
+    createExternal: (command, pinToLeadWorkspace) => createDefaultTerminalPort(pi, command, pinToLeadWorkspace),
     resolveInvocation: (args) => resolvePiInvocation(args),
     createLauncher: (invocation, directory, embeddedEnvironment) =>
       createPiLauncher(invocation, directory, embeddedEnvironment),
@@ -523,17 +509,9 @@ export class FleetController {
     await this.settings.flush();
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
     const launchSettings = this.settings.get().settings;
-    const terminal =
-      input.terminal !== undefined
-        ? normalizeTerminal(input.terminal)
-        : resolveTerminalPreference(launchSettings.defaultTerminal, this.deps.environment);
-    const selectedTerminalLabel = terminalLabel(terminal);
     const direction = input.direction ?? "right";
-    const windowLabel = terminal === "external" ? "window" : "split";
-    const launchLayoutLine =
-      terminal === "external"
-        ? `${selectedTerminalLabel} window (the window manager places it)`
-        : `${selectedTerminalLabel} split: ${direction}`;
+    const windowLabel = "window";
+    const launchLayoutLine = "External terminal window (the window manager places it)";
     const cwd = await this.resolveSpawnCwd(ctx, input.cwd);
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
     const task = normalizeOptionalText(input.task, "task", MAX_MESSAGE_BYTES);
@@ -567,17 +545,10 @@ export class FleetController {
           }
         : undefined;
     }
-    const terminalAdapter =
-      terminal === "tmux"
-        ? this.deps.createTmux()
-        : terminal === "ghostty"
-          ? this.deps.createGhostty()
-          : terminal === "zellij"
-            ? this.deps.createZellij()
-            : this.deps.createExternal(
-                parseExternalCommand(launchSettings.externalCommand),
-                launchSettings.pinToLeadWorkspace,
-              );
+    const terminalAdapter = this.deps.createExternal(
+      parseExternalCommand(launchSettings.externalCommand),
+      launchSettings.pinToLeadWorkspace,
+    );
     const terminalVersion = await terminalAdapter.assertAvailable(operationSignal);
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
     if (launchSettings.confirmSessionLaunch) {
@@ -602,7 +573,7 @@ export class FleetController {
     let terminalId: string | undefined;
     let actualTerminalVersion = terminalVersion;
     let launcher: PiLauncher | undefined;
-    const statusToken = this.beginStatus(ctx, `fleet: launching ${selectedTerminalLabel} ${windowLabel}`);
+    const statusToken = this.beginStatus(ctx, `fleet: launching ${windowLabel}`);
     try {
       const membership = await this.claimSpawnMembership(ctx, operationSignal, rollbackOwner);
       claimedMembership = membership;
@@ -620,17 +591,13 @@ export class FleetController {
         ...(childModel ? { model: childModel } : {}),
       };
       const launchEnvironment = launchEnvelopeEnvironment(envelope);
-      launcher = await this.deps.createLauncher(
-        invocation,
-        directory,
-        terminal === "zellij" || terminal === "external" ? launchEnvironment : undefined,
-      );
+      launcher = await this.deps.createLauncher(invocation, directory, launchEnvironment);
       if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
       const split = await terminalAdapter.spawnSplit({
         direction,
         cwd,
         launcherCommand: launcher.command,
-        environment: terminal === "zellij" || terminal === "external" ? {} : launchEnvironment,
+        environment: {},
         signal: operationSignal,
         isCurrent: () => this.isCurrent(owner, ownerGeneration),
       });
@@ -667,8 +634,7 @@ export class FleetController {
           }
           if (!acknowledgement.accepted) {
             throw createTerminalLaunchError(
-              terminal,
-              `${selectedTerminalLabel} created the split, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
+              `The external window started, but the child rejected its first task: ${safeTerminalLine(acknowledgement.error ?? "unknown reason")}`,
               true,
               terminalId,
             );
@@ -685,10 +651,8 @@ export class FleetController {
         ...(child.name ? { name: child.name } : {}),
         color,
         cwd: child.cwd,
-        terminal,
         terminalId,
         terminalVersion: actualTerminalVersion,
-        ...(terminal === "ghostty" ? { ghosttyVersion: actualTerminalVersion } : {}),
         kickoffAccepted,
       };
     } catch (error) {
@@ -698,8 +662,7 @@ export class FleetController {
       }
       if (partial && !isTerminalLaunchError(error)) {
         throw createTerminalLaunchError(
-          terminal,
-          `${selectedTerminalLabel} created the split, but the child session did not become ready: ${safeError(error)}`,
+          `The external window started, but the child session did not become ready: ${safeError(error)}`,
           true,
           terminalId,
         );

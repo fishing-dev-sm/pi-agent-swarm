@@ -22,7 +22,7 @@ test("missing settings stay side-effect free until the first explicit save", asy
   const loaded = await loadFleetSettings(settingsPath);
   assert.equal(loaded.kind, "missing");
   assert.deepEqual(loaded.settings, DEFAULT_FLEET_SETTINGS);
-  assert.equal(DEFAULT_FLEET_SETTINGS.defaultTerminal, "auto");
+  assert.equal(DEFAULT_FLEET_SETTINGS.pinToLeadWorkspace, false);
   assert.equal(exists(path.join(directory, "agent")), false);
 
   const runtime = createFleetSettingsRuntime({ path: settingsPath });
@@ -37,84 +37,50 @@ test("missing settings stay side-effect free until the first explicit save", asy
 test("normalization accepts partial settings and rejects invalid owned values", () => {
   assert.deepEqual(
     normalizeFleetSettingsDocument({
-      defaultTerminal: "ghostty",
+      externalCommand: "kitty",
       confirmSessionLaunch: false,
       future: { retained: true },
     }),
     {
       settings: {
-        defaultTerminal: "ghostty",
+        externalCommand: "kitty",
         confirmSessionLaunch: false,
-        externalCommand: "alacritty -e",
         pinToLeadWorkspace: false,
       },
       sources: {
-        defaultTerminal: "user",
+        externalCommand: "user",
         confirmSessionLaunch: "user",
-        externalCommand: "built-in",
         pinToLeadWorkspace: "built-in",
       },
     },
   );
-  assert.deepEqual(normalizeFleetSettingsDocument({ defaultTerminal: "zellij" }), {
+  assert.deepEqual(normalizeFleetSettingsDocument({ pinToLeadWorkspace: true }), {
     settings: {
-      defaultTerminal: "zellij",
       confirmSessionLaunch: true,
       externalCommand: "alacritty -e",
-      pinToLeadWorkspace: false,
+      pinToLeadWorkspace: true,
     },
     sources: {
-      defaultTerminal: "user",
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
-      pinToLeadWorkspace: "built-in",
-    },
-  });
-  assert.deepEqual(normalizeFleetSettingsDocument({ defaultTerminal: "auto" }), {
-    settings: {
-      defaultTerminal: "auto",
-      confirmSessionLaunch: true,
-      externalCommand: "alacritty -e",
-      pinToLeadWorkspace: false,
-    },
-    sources: {
-      defaultTerminal: "user",
-      confirmSessionLaunch: "built-in",
-      externalCommand: "built-in",
-      pinToLeadWorkspace: "built-in",
+      pinToLeadWorkspace: "user",
     },
   });
   assert.deepEqual(normalizeFleetSettingsDocument({}), {
     settings: DEFAULT_FLEET_SETTINGS,
     sources: {
-      defaultTerminal: "built-in",
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
-      pinToLeadWorkspace: "built-in",
-    },
-  });
-  assert.deepEqual(normalizeFleetSettingsDocument({ externalCommand: "kitty" }), {
-    settings: {
-      defaultTerminal: "auto",
-      confirmSessionLaunch: true,
-      externalCommand: "kitty",
-      pinToLeadWorkspace: false,
-    },
-    sources: {
-      defaultTerminal: "built-in",
-      confirmSessionLaunch: "built-in",
-      externalCommand: "user",
       pinToLeadWorkspace: "built-in",
     },
   });
   for (const value of [
     null,
     [],
-    { defaultTerminal: "unknown" },
-    { defaultTerminal: true },
     { confirmSessionLaunch: "yes" },
     { externalCommand: "" },
     { externalCommand: 5 },
+    { pinToLeadWorkspace: "yes" },
   ]) {
     assert.equal(normalizeFleetSettingsDocument(value), undefined);
   }
@@ -129,19 +95,18 @@ test("updates preserve unknown fields and publish private JSON atomically", asyn
   );
   const runtime = createFleetSettingsRuntime({ path: settingsPath });
   await runtime.reload();
-  await runtime.update({ defaultTerminal: "ghostty" });
+  await runtime.update({ pinToLeadWorkspace: true });
   await runtime.update({ confirmSessionLaunch: false });
 
   assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")), {
     confirmSessionLaunch: false,
     future: { retained: true },
-    defaultTerminal: "ghostty",
+    pinToLeadWorkspace: true,
   });
   assert.deepEqual(runtime.get().settings, {
-    defaultTerminal: "ghostty",
     confirmSessionLaunch: false,
     externalCommand: "alacritty -e",
-    pinToLeadWorkspace: false,
+    pinToLeadWorkspace: true,
   });
   if (process.platform !== "win32") {
     assert.equal(statSync(settingsPath).mode & 0o777, 0o600);
@@ -152,7 +117,7 @@ test("updates preserve unknown fields and publish private JSON atomically", asyn
 test("malformed, invalid, and invalid UTF-8 files remain unchanged and block updates", async (t) => {
   for (const contents of [
     Buffer.from("{bad json\n"),
-    Buffer.from('{"defaultTerminal":"unknown"}\n'),
+    Buffer.from('{"pinToLeadWorkspace":"yes"}\n'),
     Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]),
   ]) {
     const { settingsPath } = temporarySettings(t);
@@ -161,7 +126,7 @@ test("malformed, invalid, and invalid UTF-8 files remain unchanged and block upd
     const runtime = createFleetSettingsRuntime({ path: settingsPath });
     const state = await runtime.reload();
     assert.ok(state.issue);
-    await assert.rejects(runtime.update({ defaultTerminal: "ghostty" }), /invalid|malformed|UTF-8/u);
+    await assert.rejects(runtime.update({ confirmSessionLaunch: false }), /invalid|malformed|UTF-8/u);
     assert.deepEqual(readFileSync(settingsPath), contents);
     assert.deepEqual(runtime.get().settings, DEFAULT_FLEET_SETTINGS);
   }
@@ -180,13 +145,13 @@ test("publication failure retains effective state, cleans temporary files, and q
     },
   });
   await runtime.reload();
-  await assert.rejects(runtime.update({ defaultTerminal: "ghostty" }), /rename rejected/u);
+  await assert.rejects(runtime.update({ pinToLeadWorkspace: true }), /rename rejected/u);
   assert.deepEqual(runtime.get().settings, DEFAULT_FLEET_SETTINGS);
   assert.deepEqual(listTemporaryFiles(settingsPath), []);
 
   rejectRename = false;
-  await runtime.update({ defaultTerminal: "ghostty" });
-  assert.equal(runtime.get().settings.defaultTerminal, "ghostty");
+  await runtime.update({ pinToLeadWorkspace: true });
+  assert.equal(runtime.get().settings.pinToLeadWorkspace, true);
 });
 
 test("concurrent updates serialize in call order and reload waits for pending publication", async (t) => {
@@ -211,7 +176,7 @@ test("concurrent updates serialize in call order and reload waits for pending pu
     },
   });
   await runtime.reload();
-  const first = runtime.update({ defaultTerminal: "ghostty" });
+  const first = runtime.update({ externalCommand: "kitty" });
   const second = runtime.update({ confirmSessionLaunch: false });
   const reload = runtime.reload();
   await Promise.resolve();
@@ -219,9 +184,8 @@ test("concurrent updates serialize in call order and reload waits for pending pu
   releaseFirst();
   await Promise.all([first, second, reload, runtime.flush()]);
   assert.deepEqual(runtime.get().settings, {
-    defaultTerminal: "ghostty",
     confirmSessionLaunch: false,
-    externalCommand: "alacritty -e",
+    externalCommand: "kitty",
     pinToLeadWorkspace: false,
   });
 });

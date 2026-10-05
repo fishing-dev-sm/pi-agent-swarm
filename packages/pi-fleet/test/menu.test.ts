@@ -9,7 +9,6 @@ import { DEFAULT_FLEET_SETTINGS, type FleetSettingsPatch, type FleetSettingsStat
 const defaultSettings: FleetSettingsState = {
   settings: { ...DEFAULT_FLEET_SETTINGS },
   sources: {
-    defaultTerminal: "built-in",
     confirmSessionLaunch: "built-in",
     externalCommand: "built-in",
     pinToLeadWorkspace: "built-in",
@@ -120,12 +119,10 @@ test("main menu exposes New Pi session first plus Settings, Status, and Help", (
   assert.deepEqual(
     settings.items.map((item) => [item.id, item.currentValue]),
     [
-      ["defaultTerminal", "Automatic"],
       ["confirmSessionLaunch", "Ask"],
       ["pinToLeadWorkspace", "Off"],
     ],
   );
-  assert.deepEqual(settings.items[0]?.values, ["Automatic", "tmux", "Ghostty", "Zellij", "External"]);
   assert.match((settings.lines ?? []).join("\n"), /\/tmp\/pi-fleet\.json/u);
 
   const invalidState: FleetMenuState = {
@@ -145,36 +142,6 @@ test("setting actions persist exact patches and reject failed saves", async () =
   const firstMenu = createFleetMenu(first.source).menu;
   const context = createMockContext({ mode: "tui", hasUI: true });
   assert.deepEqual(
-    await firstMenu.actions.setTerminal({
-      ctx: context.ctx,
-      state: disconnected,
-      signal: new AbortController().signal,
-      itemId: "defaultTerminal",
-      value: "Automatic",
-    }),
-    { kind: "stay" },
-  );
-  assert.deepEqual(
-    await firstMenu.actions.setTerminal({
-      ctx: context.ctx,
-      state: disconnected,
-      signal: new AbortController().signal,
-      itemId: "defaultTerminal",
-      value: "Ghostty",
-    }),
-    { kind: "stay" },
-  );
-  assert.deepEqual(
-    await firstMenu.actions.setTerminal({
-      ctx: context.ctx,
-      state: disconnected,
-      signal: new AbortController().signal,
-      itemId: "defaultTerminal",
-      value: "Zellij",
-    }),
-    { kind: "stay" },
-  );
-  assert.deepEqual(
     await firstMenu.actions.setConfirmation({
       ctx: context.ctx,
       state: disconnected,
@@ -184,23 +151,18 @@ test("setting actions persist exact patches and reject failed saves", async () =
     }),
     { kind: "stay" },
   );
-  assert.deepEqual(first.calls, [
-    { kind: "settings", patch: { defaultTerminal: "auto" } },
-    { kind: "settings", patch: { defaultTerminal: "ghostty" } },
-    { kind: "settings", patch: { defaultTerminal: "zellij" } },
-    { kind: "settings", patch: { confirmSessionLaunch: false } },
-  ]);
+  assert.deepEqual(first.calls, [{ kind: "settings", patch: { confirmSessionLaunch: false } }]);
   assert.equal(context.notifications.at(-1)?.level, "info");
 
   const second = source({ updateSettings: async () => Promise.reject(new Error("save rejected")) });
   const failedContext = createMockContext({ mode: "tui", hasUI: true });
   assert.deepEqual(
-    await createFleetMenu(second.source).menu.actions.setTerminal({
+    await createFleetMenu(second.source).menu.actions.setConfirmation({
       ctx: failedContext.ctx,
       state: disconnected,
       signal: new AbortController().signal,
-      itemId: "defaultTerminal",
-      value: "Ghostty",
+      itemId: "confirmSessionLaunch",
+      value: "Skip",
     }),
     { kind: "rejected" },
   );
@@ -229,7 +191,7 @@ test("spawn defers automatic backend resolution to the controller", async () => 
     itemId: "spawn",
   });
   assert.deepEqual(result, { kind: "close" });
-  assert.deepEqual(selectionTitles, ["Terminal split direction"]);
+  assert.deepEqual(selectionTitles, ["Terminal window direction"]);
   assert.deepEqual(selectionOptions, [["Right", "Down", "Left", "Up"]]);
   assert.deepEqual(calls, [
     {
@@ -238,69 +200,6 @@ test("spawn defers automatic backend resolution to the controller", async () => 
         direction: "down",
         task: "Investigate tests",
       } satisfies SpawnSessionInput,
-    },
-  ]);
-});
-
-test("spawn uses Ghostty after it is selected in Settings", async () => {
-  const ghosttyState: FleetMenuState = {
-    ...disconnected,
-    settings: { ...disconnected.settings, defaultTerminal: "ghostty" },
-  };
-  const { source: menuSource, calls } = source({ snapshot: async () => ghosttyState });
-  const { menu } = createFleetMenu(menuSource);
-  const context = createMockContext({
-    mode: "rpc",
-    hasUI: true,
-    select: async () => "Left",
-    input: async () => "",
-  });
-  const result = await menu.actions.spawn({
-    ctx: context.ctx,
-    state: ghosttyState,
-    signal: new AbortController().signal,
-    itemId: "spawn",
-  });
-  assert.deepEqual(result, { kind: "close" });
-  assert.deepEqual(calls, [
-    {
-      kind: "spawn",
-      input: { direction: "left" } satisfies SpawnSessionInput,
-    },
-  ]);
-});
-
-test("spawn uses Zellij after it is selected in Settings", async () => {
-  const zellijState: FleetMenuState = {
-    ...disconnected,
-    settings: { ...disconnected.settings, defaultTerminal: "zellij" },
-  };
-  const { source: menuSource, calls } = source({ snapshot: async () => zellijState });
-  const { menu } = createFleetMenu(menuSource);
-  const titles: string[] = [];
-  const context = createMockContext({
-    mode: "tui",
-    hasUI: true,
-    select: async (title: string) => {
-      titles.push(title);
-      return "Up";
-    },
-    input: async () => "",
-  });
-  assert.deepEqual(
-    await menu.actions.spawn({
-      ctx: context.ctx,
-      state: zellijState,
-      signal: new AbortController().signal,
-      itemId: "spawn",
-    }),
-    { kind: "close" },
-  );
-  assert.deepEqual(titles, ["Zellij split direction"]);
-  assert.deepEqual(calls, [
-    {
-      kind: "spawn",
-      input: { direction: "up" } satisfies SpawnSessionInput,
     },
   ]);
 });
@@ -403,15 +302,11 @@ test("TUI Settings changes apply immediately and failed saves restore the previo
   tui.press("tui.select.confirm");
   await tui.waitForPending();
   await waitForOpenCount(tui, 3);
-  tui.press("tui.select.down");
-  tui.press("tui.select.confirm");
-  await tui.waitForPending();
-  await waitForOpenCount(tui, 4);
   tui.press("tui.select.cancel");
-  await waitForOpenCount(tui, 5);
+  await waitForOpenCount(tui, 4);
   tui.press("ctrl+c");
   await running;
-  assert.deepEqual(patches, [{ defaultTerminal: "tmux" }, { confirmSessionLaunch: false }]);
+  assert.deepEqual(patches, [{ confirmSessionLaunch: false }]);
 
   const failingTui = createTuiHarness({ width: 70, rows: 24 });
   const failedContext = createMockContext({
@@ -430,7 +325,7 @@ test("TUI Settings changes apply immediately and failed saves restore the previo
   await waitForOpenCount(failingTui, 2);
   failingTui.press("tui.select.confirm");
   await failingTui.waitForPending();
-  assert.match(failingTui.render().join("\n"), /Default terminal\s+Automatic/u);
+  assert.match(failingTui.render().join("\n"), /Confirm new sessions\s+Ask/u);
   failingTui.press("ctrl+c");
   await failing;
   assert.match(failedContext.notifications.at(-1)?.message ?? "", /previous value remains/u);
@@ -454,32 +349,12 @@ test("RPC Settings changes apply immediately through the shared menu", async () 
     },
     {
       kind: "select",
-      options: [
-        "Default terminal (Automatic)",
-        "Confirm new sessions (Ask)",
-        "Pin new windows to lead workspace (Off)",
-        "Back",
-      ],
-      response: "Default terminal (Automatic)",
-    },
-    {
-      kind: "select",
-      options: [
-        "Default terminal (tmux)",
-        "Confirm new sessions (Ask)",
-        "Pin new windows to lead workspace (Off)",
-        "Back",
-      ],
+      options: ["Confirm new sessions (Ask)", "Pin new windows to lead workspace (Off)", "Back"],
       response: "Confirm new sessions (Ask)",
     },
     {
       kind: "select",
-      options: [
-        "Default terminal (tmux)",
-        "Confirm new sessions (Skip)",
-        "Pin new windows to lead workspace (Off)",
-        "Back",
-      ],
+      options: ["Confirm new sessions (Skip)", "Pin new windows to lead workspace (Off)", "Back"],
       response: undefined,
     },
     {
@@ -493,7 +368,7 @@ test("RPC Settings changes apply immediately through the shared menu", async () 
     signal: new AbortController().signal,
     isCurrent: () => true,
   });
-  assert.deepEqual(patches, [{ defaultTerminal: "tmux" }, { confirmSessionLaunch: false }]);
+  assert.deepEqual(patches, [{ confirmSessionLaunch: false }]);
   rpc.assertConsumed();
 });
 

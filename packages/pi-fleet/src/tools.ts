@@ -4,11 +4,9 @@ import { Type } from "typebox";
 import { fleetColorName } from "./color.js";
 import type { FleetSnapshot, SpawnSessionInput, SpawnSessionResult } from "./fleet-controller.js";
 import type { FleetMessage } from "./protocol.js";
-import { terminalLabel } from "./terminal.js";
 import { safeTerminalLine } from "./text.js";
 import type { FleetDeliveryAck } from "./transport.js";
 
-const TERMINALS = ["tmux", "ghostty", "zellij", "external"] as const;
 const DIRECTIONS = ["right", "down", "left", "up"] as const;
 const BUS_ACTIONS = ["list", "send", "reply", "shutdown"] as const;
 const SEND_MODES = ["notify", "request"] as const;
@@ -37,13 +35,7 @@ export interface FleetToolController {
 
 const spawnSchema = Type.Object(
   {
-    terminal: Type.Optional(
-      StringEnum(TERMINALS, {
-        description:
-          "Explicit terminal backend override (multiplexer split or external window); omission uses the configured Pi Fleet preference, which may resolve automatically",
-      }),
-    ),
-    direction: Type.Optional(StringEnum(DIRECTIONS, { description: "Terminal split direction" })),
+    direction: Type.Optional(StringEnum(DIRECTIONS, { description: "Terminal window direction" })),
     task: Type.Optional(
       Type.String({
         description: "Optional first task sent after child readiness",
@@ -97,33 +89,30 @@ export function registerFleetTools(pi: ExtensionAPI, controller: FleetToolContro
     name: "session_spawn",
     label: "Spawn Pi Session",
     description:
-      "Create a separate Pi process in a terminal split, wait for authenticated readiness, and optionally send its first task. An omitted terminal uses the configured Pi Fleet preference, including automatic current-terminal resolution, while an explicit terminal strictly overrides it. This preserves the current session and follows the configured launch-confirmation policy.",
-    promptSnippet: "Start a collaborating Pi session using its configured terminal preference",
+      "Create a separate Pi process in an external terminal window, wait for authenticated readiness, and optionally send its first task. This preserves the current session and follows the configured launch-confirmation policy.",
+    promptSnippet: "Start a collaborating Pi session in an external terminal window",
     promptGuidelines: [
       "Use session_spawn only when the user explicitly asks to open or start another Pi session.",
-      "Omit session_spawn terminal to use the user's configured Pi Fleet preference; pass terminal only when the user explicitly requests a strict backend override.",
       "Do not claim the child is ready until session_spawn returns authenticated readiness metadata.",
     ],
     parameters: spawnSchema,
     executionMode: "sequential",
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      const requestedTerminal = params.terminal ? terminalLabel(params.terminal) : "the configured terminal preference";
       onUpdate?.({
         content: [
           {
             type: "text",
-            text: `Preparing a Pi session launch using ${requestedTerminal}…`,
+            text: "Preparing a Pi session launch in an external terminal window…",
           },
         ],
-        details: { phase: "preparing", terminal: params.terminal ?? "configured" },
+        details: { phase: "preparing" },
       });
       const result = await controller.spawn(ctx, params, signal);
-      const resultTerminalLabel = terminalLabel(result.terminal);
       return {
         content: [
           {
             type: "text",
-            text: `Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in ${resultTerminalLabel} (${safeTerminalLine(result.cwd)}).${result.kickoffAccepted ? " Its first task was accepted." : " No first task was sent."}`,
+            text: `Pi session ${safeTerminalLine(result.name ?? result.sessionId)} is ready in an external window (${safeTerminalLine(result.cwd)}).${result.kickoffAccepted ? " Its first task was accepted." : " No first task was sent."}`,
           },
         ],
         details: result,

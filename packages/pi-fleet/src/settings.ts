@@ -3,19 +3,16 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { FleetTerminalPreference } from "./terminal.js";
 
 export const FLEET_SETTINGS_FILE = "pi-fleet.json";
 export const MAX_FLEET_SETTINGS_BYTES = 64 * 1024;
 export const DEFAULT_FLEET_SETTINGS: Readonly<FleetSettings> = Object.freeze({
-  defaultTerminal: "auto",
   confirmSessionLaunch: true,
   externalCommand: "alacritty -e",
   pinToLeadWorkspace: false,
 });
 
 export interface FleetSettings {
-  defaultTerminal: FleetTerminalPreference;
   confirmSessionLaunch: boolean;
   externalCommand: string;
   pinToLeadWorkspace: boolean;
@@ -76,7 +73,6 @@ export interface FleetSettingsRuntimeOptions {
 }
 
 const SETTING_FIELDS = [
-  "defaultTerminal",
   "confirmSessionLaunch",
   "externalCommand",
   "pinToLeadWorkspace",
@@ -92,19 +88,6 @@ export function normalizeFleetSettingsDocument(value: unknown): NormalizedFleetS
   const settings: FleetSettings = { ...DEFAULT_FLEET_SETTINGS };
   const sources = builtInSources();
 
-  if (Object.hasOwn(value, "defaultTerminal")) {
-    if (
-      value.defaultTerminal !== "auto" &&
-      value.defaultTerminal !== "tmux" &&
-      value.defaultTerminal !== "ghostty" &&
-      value.defaultTerminal !== "zellij" &&
-      value.defaultTerminal !== "external"
-    ) {
-      return undefined;
-    }
-    settings.defaultTerminal = value.defaultTerminal;
-    sources.defaultTerminal = "user";
-  }
   if (Object.hasOwn(value, "confirmSessionLaunch")) {
     if (typeof value.confirmSessionLaunch !== "boolean") return undefined;
     settings.confirmSessionLaunch = value.confirmSessionLaunch;
@@ -174,7 +157,6 @@ export function createInMemoryFleetSettingsRuntime(): FleetSettingsRuntime {
         settings: { ...state.settings, ...canonical },
         sources: {
           ...state.sources,
-          ...(canonical.defaultTerminal ? { defaultTerminal: "user" as const } : {}),
           ...(canonical.confirmSessionLaunch !== undefined ? { confirmSessionLaunch: "user" as const } : {}),
           ...(canonical.externalCommand ? { externalCommand: "user" as const } : {}),
           ...(canonical.pinToLeadWorkspace !== undefined ? { pinToLeadWorkspace: "user" as const } : {}),
@@ -349,7 +331,6 @@ function invalidLoad(path: string, reason: string): FleetSettingsLoadResult {
 
 function builtInSources(): Record<FleetSettingsField, FleetSettingsSource> {
   return {
-    defaultTerminal: "built-in",
     confirmSessionLaunch: "built-in",
     externalCommand: "built-in",
     pinToLeadWorkspace: "built-in",

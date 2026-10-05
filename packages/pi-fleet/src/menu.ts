@@ -2,7 +2,6 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { MenuDefinition } from "@narumitw/pi-tui-kit";
 import type { FleetSnapshot, SpawnSessionInput } from "./fleet-controller.js";
 import type { FleetSettingsPatch, FleetSettingsState } from "./settings.js";
-import { type FleetTerminalPreference, terminalPreferenceLabel } from "./terminal.js";
 import { safeError, safeTerminalLine } from "./text.js";
 
 export interface FleetMenuState extends FleetSnapshot, FleetSettingsState {
@@ -35,16 +34,7 @@ type Screen =
   | "status"
   | "help"
   | "leave";
-type Action =
-  | "spawn"
-  | "start"
-  | "join"
-  | "send"
-  | "setTerminal"
-  | "setConfirmation"
-  | "setPinToLeadWorkspace"
-  | "setPolicy"
-  | "leave";
+type Action = "spawn" | "start" | "join" | "send" | "setConfirmation" | "setPinToLeadWorkspace" | "setPolicy" | "leave";
 
 const DIRECTION_OPTIONS = ["Right", "Down", "Left", "Up"] as const;
 
@@ -120,14 +110,6 @@ export function createFleetMenu(source: FleetMenuSource) {
         lines: [`User settings · ${safeTerminalLine(state.settingsPath)}`],
         items: [
           {
-            id: "defaultTerminal",
-            label: "Default terminal",
-            description: "Automatically detect or pin the backend for launches without an override.",
-            currentValue: terminalPreferenceLabel(state.settings.defaultTerminal),
-            values: ["Automatic", "tmux", "Ghostty", "Zellij", "External"],
-            action: "setTerminal",
-          },
-          {
             id: "confirmSessionLaunch",
             label: "Confirm new sessions",
             description: "Ask before a new Pi process may spend tokens or edit the workspace.",
@@ -165,7 +147,6 @@ export function createFleetMenu(source: FleetMenuSource) {
               `Cwd: ${safeTerminalLine(state.self?.cwd ?? "unknown")}`,
               `Other live sessions: ${state.peers.length}`,
               `Incoming requests: ${state.acceptsRequests ? "allowed" : "blocked"}`,
-              `Default terminal: ${terminalPreferenceLabel(state.settings.defaultTerminal)}`,
               `Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
               `Pin new windows to lead workspace: ${state.settings.pinToLeadWorkspace ? "On" : "Off"}`,
               "Delivery acknowledgement means extension acceptance, not remote task completion.",
@@ -173,7 +154,6 @@ export function createFleetMenu(source: FleetMenuSource) {
           : [
               "State: disconnected",
               "No socket, group secret, or background discovery is active.",
-              `Default terminal: ${terminalPreferenceLabel(state.settings.defaultTerminal)}`,
               `Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
               `Pin new windows to lead workspace: ${state.settings.pinToLeadWorkspace ? "On" : "Off"}`,
             ],
@@ -184,8 +164,7 @@ export function createFleetMenu(source: FleetMenuSource) {
         title: "Pi Fleet help",
         lines: [
           "Pi Fleet connects explicit sessions owned by one OS user.",
-          "New Pi session creates a separate process in a terminal window or split and preserves the parent.",
-          "Automatic selection prefers tmux, then Zellij 0.44+, then Ghostty 1.3+ on macOS, and falls back to an external terminal window.",
+          "New Pi session creates a separate process in an external terminal window and preserves the parent.",
           "Notify messages do not start turns, requests require recipient permission, and replies do not auto-trigger another turn.",
           "Groups, invites, peer state, and message deduplication are ephemeral.",
         ],
@@ -205,13 +184,10 @@ export function createFleetMenu(source: FleetMenuSource) {
       }),
     },
     actions: {
-      spawn: async ({ ctx, signal, state }) => {
-        const preference = state.settings.defaultTerminal;
-        const directionChoice = await ctx.ui.select(
-          preference === "auto" ? "Terminal split direction" : `${terminalPreferenceLabel(preference)} split direction`,
-          [...DIRECTION_OPTIONS],
-          { signal },
-        );
+      spawn: async ({ ctx, signal }) => {
+        const directionChoice = await ctx.ui.select("Terminal window direction", [...DIRECTION_OPTIONS], {
+          signal,
+        });
         if (!directionChoice || signal.aborted) return { kind: "stay" };
         const task = await ctx.ui.input("Optional first task", "Submit an empty value for an idle child session", {
           signal,
@@ -278,14 +254,6 @@ export function createFleetMenu(source: FleetMenuSource) {
         );
         return { kind: "stay" };
       },
-      setTerminal: ({ ctx, signal, value }) =>
-        saveSettingsPatch(
-          source,
-          ctx,
-          signal,
-          { defaultTerminal: terminalSettingValue(value) },
-          `Default terminal: ${value}.`,
-        ),
       setConfirmation: ({ ctx, signal, value }) =>
         saveSettingsPatch(
           source,
@@ -345,23 +313,6 @@ export async function showFleetMenu(
       }
     },
   });
-}
-
-function terminalSettingValue(value: string | undefined): FleetTerminalPreference {
-  switch (value) {
-    case "Automatic":
-      return "auto";
-    case "tmux":
-      return "tmux";
-    case "Ghostty":
-      return "ghostty";
-    case "Zellij":
-      return "zellij";
-    case "External":
-      return "external";
-    default:
-      throw new Error("Pi Fleet terminal setting is invalid");
-  }
 }
 
 async function saveSettingsPatch(

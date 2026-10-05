@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import { createMockContext, createMockPi } from "../../../test/support.js";
+import { ExternalLaunchError } from "../src/external.js";
 import {
   FleetController,
   type FleetControllerDependencies,
   type FleetTerminalPort,
   type FleetTransportPort,
-  type SpawnSessionInput,
 } from "../src/fleet-controller.js";
 import type { FleetMessage, FleetPeerDescription } from "../src/protocol.js";
 import {
@@ -16,9 +16,7 @@ import {
   type FleetSettingsRuntime,
   type FleetSettingsState,
 } from "../src/settings.js";
-import { TmuxLaunchError } from "../src/tmux.js";
 import type { FleetDeliveryAck, FleetSendAuthorization, FleetTransportOptions } from "../src/transport.js";
-import { ZellijLaunchError } from "../src/zellij.js";
 
 class SpawnTransport implements FleetTransportPort {
   peers: FleetPeerDescription[] = [];
@@ -64,32 +62,15 @@ class SpawnTransport implements FleetTransportPort {
 function harness(options: { ready?: boolean; launchError?: Error } = {}) {
   const mock = createMockPi();
   const transports: SpawnTransport[] = [];
-  const tmuxSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
-  const ghosttySplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
-  const zellijSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
   const externalSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
   let now = 1_800_000_000_000;
-  let tmuxCreated = 0;
-  let ghosttyCreated = 0;
-  let zellijCreated = 0;
   let externalCreated = 0;
   let launcherCleaned = false;
   const launcherEnvironments: Array<Readonly<Record<string, string>> | undefined> = [];
   let cleanupStateAtFirstPoll: boolean | undefined;
   let pendingPeer: FleetPeerDescription | undefined;
-  const spawnSplit = async (
-    terminal: "tmux" | "ghostty" | "zellij" | "external",
-    spawnOptions: Parameters<FleetTerminalPort["spawnSplit"]>[0],
-  ) => {
-    const calls =
-      terminal === "tmux"
-        ? tmuxSplitCalls
-        : terminal === "ghostty"
-          ? ghosttySplitCalls
-          : terminal === "zellij"
-            ? zellijSplitCalls
-            : externalSplitCalls;
-    calls.push(spawnOptions);
+  const spawnSplit = async (spawnOptions: Parameters<FleetTerminalPort["spawnSplit"]>[0]) => {
+    externalSplitCalls.push(spawnOptions);
     if (options.launchError) throw options.launchError;
     if (options.ready !== false) {
       const childEnvironment =
@@ -107,20 +88,13 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
         acceptsRequests: false,
       };
     }
-    return {
-      terminalId: `${terminal}-child`,
-      version:
-        terminal === "tmux" ? "3.4" : terminal === "ghostty" ? "1.3.1" : terminal === "zellij" ? "0.44.3" : "alacritty",
-    };
+    return { terminalId: "external-child", version: "alacritty" };
   };
   const deps: FleetControllerDependencies = {
     createTransport: (transportOptions) => {
       const transport = new SpawnTransport(transportOptions);
       transport.beforeList = () => {
-        if (
-          (tmuxSplitCalls.length > 0 || ghosttySplitCalls.length > 0 || zellijSplitCalls.length > 0) &&
-          cleanupStateAtFirstPoll === undefined
-        ) {
+        if (externalSplitCalls.length > 0 && cleanupStateAtFirstPoll === undefined) {
           cleanupStateAtFirstPoll = launcherCleaned;
         }
         if (pendingPeer) {
@@ -131,32 +105,11 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
       transports.push(transport);
       return transport;
     },
-    createTmux: () => {
-      tmuxCreated += 1;
-      return {
-        assertAvailable: async () => "3.4",
-        spawnSplit: (spawnOptions) => spawnSplit("tmux", spawnOptions),
-      };
-    },
-    createGhostty: () => {
-      ghosttyCreated += 1;
-      return {
-        assertAvailable: async () => "1.3.1",
-        spawnSplit: (spawnOptions) => spawnSplit("ghostty", spawnOptions),
-      };
-    },
-    createZellij: () => {
-      zellijCreated += 1;
-      return {
-        assertAvailable: async () => "0.44.3",
-        spawnSplit: (spawnOptions) => spawnSplit("zellij", spawnOptions),
-      };
-    },
     createExternal: () => {
       externalCreated += 1;
       return {
         assertAvailable: async () => "alacritty",
-        spawnSplit: (spawnOptions) => spawnSplit("external", spawnOptions),
+        spawnSplit,
       };
     },
     resolveInvocation: (args) => ({ command: "/bin/pi", args }),
@@ -178,29 +131,14 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
       now += 101;
     },
     launchTimeoutMs: 200,
-    environment: {
-      TMUX: "/tmp/tmux-1000/default,1234,0",
-      TMUX_PANE: "%7",
-    },
+    environment: {},
   };
   return {
     mock,
     deps,
     transports,
-    splitCalls: tmuxSplitCalls,
-    ghosttySplitCalls,
-    zellijSplitCalls,
-    externalSplitCalls,
+    splitCalls: externalSplitCalls,
     launcherEnvironments,
-    get tmuxCreated() {
-      return tmuxCreated;
-    },
-    get ghosttyCreated() {
-      return ghosttyCreated;
-    },
-    get zellijCreated() {
-      return zellijCreated;
-    },
     get externalCreated() {
       return externalCreated;
     },
@@ -238,33 +176,29 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
   });
   assert.equal(confirmationMessages.length, 1);
   assert.equal(
-    confirmationMessages.some((message) => /tmux split: down/u.test(message)),
+    confirmationMessages.some((message) => /External terminal window/u.test(message)),
     true,
   );
   assert.equal(transports.length, 1);
   assert.equal(splitCalls.length, 1);
-  assert.equal(runtime.tmuxCreated, 1);
-  assert.equal(runtime.ghosttyCreated, 0);
+  assert.equal(runtime.externalCreated, 1);
   assert.equal(splitCalls[0]?.direction, "down");
   assert.equal(runtime.cleanupStateAtFirstPoll, false);
-  assert.equal(runtime.launcherEnvironments[0], undefined);
   assert.equal(splitCalls[0]?.cwd, "/real/project/worktree");
-  assert.equal(splitCalls[0]?.environment.PI_FLEET_MODEL_PROVIDER, "provider");
-  assert.equal(splitCalls[0]?.environment.PI_FLEET_MODEL_ID, "model");
-  assert.equal(splitCalls[0]?.environment.PI_FLEET_THINKING, "high");
-  assert.match(splitCalls[0]?.environment.PI_FLEET_INVITE ?? "", /^pifleet:v1:/u);
-  assert.match(splitCalls[0]?.environment.PI_FLEET_KICKOFF_CAPABILITY ?? "", /^kickoff_/u);
+  assert.equal(runtime.launcherEnvironments[0]?.PI_FLEET_MODEL_PROVIDER, "provider");
+  assert.equal(runtime.launcherEnvironments[0]?.PI_FLEET_MODEL_ID, "model");
+  assert.equal(runtime.launcherEnvironments[0]?.PI_FLEET_THINKING, "high");
+  assert.match(runtime.launcherEnvironments[0]?.PI_FLEET_INVITE ?? "", /^pifleet:v1:/u);
+  assert.match(runtime.launcherEnvironments[0]?.PI_FLEET_KICKOFF_CAPABILITY ?? "", /^kickoff_/u);
   assert.equal(transports[0]?.messages[0]?.mode, "kickoff");
   assert.equal(
     transports[0]?.authorizations[0]?.kickoffCapability,
-    splitCalls[0]?.environment.PI_FLEET_KICKOFF_CAPABILITY,
+    runtime.launcherEnvironments[0]?.PI_FLEET_KICKOFF_CAPABILITY,
   );
   assert.equal(transports[0]?.messages[0]?.text, "Check tests");
   assert.equal(result.sessionId, "child-session");
-  assert.equal(result.terminal, "tmux");
-  assert.equal(result.terminalId, "tmux-child");
-  assert.equal(result.terminalVersion, "3.4");
-  assert.equal(result.ghosttyVersion, undefined);
+  assert.equal(result.terminalId, "external-child");
+  assert.equal(result.terminalVersion, "alacritty");
   assert.equal(result.kickoffAccepted, true);
   assert.equal(runtime.launcherCleaned, true);
   assert.equal(mock.sentMessages.length, 0);
@@ -281,146 +215,6 @@ test("spawn reuses an existing group and supports all split directions", async (
     await controller.spawn(context.ctx, { direction });
     assert.equal(transports.length, 1);
     assert.equal(splitCalls[0]?.direction, direction);
-    await controller.sessionShutdown({ reason: "quit" }, context.ctx);
-  }
-});
-
-test("spawn uses the configured terminal when omitted and lets an explicit argument override it", async () => {
-  for (const explicitTerminal of [undefined, "tmux"] as const) {
-    const runtime = harness();
-    runtime.deps.environment = {};
-    const settings = memorySettingsRuntime({ defaultTerminal: "ghostty" });
-    const controller = new FleetController(runtime.mock.pi, runtime.deps, settings);
-    const context = createMockContext({
-      mode: "tui",
-      hasUI: true,
-      confirm: async () => true,
-    });
-    await controller.sessionStart({ reason: "startup" }, context.ctx);
-    const result = await controller.spawn(context.ctx, {
-      ...(explicitTerminal ? { terminal: explicitTerminal } : {}),
-    });
-    assert.equal(result.terminal, explicitTerminal ?? "ghostty");
-    assert.equal(runtime.tmuxCreated, explicitTerminal === "tmux" ? 1 : 0);
-    assert.equal(runtime.ghosttyCreated, explicitTerminal === "tmux" ? 0 : 1);
-    await controller.sessionShutdown({ reason: "quit" }, context.ctx);
-  }
-});
-
-test("spawn rejects an invalid explicit terminal instead of treating it as omitted", async () => {
-  const runtime = harness();
-  const controller = new FleetController(runtime.mock.pi, runtime.deps);
-  const context = createMockContext({ mode: "tui", hasUI: true, confirm: async () => true });
-  await controller.sessionStart({ reason: "startup" }, context.ctx);
-  await assert.rejects(
-    controller.spawn(context.ctx, { terminal: "" } as unknown as SpawnSessionInput),
-    /must be tmux, ghostty, zellij, or external/u,
-  );
-  assert.equal(runtime.tmuxCreated, 0);
-  assert.equal(runtime.transports.length, 0);
-  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
-});
-
-test("spawn resolves the automatic default to one concrete current backend", async () => {
-  for (const [environment, terminal] of [
-    [{ TMUX: "/tmp/tmux-1000/default,1234,0", TMUX_PANE: "%7" }, "tmux"],
-    [{ ZELLIJ: "0", ZELLIJ_PANE_ID: "7", TERM_PROGRAM: "ghostty" }, "zellij"],
-    [{ TERM_PROGRAM: "ghostty" }, "ghostty"],
-  ] as const) {
-    const runtime = harness();
-    runtime.deps.environment = environment;
-    const controller = new FleetController(runtime.mock.pi, runtime.deps);
-    const confirmations: string[] = [];
-    const context = createMockContext({
-      mode: "tui",
-      hasUI: true,
-      confirm: async (_title: string, message: string) => {
-        confirmations.push(message);
-        return true;
-      },
-    });
-    await controller.sessionStart({ reason: "startup" }, context.ctx);
-    const result = await controller.spawn(context.ctx, {});
-    assert.equal(result.terminal, terminal);
-    assert.equal(runtime.tmuxCreated, terminal === "tmux" ? 1 : 0);
-    assert.equal(runtime.zellijCreated, terminal === "zellij" ? 1 : 0);
-    assert.equal(runtime.ghosttyCreated, terminal === "ghostty" ? 1 : 0);
-    assert.equal(
-      confirmations.some((message) =>
-        new RegExp(`${terminal === "ghostty" ? "Ghostty" : terminal} split`, "iu").test(message),
-      ),
-      true,
-    );
-    await controller.sessionShutdown({ reason: "quit" }, context.ctx);
-  }
-});
-
-test("empty context falls back to external, and a resolved backend never falls back after preflight", async () => {
-  const missing = harness();
-  missing.deps.environment = {};
-  const missingController = new FleetController(missing.mock.pi, missing.deps);
-  const missingContext = createMockContext({ mode: "tui", hasUI: true, confirm: async () => true });
-  await missingController.sessionStart({ reason: "startup" }, missingContext.ctx);
-  const externalResult = await missingController.spawn(missingContext.ctx, {});
-  assert.equal(externalResult.terminal, "external");
-  assert.equal(missing.externalCreated, 1);
-  assert.equal(missing.tmuxCreated, 0);
-  assert.equal(missing.zellijCreated, 0);
-  assert.equal(missing.ghosttyCreated, 0);
-  await missingController.sessionShutdown({ reason: "quit" }, missingContext.ctx);
-
-  const unavailable = harness();
-  unavailable.deps.environment = {
-    ZELLIJ: "0",
-    ZELLIJ_PANE_ID: "7",
-    TERM_PROGRAM: "ghostty",
-  };
-  let zellijChecks = 0;
-  unavailable.deps.createZellij = () => {
-    zellijChecks += 1;
-    return {
-      assertAvailable: async () => {
-        throw new ZellijLaunchError("Zellij unavailable");
-      },
-      spawnSplit: async () => assert.fail("split must not start after failed preflight"),
-    };
-  };
-  const unavailableController = new FleetController(unavailable.mock.pi, unavailable.deps);
-  const unavailableContext = createMockContext({
-    mode: "tui",
-    hasUI: true,
-    confirm: async () => true,
-  });
-  await unavailableController.sessionStart({ reason: "startup" }, unavailableContext.ctx);
-  await assert.rejects(unavailableController.spawn(unavailableContext.ctx, {}), /Zellij unavailable/u);
-  assert.equal(zellijChecks, 1);
-  assert.equal(unavailable.tmuxCreated, 0);
-  assert.equal(unavailable.ghosttyCreated, 0);
-  assert.equal(unavailable.transports.length, 0);
-  await unavailableController.sessionShutdown({ reason: "quit" }, unavailableContext.ctx);
-});
-
-test("spawn routes configured and explicit Zellij launches without changing the auto default", async () => {
-  for (const configured of [false, true]) {
-    const runtime = harness();
-    const settings = memorySettingsRuntime(configured ? { defaultTerminal: "zellij" } : {});
-    const controller = new FleetController(runtime.mock.pi, runtime.deps, settings);
-    const context = createMockContext({
-      mode: "tui",
-      hasUI: true,
-      confirm: async () => true,
-    });
-    await controller.sessionStart({ reason: "startup" }, context.ctx);
-    const result = await controller.spawn(context.ctx, configured ? {} : { terminal: "zellij", direction: "up" });
-    assert.equal(result.terminal, "zellij");
-    assert.equal(result.terminalVersion, "0.44.3");
-    assert.equal(runtime.zellijCreated, 1);
-    assert.equal(runtime.zellijSplitCalls.length, 1);
-    assert.equal(runtime.zellijSplitCalls[0]?.direction, configured ? "right" : "up");
-    assert.deepEqual(runtime.zellijSplitCalls[0]?.environment, {});
-    assert.match(runtime.launcherEnvironments[0]?.PI_FLEET_INVITE ?? "", /^pifleet:v1:/u);
-    assert.equal(runtime.tmuxCreated, 0);
-    assert.equal(runtime.ghosttyCreated, 0);
     await controller.sessionShutdown({ reason: "quit" }, context.ctx);
   }
 });
@@ -456,35 +250,6 @@ test("settings reload on session start, report invalid data, and flush on shutdo
   assert.equal(settings.calls.flush, 1);
 });
 
-test("spawn uses Ghostty only after explicit selection and reports compatible metadata", async () => {
-  const runtime = harness();
-  const controller = new FleetController(runtime.mock.pi, runtime.deps);
-  const confirmations: string[] = [];
-  const context = createMockContext({
-    mode: "tui",
-    hasUI: true,
-    confirm: async (_title: string, message: string) => {
-      confirmations.push(message);
-      return true;
-    },
-  });
-  await controller.sessionStart({ reason: "startup" }, context.ctx);
-  const result = await controller.spawn(context.ctx, { terminal: "ghostty", direction: "left" });
-  assert.equal(runtime.splitCalls.length, 0);
-  assert.equal(runtime.tmuxCreated, 0);
-  assert.equal(runtime.ghosttyCreated, 1);
-  assert.equal(runtime.ghosttySplitCalls.length, 1);
-  assert.equal(runtime.ghosttySplitCalls[0]?.direction, "left");
-  assert.equal(
-    confirmations.some((message) => /Ghostty split: left/u.test(message)),
-    true,
-  );
-  assert.equal(result.terminal, "ghostty");
-  assert.equal(result.terminalVersion, "1.3.1");
-  assert.equal(result.ghosttyVersion, "1.3.1");
-  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
-});
-
 test("a concurrent launch failure cannot roll back another launch's automatic group", async () => {
   const runtime = harness();
   let terminalIndex = 0;
@@ -493,7 +258,7 @@ test("a concurrent launch failure cannot roll back another launch's automatic gr
   const availabilityReleased = new Promise<void>((resolve) => {
     releaseAvailability = resolve;
   });
-  runtime.deps.createTmux = () => {
+  runtime.deps.createExternal = () => {
     const index = terminalIndex;
     terminalIndex += 1;
     return {
@@ -501,10 +266,10 @@ test("a concurrent launch failure cannot roll back another launch's automatic gr
         availabilityCount += 1;
         if (availabilityCount === 2) releaseAvailability();
         await availabilityReleased;
-        return "1.3.1";
+        return "alacritty";
       },
       spawnSplit: async (options) => {
-        if (index === 1) throw new TmuxLaunchError("second launch denied", false);
+        if (index === 1) throw new ExternalLaunchError("second launch denied", false);
         const transport = runtime.transports[0];
         assert.ok(transport);
         transport.peers.push({
@@ -513,10 +278,10 @@ test("a concurrent launch failure cannot roll back another launch's automatic gr
           endpointId: "c".repeat(24),
           cwd: options.cwd,
           pid: 789,
-          launchId: options.environment.PI_FLEET_LAUNCH_ID,
+          launchId: runtime.launcherEnvironments.at(-1)?.PI_FLEET_LAUNCH_ID,
           acceptsRequests: false,
         });
-        return { terminalId: "successful-terminal", version: "1.3.1" };
+        return { terminalId: "successful-terminal", version: "alacritty" };
       },
     };
   };
@@ -654,7 +419,7 @@ test("session shutdown waits for an in-flight launch to release its launcher", a
 });
 
 test("pre-split failure rolls back an automatic group while readiness timeout keeps it", async () => {
-  const failedHarness = harness({ launchError: new TmuxLaunchError("denied", false) });
+  const failedHarness = harness({ launchError: new ExternalLaunchError("denied", false) });
   const failed = new FleetController(failedHarness.mock.pi, failedHarness.deps);
   const firstContext = createMockContext({ mode: "tui", hasUI: true, confirm: async () => true });
   await failed.sessionStart({ reason: "startup" }, firstContext.ctx);
@@ -670,7 +435,7 @@ test("pre-split failure rolls back an automatic group while readiness timeout ke
   await timeout.sessionStart({ reason: "startup" }, secondContext.ctx);
   await assert.rejects(
     timeout.spawn(secondContext.ctx, {}),
-    (error: unknown) => error instanceof TmuxLaunchError && error.splitCreated,
+    (error: unknown) => error instanceof ExternalLaunchError && error.splitCreated,
   );
   assert.equal(timeoutHarness.launcherCleaned, true);
   assert.equal((await timeout.snapshot()).connected, true);
@@ -687,7 +452,6 @@ function memorySettingsRuntime(
   let state: FleetSettingsState = {
     settings: { ...DEFAULT_FLEET_SETTINGS, ...overrides },
     sources: {
-      defaultTerminal: Object.hasOwn(overrides, "defaultTerminal") ? "user" : "built-in",
       confirmSessionLaunch: Object.hasOwn(overrides, "confirmSessionLaunch") ? "user" : "built-in",
       externalCommand: Object.hasOwn(overrides, "externalCommand") ? "user" : "built-in",
       pinToLeadWorkspace: Object.hasOwn(overrides, "pinToLeadWorkspace") ? "user" : "built-in",
