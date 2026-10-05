@@ -15,21 +15,21 @@
 </p>
 
 Un fork de [`pi-fleet`](./packages/pi-fleet) pensé pour le gestionnaire de fenêtres, destiné au [Pi Coding Agent](https://pi.dev).
-Au lieu de tmux ou de sous-processus sans interface, chaque agent est une **véritable fenêtre de terminal** exécutant une TUI Pi complète, agencée en mosaïque par le **gestionnaire de fenêtres i3**.
+Au lieu de tmux ou de sous-processus sans interface, chaque agent est une **véritable fenêtre de terminal** exécutant une TUI Pi complète, agencée en mosaïque par n'importe quel gestionnaire de fenêtres en mosaïque.
 
-![Pi Fleet WM sous i3](docs/images/pi-fleet-wm.png)
+![Pi Fleet WM en fonctionnement](docs/images/pi-fleet-wm.png)
 
 ## Introduction
 
-pi-fleet-wm repense pi-fleet autour du gestionnaire de fenêtres i3.
-Chaque agent s'exécute dans une vraie fenêtre de terminal (`alacritty -e`) avec une TUI Pi complète — jamais comme un sous-processus sans interface.
-Les nouvelles fenêtres sont épinglées à l'espace de travail i3 de la session leader, et chaque fenêtre affiche un badge en pied
+pi-fleet-wm repense pi-fleet autour d'un gestionnaire de fenêtres en mosaïque.
+Chaque agent s'exécute dans une vraie fenêtre de terminal avec une TUI Pi complète — jamais comme un sous-processus sans interface.
+Les nouvelles fenêtres sont épinglées à l'espace de travail de la session leader, et chaque fenêtre affiche un badge en pied
 (● nom · sessionId · LEADER / WORKER) pour distinguer le leader des travailleurs d'un coup d'œil.
 
 ## Différences avec le pi-fleet d'upstream
 
-- **Vraies fenêtres, sans multiplexeur** — le backend `external` ouvre une fenêtre de terminal ordinaire (`alacritty -e`) agencée par i3 ; aucun besoin de tmux, Zellij ou Ghostty.
-- **`pinToLeadWorkspace`** — les nouvelles fenêtres externes arrivent sur l'espace de travail i3 de la session leader plutôt que sur l'espace focalisé. L'espace de travail leader est localisé en remontant l'arbre des processus jusqu'au `_NET_WM_PID` du terminal, puis déplacé avec `i3-msg` ; le placement est au mieux et ne bloque jamais le lancement.
+- **Vraies fenêtres, sans multiplexeur** — le backend `external` ouvre une fenêtre de terminal ordinaire agencée par ton gestionnaire de fenêtres ; aucun besoin de tmux, Zellij ou Ghostty.
+- **`pinToLeadWorkspace`** — les nouvelles fenêtres externes arrivent sur l'espace de travail de la session leader plutôt que sur l'espace focalisé. L'espace de travail leader est localisé en remontant l'arbre des processus jusqu'au `_NET_WM_PID` du terminal, puis déplacé avec le gestionnaire de fenêtres ; le placement est au mieux et ne bloque jamais le lancement.
 - **Rôles leader / travailleur** — les badges de pied affichent `LEADER` / `WORKER` avec des couleurs par session ; `/lead`, `/color`.
 - **Relais de guidage (steer relay)** — le texte saisi dans une fenêtre travailleuse est relayé dans le contexte du modèle du leader.
 - **`session_bus shutdown`** — le leader peut fermer proprement une fenêtre travailleuse.
@@ -53,7 +53,7 @@ Ou installez-la comme paquet local :
 pi install ./packages/pi-fleet
 ```
 
-Exécutez sous i3 avec le backend externe :
+Exécutez avec le backend externe :
 
 ```json
 {
@@ -63,6 +63,8 @@ Exécutez sous i3 avec le backend externe :
   "pinToLeadWorkspace": true
 }
 ```
+
+La commande `externalCommand` par défaut est `alacritty -e` ; utilisez la commande de terminal de votre choix.
 
 Utilisez `/fleet`, `session_spawn` et `session_bus` pour lancer, diriger et éteindre la flotte.
 

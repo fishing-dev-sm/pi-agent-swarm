@@ -15,21 +15,21 @@
 </p>
 
 Ein Fenstermanager-nativer Fork von [`pi-fleet`](./packages/pi-fleet) für den [Pi Coding Agent](https://pi.dev).
-Statt tmux oder headless Subprozessen ist jeder Agent ein **echtes Terminalfenster**, das eine vollständige Pi-TUI ausführt und vom **Fenstermanager i3** gekachelt wird.
+Statt tmux oder headless Subprozessen ist jeder Agent ein **echtes Terminalfenster**, das eine vollständige Pi-TUI ausführt und von einem beliebigen kachelnden Fenstermanager gekachelt wird.
 
-![Pi Fleet WM unter i3](docs/images/pi-fleet-wm.png)
+![Pi Fleet WM in Aktion](docs/images/pi-fleet-wm.png)
 
 ## Einführung
 
-pi-fleet-wm baut pi-fleet rund um den kachelnden Fenstermanager i3 neu auf.
-Jeder Agent läuft als echtes Terminalfenster (`alacritty -e`) mit einer vollständigen Pi-TUI — nie als headless Kindprozess.
-Neue Fenster werden auf den i3-Arbeitsbereich der Leader-Sitzung verschoben, und jedes Fenster zeigt ein Fußzeilen-Badge
+pi-fleet-wm baut pi-fleet rund um einen kachelnden Fenstermanager neu auf.
+Jeder Agent läuft als echtes Terminalfenster mit einer vollständigen Pi-TUI — nie als headless Kindprozess.
+Neue Fenster werden auf den Arbeitsbereich der Leader-Sitzung verschoben, und jedes Fenster zeigt ein Fußzeilen-Badge
 (● Name · sessionId · LEADER / WORKER), um Leader und Worker auf einen Blick zu unterscheiden.
 
 ## Unterschiede zum Upstream-pi-fleet
 
-- **Echte Fenster, kein Multiplexer** — das `external`-Backend öffnet ein gewöhnliches Terminalfenster (`alacritty -e`), das i3 kachelt; kein tmux, Zellij oder Ghostty nötig.
-- **`pinToLeadWorkspace`** — neue externe Fenster landen auf dem i3-Arbeitsbereich der Leader-Sitzung statt auf dem fokussierten. Der Leader-Arbeitsbereich wird ermittelt, indem der Prozessbaum bis zum `_NET_WM_PID` des Terminals durchlaufen wird, und dann mit `i3-msg` verschoben; die Platzierung ist best-effort und blockiert niemals den Start.
+- **Echte Fenster, kein Multiplexer** — das `external`-Backend öffnet ein gewöhnliches Terminalfenster, das dein kachelnder Fenstermanager anordnet; kein tmux, Zellij oder Ghostty nötig.
+- **`pinToLeadWorkspace`** — neue externe Fenster landen auf dem Arbeitsbereich der Leader-Sitzung statt auf dem fokussierten. Der Leader-Arbeitsbereich wird ermittelt, indem der Prozessbaum bis zum `_NET_WM_PID` des Terminals durchlaufen wird, und dann mit dem Fenstermanager verschoben; die Platzierung ist best-effort und blockiert niemals den Start.
 - **Leader-/Worker-Rollen** — Fußzeilen-Badges zeigen `LEADER` / `WORKER` mit Farben pro Sitzung; `/lead`, `/color`.
 - **Steuerungsweiterleitung (steer relay)** — Text, den du in ein Worker-Fenster tippst, wird in den Modellkontext des Leaders weitergeleitet.
 - **`session_bus shutdown`** — der Leader kann ein Worker-Fenster sauber beenden.
@@ -53,7 +53,7 @@ Oder als lokales Paket installieren:
 pi install ./packages/pi-fleet
 ```
 
-Unter i3 mit dem externen Backend ausführen:
+Mit dem externen Backend ausführen:
 
 ```json
 {
@@ -63,6 +63,8 @@ Unter i3 mit dem externen Backend ausführen:
   "pinToLeadWorkspace": true
 }
 ```
+
+Der Standard-`externalCommand` ist `alacritty -e`; verwende den Terminal-Befehl deiner Wahl.
 
 Nutze `/fleet`, `session_spawn` und `session_bus`, um die Flotte zu starten, zu steuern und herunterzufahren.
 

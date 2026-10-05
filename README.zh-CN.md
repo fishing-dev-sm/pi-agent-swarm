@@ -15,21 +15,21 @@
 </p>
 
 [`pi-fleet`](./packages/pi-fleet) 的窗口管理器原生分支，面向 [Pi Coding Agent](https://pi.dev)。
-不用 tmux，也不用无头子进程：每个 agent 都是一个由 **i3 窗口管理器**平铺的**真实终端窗口**，运行完整的 Pi TUI。
+不用 tmux，也不用无头子进程：每个 agent 都是一个由任意平铺窗口管理器平铺的**真实终端窗口**，运行完整的 Pi TUI。
 
-![Pi Fleet WM 在 i3 下运行](docs/images/pi-fleet-wm.png)
+![Pi Fleet WM 运行截图](docs/images/pi-fleet-wm.png)
 
 ## 简介
 
-pi-fleet-wm 围绕 i3 平铺窗口管理器重新设计 pi-fleet。
-每个 agent 都是一个真实终端窗口（`alacritty -e`），运行完整的 Pi TUI——绝不是无头子进程。
-新生成的窗口会自动钉到 lead 会话所在的 i3 工作区，每个窗口底部都有徽章
+pi-fleet-wm 围绕平铺窗口管理器重新设计 pi-fleet。
+每个 agent 都是一个真实终端窗口，运行完整的 Pi TUI——绝不是无头子进程。
+新生成的窗口会自动钉到 lead 会话所在的工作区，每个窗口底部都有徽章
 （● 名称 · sessionId · LEADER / WORKER），一眼就能分清 leader 和 worker。
 
 ## 与上游 pi-fleet 的不同
 
-- **真实窗口，无复用器** —— `external` 后端生成一个普通终端窗口（`alacritty -e`）交给 i3 平铺；不需要 tmux、Zellij 或 Ghostty。
-- **`pinToLeadWorkspace`** —— 新外部窗口落到 lead 会话的 i3 工作区，而不是当前聚焦的工作区。通过沿进程树找到终端的 `_NET_WM_PID` 来定位 lead 工作区，再用 `i3-msg` 移动；放置尽力而为，绝不阻塞启动。
+- **真实窗口，无复用器** —— `external` 后端生成一个普通终端窗口，交给你的平铺窗口管理器平铺；不需要 tmux、Zellij 或 Ghostty。
+- **`pinToLeadWorkspace`** —— 新外部窗口落到 lead 会话的工作区，而不是当前聚焦的工作区。通过沿进程树找到终端的 `_NET_WM_PID` 来定位 lead 工作区，再由窗口管理器移动；放置尽力而为，绝不阻塞启动。
 - **lead / worker 角色** —— footer 徽章显示 `LEADER` / `WORKER`，每会话独立配色；`/lead`、`/color`。
 - **信息回转（steer relay）** —— 你在 worker 窗口输入的文字会回转进 leader 的模型上下文。
 - **`session_bus shutdown`** —— leader 可以优雅关闭一个 worker 窗口。
@@ -53,7 +53,7 @@ pi --no-extensions -e ./packages/pi-fleet
 pi install ./packages/pi-fleet
 ```
 
-在 i3 下用 external 后端运行：
+用 external 后端运行：
 
 ```json
 {
@@ -63,6 +63,8 @@ pi install ./packages/pi-fleet
   "pinToLeadWorkspace": true
 }
 ```
+
+默认的 `externalCommand` 是 `alacritty -e`；可以换成任意终端命令。
 
 用 `/fleet`、`session_spawn` 和 `session_bus` 来启动、指挥和关闭舰队。
 

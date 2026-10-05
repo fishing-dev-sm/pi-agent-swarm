@@ -15,21 +15,21 @@
 </p>
 
 A window-manager-native fork of [`pi-fleet`](./packages/pi-fleet) for the [Pi Coding Agent](https://pi.dev).
-Instead of tmux or headless subprocesses, every agent is a **real terminal window** running a full Pi TUI, tiled by the **i3 window manager**.
+Instead of tmux or headless subprocesses, every agent is a **real terminal window** running a full Pi TUI, tiled by any tiling window manager.
 
-![Pi Fleet WM running under i3](docs/images/pi-fleet-wm.png)
+![Pi Fleet WM running under a tiling window manager](docs/images/pi-fleet-wm.png)
 
 ## Introduction
 
-pi-fleet-wm reworks pi-fleet around the i3 tiling window manager.
-Each agent runs as a real terminal window (`alacritty -e`) with a complete Pi TUI — never a headless child process.
-Newly spawned windows are pinned to the lead session's i3 workspace, and every window shows a footer badge
+pi-fleet-wm reworks pi-fleet around a tiling window manager.
+Each agent runs as a real terminal window with a complete Pi TUI — never a headless child process.
+Newly spawned windows are pinned to the lead session's workspace, and every window shows a footer badge
 (● name · sessionId · LEADER / WORKER) so you can tell the leader from the workers at a glance.
 
 ## What's different from upstream pi-fleet
 
-- **Real windows, no multiplexer** — an `external` backend spawns a plain terminal window (`alacritty -e`) that i3 tiles; no tmux, Zellij, or Ghostty needed.
-- **`pinToLeadWorkspace`** — new external windows land on the lead session's i3 workspace instead of the focused one. The lead workspace is located by walking the process tree to the terminal's `_NET_WM_PID`, then moved with `i3-msg`; placement is best-effort and never blocks launch.
+- **Real windows, no multiplexer** — an `external` backend spawns a plain terminal window that your tiling window manager tiles; no tmux, Zellij, or Ghostty needed.
+- **`pinToLeadWorkspace`** — new external windows land on the lead session's workspace instead of the focused one. The lead workspace is located by walking the process tree to the terminal's `_NET_WM_PID`, then moved with the window manager; placement is best-effort and never blocks launch.
 - **Lead / worker roles** — footer badges show `LEADER` / `WORKER` with per-session colors; `/lead`, `/color`.
 - **Steer relay** — text you type into a worker window is relayed into the leader's model context.
 - **`session_bus shutdown`** — the leader can gracefully tear down a worker window.
@@ -53,7 +53,7 @@ Or install it as a local package:
 pi install ./packages/pi-fleet
 ```
 
-Run under i3 with the external backend:
+Run with the external backend:
 
 ```json
 {
@@ -63,6 +63,8 @@ Run under i3 with the external backend:
   "pinToLeadWorkspace": true
 }
 ```
+
+The default `externalCommand` is `alacritty -e`; use any terminal command you prefer.
 
 Use `/fleet`, `session_spawn`, and `session_bus` to launch, steer, and shut down the fleet.
 

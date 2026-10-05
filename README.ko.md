@@ -15,21 +15,21 @@
 </p>
 
 [Pi Coding Agent](https://pi.dev)용 [`pi-fleet`](./packages/pi-fleet)의 창 관리자 네이티브 포크입니다.
-tmux나 헤드리스 하위 프로세스 대신, 각 에이전트는 완전한 Pi TUI를 실행하는 **실제 터미널 창**이며 **i3 창 관리자**가 타일로 배치합니다.
+tmux나 헤드리스 하위 프로세스 대신, 각 에이전트는 완전한 Pi TUI를 실행하는 **실제 터미널 창**이며 **임의의 타일링 창 관리자**가 타일로 배치합니다.
 
-![Pi Fleet WM을 i3에서 실행](docs/images/pi-fleet-wm.png)
+![Pi Fleet WM 실행 화면](docs/images/pi-fleet-wm.png)
 
 ## 소개
 
-pi-fleet-wm은 pi-fleet을 타일링 창 관리자 i3 중심으로 다시 만듭니다.
-각 에이전트는 완전한 Pi TUI를 갖춘 실제 터미널 창(`alacritty -e`)으로 실행되며, 헤드리스 하위 프로세스가 아닙니다.
-새로 생성된 창은 리더 세션의 i3 워크스페이스에 배치되고, 각 창의 푸터 배지
+pi-fleet-wm은 pi-fleet을 타일링 창 관리자 중심으로 다시 만듭니다.
+각 에이전트는 완전한 Pi TUI를 갖춘 실제 터미널 창으로 실행되며, 헤드리스 하위 프로세스가 아닙니다.
+새로 생성된 창은 리더 세션의 워크스페이스에 배치되고, 각 창의 푸터 배지
 (● 이름 · sessionId · LEADER / WORKER)로 리더와 워커를 한눈에 구분할 수 있습니다.
 
 ## 업스트림 pi-fleet과의 차이점
 
-- **실제 창, 멀티플렉서 불필요** — `external` 백엔드가 일반 터미널 창(`alacritty -e`)을 열고 i3가 타일로 배치합니다. tmux, Zellij, Ghostty가 필요 없습니다.
-- **`pinToLeadWorkspace`** — 새 외부 창은 포커스된 워크스페이스가 아닌 리더 세션의 i3 워크스페이스에 배치됩니다. 리더 워크스페이스는 프로세스 트리를 따라 터미널의 `_NET_WM_PID`를 찾아 위치를 파악한 뒤 `i3-msg`로 이동합니다. 배치는 최선 노력이며 실행을 막지 않습니다.
+- **실제 창, 멀티플렉서 불필요** — `external` 백엔드가 일반 터미널 창을 열고 타일링 창 관리자가 타일로 배치합니다. tmux, Zellij, Ghostty가 필요 없습니다.
+- **`pinToLeadWorkspace`** — 새 외부 창은 포커스된 워크스페이스가 아닌 리더 세션의 워크스페이스에 배치됩니다. 리더 워크스페이스는 프로세스 트리를 따라 터미널의 `_NET_WM_PID`를 찾아 위치를 파악한 뒤 창 관리자로 이동합니다. 배치는 최선 노력이며 실행을 막지 않습니다.
 - **리더 / 워커 역할** — 푸터 배지가 세션별 색상으로 `LEADER` / `WORKER`를 표시합니다. `/lead`, `/color`.
 - **스티어 릴레이** — 워커 창에 입력한 텍스트가 리더의 모델 컨텍스트로 릴레이됩니다.
 - **`session_bus shutdown`** — 리더가 워커 창을 정상적으로 종료할 수 있습니다.
@@ -53,7 +53,7 @@ pi --no-extensions -e ./packages/pi-fleet
 pi install ./packages/pi-fleet
 ```
 
-external 백엔드로 i3에서 실행합니다:
+external 백엔드로 실행합니다:
 
 ```json
 {
@@ -63,6 +63,8 @@ external 백엔드로 i3에서 실행합니다:
   "pinToLeadWorkspace": true
 }
 ```
+
+기본 `externalCommand`는 `alacritty -e`이며, 원하는 터미널 명령으로 바꿀 수 있습니다.
 
 `/fleet`, `session_spawn`, `session_bus`로 플릿을 시작, 조종, 종료합니다.
 

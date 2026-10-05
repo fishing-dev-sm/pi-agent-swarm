@@ -15,21 +15,21 @@
 </p>
 
 Um fork de [`pi-fleet`](./packages/pi-fleet) nativo de gerenciador de janelas para o [Pi Coding Agent](https://pi.dev).
-Em vez de tmux ou subprocessos sem interface, cada agente é uma **janela de terminal real** executando uma TUI do Pi completa, organizada em mosaico pelo **gerenciador de janelas i3**.
+Em vez de tmux ou subprocessos sem interface, cada agente é uma **janela de terminal real** executando uma TUI do Pi completa, organizada em mosaico por qualquer gerenciador de janelas em mosaico.
 
-![Pi Fleet WM executando sob o i3](docs/images/pi-fleet-wm.png)
+![Pi Fleet WM em execução](docs/images/pi-fleet-wm.png)
 
 ## Introdução
 
-pi-fleet-wm reconstrói o pi-fleet em torno do gerenciador de janelas i3.
-Cada agente roda como uma janela de terminal real (`alacritty -e`) com uma TUI do Pi completa — nunca como um subprocesso sem interface.
-Janelas recém-criadas são fixadas no espaço de trabalho i3 da sessão líder, e cada janela mostra um selo no rodapé
+pi-fleet-wm reconstrói o pi-fleet em torno de um gerenciador de janelas em mosaico.
+Cada agente roda como uma janela de terminal real com uma TUI do Pi completa — nunca como um subprocesso sem interface.
+Janelas recém-criadas são fixadas no espaço de trabalho da sessão líder, e cada janela mostra um selo no rodapé
 (● nome · sessionId · LEADER / WORKER) para distinguir o líder dos trabalhadores de relance.
 
 ## Diferenças em relação ao pi-fleet de upstream
 
-- **Janelas reais, sem multiplexador** — o backend `external` abre uma janela de terminal comum (`alacritty -e`) que o i3 organiza em mosaico; sem necessidade de tmux, Zellij ou Ghostty.
-- **`pinToLeadWorkspace`** — novas janelas externas caem no espaço de trabalho i3 da sessão líder em vez do espaço focado. O espaço de trabalho líder é localizado percorrendo a árvore de processos até o `_NET_WM_PID` do terminal e então movido com `i3-msg`; o posicionamento é de melhor esforço e nunca bloqueia o lançamento.
+- **Janelas reais, sem multiplexador** — o backend `external` abre uma janela de terminal comum que seu gerenciador de janelas organiza em mosaico; sem necessidade de tmux, Zellij ou Ghostty.
+- **`pinToLeadWorkspace`** — novas janelas externas caem no espaço de trabalho da sessão líder em vez do espaço focado. O espaço de trabalho líder é localizado percorrendo a árvore de processos até o `_NET_WM_PID` do terminal e então movido com o gerenciador de janelas; o posicionamento é de melhor esforço e nunca bloqueia o lançamento.
 - **Papéis líder / trabalhador** — os selos do rodapé mostram `LEADER` / `WORKER` com cores por sessão; `/lead`, `/color`.
 - **Retransmissão de direção (steer relay)** — o texto que você digita em uma janela trabalhadora é retransmitido para o contexto do modelo do líder.
 - **`session_bus shutdown`** — o líder pode encerrar uma janela trabalhadora de forma ordenada.
@@ -53,7 +53,7 @@ Ou instale-a como um pacote local:
 pi install ./packages/pi-fleet
 ```
 
-Execute sob o i3 com o backend externo:
+Execute com o backend externo:
 
 ```json
 {
@@ -63,6 +63,8 @@ Execute sob o i3 com o backend externo:
   "pinToLeadWorkspace": true
 }
 ```
+
+O `externalCommand` padrão é `alacritty -e`; use o comando de terminal que preferir.
 
 Use `/fleet`, `session_spawn` e `session_bus` para iniciar, dirigir e desligar a frota.
 
