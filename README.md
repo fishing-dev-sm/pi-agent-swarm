@@ -7,48 +7,89 @@ Instead of tmux or headless subprocesses, every agent is a **real terminal windo
 
 ![Pi Fleet WM running under i3](docs/images/pi-fleet-wm.png)
 
-## Introduction
+## 🌍 Introduction · 简介
+
+<details open>
+<summary><b>English</b> — default</summary>
 
 pi-fleet-wm reworks pi-fleet around the i3 tiling window manager.
 Each agent runs as a real terminal window (`alacritty -e`) with a complete Pi TUI — never a headless child process.
 Newly spawned windows are pinned to the lead session's i3 workspace, and every window shows a footer badge
 (● name · sessionId · LEADER / WORKER) so you can tell the leader from the workers at a glance.
 
-## 简介
+</details>
+
+<details>
+<summary><b>中文</b></summary>
 
 pi-fleet-wm 是 [pi-fleet](./packages/pi-fleet) 的窗口管理器原生分支，围绕 i3 平铺窗口管理器重新设计。
 每个 agent 都是一个由 i3 平铺管理的**真实终端窗口**（`alacritty -e`），运行完整的 Pi TUI，绝不是无头子进程。
 新生成的窗口会自动落到 lead 会话所在的 i3 工作区，每个窗口底部都有徽章（● 名称 · sessionId · LEADER / WORKER），一眼就能分清 leader 和 worker。
 
-## Other languages
+</details>
 
-**Español** — pi-fleet-wm rediseña pi-fleet en torno al gestor de ventanas en mosaico i3.
+<details>
+<summary><b>Español</b></summary>
+
+pi-fleet-wm rediseña pi-fleet en torno al gestor de ventanas en mosaico i3.
 Cada agente se ejecuta como una ventana de terminal real (`alacritty -e`) con una TUI de Pi completa — nunca como un subproceso sin interfaz.
 Las ventanas nuevas se fijan al espacio de trabajo i3 de la sesión líder, y cada ventana muestra una insignia (● nombre · sessionId · LEADER / WORKER) para distinguir al líder de los trabajadores de un vistazo.
 
-**Français** — pi-fleet-wm repense pi-fleet autour du gestionnaire de fenêtres i3.
+</details>
+
+<details>
+<summary><b>Français</b></summary>
+
+pi-fleet-wm repense pi-fleet autour du gestionnaire de fenêtres i3.
 Chaque agent s'exécute dans une vraie fenêtre de terminal (`alacritty -e`) avec un TUI Pi complet — jamais comme sous-processus sans interface.
 Les nouvelles fenêtres sont épinglées à l'espace de travail i3 de la session leader, et chaque fenêtre affiche un badge (● nom · sessionId · LEADER / WORKER) pour distinguer le leader des travailleurs d'un coup d'œil.
 
-**Deutsch** — pi-fleet-wm baut pi-fleet rund um den kachelnden Fenstermanager i3 neu auf.
+</details>
+
+<details>
+<summary><b>Deutsch</b></summary>
+
+pi-fleet-wm baut pi-fleet rund um den kachelnden Fenstermanager i3 neu auf.
 Jeder Agent läuft als echtes Terminalfenster (`alacritty -e`) mit einer vollständigen Pi-TUI — nie als headless Kindprozess.
 Neue Fenster werden auf den i3-Arbeitsbereich der Leader-Sitzung verschoben, und jedes Fenster zeigt ein Badge (● Name · sessionId · LEADER / WORKER), um Leader und Worker auf einen Blick zu unterscheiden.
 
-**日本語** — pi-fleet-wm は、pi-fleet をタイル型ウィンドウマネージャ i3 中心に作り直したフォークです。
+</details>
+
+<details>
+<summary><b>日本語</b></summary>
+
+pi-fleet-wm は、pi-fleet をタイル型ウィンドウマネージャ i3 中心に作り直したフォークです。
 各エージェントは完全な Pi TUI を備えた実体のターミナルウィンドウ（`alacritty -e`）として動作し、ヘッドレスな子プロセスにはなりません。
 新しいウィンドウはリーダーセッションの i3 ワークスペースに配置され、各ウィンドウのバッジ（● 名前 · sessionId · LEADER / WORKER）でリーダーとワーカーを一目で区別できます。
 
-**한국어** — pi-fleet-wm은 pi-fleet을 타일링 창 관리자 i3 중심으로 다시 만든 포크입니다.
+</details>
+
+<details>
+<summary><b>한국어</b></summary>
+
+pi-fleet-wm은 pi-fleet을 타일링 창 관리자 i3 중심으로 다시 만든 포크입니다.
 각 에이전트는 완전한 Pi TUI를 갖춘 실제 터미널 창(`alacritty -e`)으로 실행되며, 헤드리스 하위 프로세스가 아닙니다.
 새 창은 리더 세션의 i3 워크스페이스에 배치되고, 각 창의 배지(● 이름 · sessionId · LEADER / WORKER)로 리더와 워커를 한눈에 구분할 수 있습니다.
 
-**Português** — pi-fleet-wm reconstrói o pi-fleet em torno do gerenciador de janelas i3.
+</details>
+
+<details>
+<summary><b>Português</b></summary>
+
+pi-fleet-wm reconstrói o pi-fleet em torno do gerenciador de janelas i3.
 Cada agente roda como uma janela de terminal real (`alacritty -e`) com uma TUI do Pi completa — nunca como um subprocesso sem interface.
 Novas janelas são fixadas no espaço de trabalho i3 da sessão líder, e cada janela mostra um selo (● nome · sessionId · LEADER / WORKER) para distinguir o líder dos trabalhadores de relance.
 
-**Русский** — pi-fleet-wm перерабатывает pi-fleet вокруг тайлового оконного менеджера i3.
+</details>
+
+<details>
+<summary><b>Русский</b></summary>
+
+pi-fleet-wm перерабатывает pi-fleet вокруг тайлового оконного менеджера i3.
 Каждый агент работает как настоящее окно терминала (`alacritty -e`) с полноценным Pi TUI — а не как фоновый подпроцесс.
 Новые окна закрепляются на рабочем пространстве i3 сессии-лидера, а бейдж в каждом окне (● имя · sessionId · LEADER / WORKER) позволяет с первого взгляда отличить лидера от воркеров.
+
+</details>
 
 ## What's different from upstream pi-fleet
 
