@@ -11,8 +11,10 @@ import { ZellijLaunchError } from "../src/zellij.js";
 
 test("terminal helpers normalize, label, and classify terminal values", () => {
   assert.equal(normalizeTerminal("zellij"), "zellij");
+  assert.equal(normalizeTerminal("external"), "external");
   assert.equal(terminalPreferenceLabel("auto"), "Automatic");
   assert.equal(terminalPreferenceLabel("ghostty"), "Ghostty");
+  assert.equal(terminalPreferenceLabel("external"), "External");
   assert.equal(isTerminalLaunchError(new ZellijLaunchError("partial", true, "terminal_7")), true);
   assert.ok(createTerminalLaunchError("zellij", "failed", true, "terminal_8") instanceof ZellijLaunchError);
 });
@@ -48,7 +50,7 @@ test("automatic terminal resolution uses complete environment signatures in stab
   );
 });
 
-test("terminal resolution keeps pinned preferences strict and rejects incomplete auto context", () => {
+test("terminal resolution keeps pinned preferences strict and falls back to an external window", () => {
   assert.equal(resolveTerminalPreference("tmux", {}), "tmux");
   assert.equal(resolveTerminalPreference("ghostty", { TMUX: "stale" }), "ghostty");
   for (const environment of [
@@ -59,6 +61,6 @@ test("terminal resolution keeps pinned preferences strict and rejects incomplete
     { ZELLIJ: "0", ZELLIJ_PANE_ID: "terminal_8" },
     { TERM_PROGRAM: "Ghostty" },
   ]) {
-    assert.throws(() => resolveTerminalPreference("auto", environment), /could not detect a supported terminal/u);
+    assert.equal(resolveTerminalPreference("auto", environment), "external");
   }
 });

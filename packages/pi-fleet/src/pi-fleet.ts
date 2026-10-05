@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { normalizeFleetColor } from "./color.js";
 import { FleetController, type FleetControllerDependencies } from "./fleet-controller.js";
 import type { FleetMenuSource } from "./menu.js";
 import { parseInvite } from "./protocol.js";
@@ -52,6 +53,31 @@ export function createPiFleetExtension(dependencies: PiFleetDependencies = {}): 
           signal: ownerSignal,
           isCurrent: () => controller.isCurrent(ctx) && !ownerSignal.aborted,
         });
+      },
+    });
+
+    pi.registerCommand("lead", {
+      description: "Set the fleet lead (coordinator) by session name or id",
+      handler: async (rawArgs, ctx) => {
+        const target = rawArgs.trim();
+        if (!target) throw new Error("Usage: /lead <session name or id>");
+        const signal = controller.sessionSignal;
+        const peer = await controller.resolvePeer(target, signal);
+        if (!peer) throw new Error(`No live Pi Fleet session matches "${target}"`);
+        await controller.setLead(ctx, peer, signal);
+        ctx.ui.notify(`Lead is now ${peer.name ?? peer.sessionId}.`, "info");
+      },
+    });
+
+    pi.registerCommand("color", {
+      description: "Set this session's color (palette name or #rrggbb)",
+      handler: async (rawArgs, ctx) => {
+        const color = normalizeFleetColor(rawArgs.trim());
+        if (!color) {
+          throw new Error("Usage: /color <red|orange|yellow|green|cyan|blue|magenta|purple|#rrggbb>");
+        }
+        await controller.setOwnColor(ctx, color);
+        ctx.ui.notify(`Color set to ${color}.`, "info");
       },
     });
   };

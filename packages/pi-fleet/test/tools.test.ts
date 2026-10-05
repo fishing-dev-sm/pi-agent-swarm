@@ -71,13 +71,15 @@ test("registers separate spawn and bus tools with focused schemas", () => {
   };
   const bus = mock.tools[1] as { parameters: { properties?: Record<string, unknown> } };
   assert.deepEqual(Object.keys(spawn.parameters.properties ?? {}).sort(), [
+    "color",
     "cwd",
     "direction",
+    "model",
     "name",
     "task",
     "terminal",
   ]);
-  assert.deepEqual(spawn.parameters.properties?.terminal?.enum, ["tmux", "ghostty", "zellij"]);
+  assert.deepEqual(spawn.parameters.properties?.terminal?.enum, ["tmux", "ghostty", "zellij", "external"]);
   assert.deepEqual(Object.keys(bus.parameters.properties ?? {}).sort(), [
     "action",
     "message",

@@ -42,21 +42,25 @@ test("normalization accepts partial settings and rejects invalid owned values", 
       future: { retained: true },
     }),
     {
-      settings: { defaultTerminal: "ghostty", confirmSessionLaunch: false },
-      sources: { defaultTerminal: "user", confirmSessionLaunch: "user" },
+      settings: { defaultTerminal: "ghostty", confirmSessionLaunch: false, externalCommand: "alacritty -e" },
+      sources: { defaultTerminal: "user", confirmSessionLaunch: "user", externalCommand: "built-in" },
     },
   );
   assert.deepEqual(normalizeFleetSettingsDocument({ defaultTerminal: "zellij" }), {
-    settings: { defaultTerminal: "zellij", confirmSessionLaunch: true },
-    sources: { defaultTerminal: "user", confirmSessionLaunch: "built-in" },
+    settings: { defaultTerminal: "zellij", confirmSessionLaunch: true, externalCommand: "alacritty -e" },
+    sources: { defaultTerminal: "user", confirmSessionLaunch: "built-in", externalCommand: "built-in" },
   });
   assert.deepEqual(normalizeFleetSettingsDocument({ defaultTerminal: "auto" }), {
-    settings: { defaultTerminal: "auto", confirmSessionLaunch: true },
-    sources: { defaultTerminal: "user", confirmSessionLaunch: "built-in" },
+    settings: { defaultTerminal: "auto", confirmSessionLaunch: true, externalCommand: "alacritty -e" },
+    sources: { defaultTerminal: "user", confirmSessionLaunch: "built-in", externalCommand: "built-in" },
   });
   assert.deepEqual(normalizeFleetSettingsDocument({}), {
     settings: DEFAULT_FLEET_SETTINGS,
-    sources: { defaultTerminal: "built-in", confirmSessionLaunch: "built-in" },
+    sources: { defaultTerminal: "built-in", confirmSessionLaunch: "built-in", externalCommand: "built-in" },
+  });
+  assert.deepEqual(normalizeFleetSettingsDocument({ externalCommand: "kitty" }), {
+    settings: { defaultTerminal: "auto", confirmSessionLaunch: true, externalCommand: "kitty" },
+    sources: { defaultTerminal: "built-in", confirmSessionLaunch: "built-in", externalCommand: "user" },
   });
   for (const value of [
     null,
@@ -64,6 +68,8 @@ test("normalization accepts partial settings and rejects invalid owned values", 
     { defaultTerminal: "unknown" },
     { defaultTerminal: true },
     { confirmSessionLaunch: "yes" },
+    { externalCommand: "" },
+    { externalCommand: 5 },
   ]) {
     assert.equal(normalizeFleetSettingsDocument(value), undefined);
   }
@@ -89,6 +95,7 @@ test("updates preserve unknown fields and publish private JSON atomically", asyn
   assert.deepEqual(runtime.get().settings, {
     defaultTerminal: "ghostty",
     confirmSessionLaunch: false,
+    externalCommand: "alacritty -e",
   });
   if (process.platform !== "win32") {
     assert.equal(statSync(settingsPath).mode & 0o777, 0o600);
@@ -168,6 +175,7 @@ test("concurrent updates serialize in call order and reload waits for pending pu
   assert.deepEqual(runtime.get().settings, {
     defaultTerminal: "ghostty",
     confirmSessionLaunch: false,
+    externalCommand: "alacritty -e",
   });
 });
 

@@ -10,11 +10,13 @@ export const MAX_FLEET_SETTINGS_BYTES = 64 * 1024;
 export const DEFAULT_FLEET_SETTINGS: Readonly<FleetSettings> = Object.freeze({
   defaultTerminal: "auto",
   confirmSessionLaunch: true,
+  externalCommand: "alacritty -e",
 });
 
 export interface FleetSettings {
   defaultTerminal: FleetTerminalPreference;
   confirmSessionLaunch: boolean;
+  externalCommand: string;
 }
 
 export type FleetSettingsField = keyof FleetSettings;
@@ -71,7 +73,11 @@ export interface FleetSettingsRuntimeOptions {
   operations?: Partial<FleetSettingsOperations>;
 }
 
-const SETTING_FIELDS = ["defaultTerminal", "confirmSessionLaunch"] as const satisfies readonly FleetSettingsField[];
+const SETTING_FIELDS = [
+  "defaultTerminal",
+  "confirmSessionLaunch",
+  "externalCommand",
+] as const satisfies readonly FleetSettingsField[];
 const SETTING_FIELD_SET = new Set<string>(SETTING_FIELDS);
 
 export function fleetSettingsFilePath(): string {
@@ -88,7 +94,8 @@ export function normalizeFleetSettingsDocument(value: unknown): NormalizedFleetS
       value.defaultTerminal !== "auto" &&
       value.defaultTerminal !== "tmux" &&
       value.defaultTerminal !== "ghostty" &&
-      value.defaultTerminal !== "zellij"
+      value.defaultTerminal !== "zellij" &&
+      value.defaultTerminal !== "external"
     ) {
       return undefined;
     }
@@ -99,6 +106,13 @@ export function normalizeFleetSettingsDocument(value: unknown): NormalizedFleetS
     if (typeof value.confirmSessionLaunch !== "boolean") return undefined;
     settings.confirmSessionLaunch = value.confirmSessionLaunch;
     sources.confirmSessionLaunch = "user";
+  }
+  if (Object.hasOwn(value, "externalCommand")) {
+    if (typeof value.externalCommand !== "string" || value.externalCommand.trim().length === 0) {
+      return undefined;
+    }
+    settings.externalCommand = value.externalCommand.trim();
+    sources.externalCommand = "user";
   }
   return { settings, sources };
 }
@@ -154,6 +168,7 @@ export function createInMemoryFleetSettingsRuntime(): FleetSettingsRuntime {
           ...state.sources,
           ...(canonical.defaultTerminal ? { defaultTerminal: "user" as const } : {}),
           ...(canonical.confirmSessionLaunch !== undefined ? { confirmSessionLaunch: "user" as const } : {}),
+          ...(canonical.externalCommand ? { externalCommand: "user" as const } : {}),
         },
         canSave: true,
       };
@@ -324,7 +339,7 @@ function invalidLoad(path: string, reason: string): FleetSettingsLoadResult {
 }
 
 function builtInSources(): Record<FleetSettingsField, FleetSettingsSource> {
-  return { defaultTerminal: "built-in", confirmSessionLaunch: "built-in" };
+  return { defaultTerminal: "built-in", confirmSessionLaunch: "built-in", externalCommand: "built-in" };
 }
 
 function freezeState(state: FleetSettingsState): Readonly<FleetSettingsState> {

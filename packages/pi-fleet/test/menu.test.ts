@@ -119,7 +119,7 @@ test("main menu exposes New Pi session first plus Settings, Status, and Help", (
       ["confirmSessionLaunch", "Ask"],
     ],
   );
-  assert.deepEqual(settings.items[0]?.values, ["Automatic", "tmux", "Ghostty", "Zellij"]);
+  assert.deepEqual(settings.items[0]?.values, ["Automatic", "tmux", "Ghostty", "Zellij", "External"]);
   assert.match((settings.lines ?? []).join("\n"), /\/tmp\/pi-fleet\.json/u);
 
   const invalidState: FleetMenuState = {

@@ -1,12 +1,14 @@
 import { randomBytes } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionContext,
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import { boldText, colorize, normalizeFleetColor, pickFleetColor } from "./color.js";
+import { parseExternalCommand } from "./external.js";
 import { consumeLaunchEnvelope, type FleetLaunchEnvelope, launchEnvelopeEnvironment } from "./launch-envelope.js";
 import { createPiLauncher, type PiLauncher } from "./launcher.js";
 import { type PiInvocation, resolvePiInvocation } from "./pi-invocation.js";
@@ -48,6 +50,7 @@ import {
 } from "./transport.js";
 
 const STATUS_KEY = "fleet";
+const ROSTER_STATUS_KEY = "fleet-roster";
 const DEFAULT_LAUNCH_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const RELOAD_HANDOFF_TTL_MS = 30_000;
@@ -81,6 +84,7 @@ export interface FleetControllerDependencies {
   createTmux(): FleetTerminalPort;
   createGhostty(): FleetTerminalPort;
   createZellij(): FleetTerminalPort;
+  createExternal(command: readonly string[]): FleetTerminalPort;
   resolveInvocation(args: string[]): PiInvocation;
   createLauncher(
     invocation: PiInvocation,
@@ -113,12 +117,15 @@ export interface SpawnSessionInput {
   direction?: TerminalSplitDirection;
   task?: string;
   name?: string;
+  color?: string;
+  model?: string;
   cwd?: string;
 }
 
 export interface SpawnSessionResult {
   sessionId: string;
   name?: string;
+  color?: string;
   cwd: string;
   terminal: FleetTerminal;
   terminalId: string;
@@ -144,6 +151,7 @@ export function defaultFleetControllerDependencies(pi: ExtensionAPI): FleetContr
     createTmux: () => createDefaultTerminalPort(pi, "tmux"),
     createGhostty: () => createDefaultTerminalPort(pi, "ghostty"),
     createZellij: () => createDefaultTerminalPort(pi, "zellij"),
+    createExternal: (command) => createDefaultTerminalPort(pi, "external", command),
     resolveInvocation: (args) => resolvePiInvocation(args),
     createLauncher: (invocation, directory, embeddedEnvironment) =>
       createPiLauncher(invocation, directory, embeddedEnvironment),
@@ -165,6 +173,9 @@ export class FleetController {
   private membership: Membership | undefined;
   private membershipMutation: Promise<void> = Promise.resolve();
   private readonly ownedTasks = new Set<Promise<unknown>>();
+  private color: string | undefined;
+  private leadSessionId: string | undefined;
+  private leadWatcher: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly pi: ExtensionAPI,
@@ -180,6 +191,7 @@ export class FleetController {
     this.controller = new AbortController();
     this.activeSessionManager = ctx.sessionManager;
     this.activeContext = ctx;
+    this.startLeadWatcher();
     const owner = ctx.sessionManager;
     const ownerGeneration = this.generation;
     let envelope: FleetLaunchEnvelope | undefined;
@@ -200,6 +212,7 @@ export class FleetController {
     if (!envelope && !handoff) return;
     try {
       if (envelope?.childName) this.pi.setSessionName(envelope.childName);
+      if (envelope?.childColor) this.color = envelope.childColor;
       if (envelope?.model) {
         const model = ctx.modelRegistry.find(envelope.model.provider, envelope.model.id);
         if (!model) throw new Error("The requested parent model is unavailable in the child");
@@ -235,6 +248,7 @@ export class FleetController {
 
   async sessionShutdown(event: Pick<SessionShutdownEvent, "reason">, ctx: ExtensionContext): Promise<void> {
     if (ctx.sessionManager !== this.activeSessionManager) return;
+    this.stopLeadWatcher();
     if (event.reason === "reload" && this.membership) {
       putReloadHandoff(ctx.sessionManager, {
         invite: this.membership.invite,
@@ -249,6 +263,7 @@ export class FleetController {
       await this.cleanupActive(event.reason === "reload");
     } finally {
       this.clearStatus(ctx);
+      this.clearRosterStatus(ctx);
       await this.settings.flush();
     }
   }
@@ -409,28 +424,59 @@ export class FleetController {
         : resolveTerminalPreference(launchSettings.defaultTerminal, this.deps.environment);
     const selectedTerminalLabel = terminalLabel(terminal);
     const direction = input.direction ?? "right";
+    const windowLabel = terminal === "external" ? "window" : "split";
+    const launchLayoutLine =
+      terminal === "external"
+        ? `${selectedTerminalLabel} window (the window manager places it)`
+        : `${selectedTerminalLabel} split: ${direction}`;
     const cwd = await this.resolveSpawnCwd(ctx, input.cwd);
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
     const task = normalizeOptionalText(input.task, "task", MAX_MESSAGE_BYTES);
     const launchId = this.deps.randomId("launch");
     const kickoffCapability = this.deps.randomId("kickoff");
     const name = normalizeOptionalText(input.name, "name", 200) ?? `Fleet ${launchId.slice(-6)}`;
+    const color = normalizeFleetColor(input.color) ?? pickFleetColor(name);
+    const modelSpec = normalizeOptionalText(input.model, "model", 200);
+    let childModel: FleetLaunchEnvelope["model"];
+    if (modelSpec) {
+      const slash = modelSpec.indexOf("/");
+      if (slash <= 0 || slash === modelSpec.length - 1) {
+        throw new Error("session_spawn model must be in provider/id form (e.g. deepseek/deepseek-v4-pro)");
+      }
+      const provider = modelSpec.slice(0, slash);
+      const id = modelSpec.slice(slash + 1);
+      if (!ctx.modelRegistry.find(provider, id)) {
+        throw new Error(`session_spawn model "${modelSpec}" is unavailable`);
+      }
+      childModel = { provider, id };
+    } else {
+      childModel = ctx.model
+        ? {
+            provider: ctx.model.provider,
+            id: ctx.model.id,
+            ...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
+          }
+        : undefined;
+    }
     const terminalAdapter =
       terminal === "tmux"
         ? this.deps.createTmux()
         : terminal === "ghostty"
           ? this.deps.createGhostty()
-          : this.deps.createZellij();
+          : terminal === "zellij"
+            ? this.deps.createZellij()
+            : this.deps.createExternal(parseExternalCommand(launchSettings.externalCommand));
     const terminalVersion = await terminalAdapter.assertAvailable(operationSignal);
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
     if (launchSettings.confirmSessionLaunch) {
       const confirmed = await ctx.ui.confirm(
         "Create a new Pi session?",
         [
-          `${selectedTerminalLabel} split: ${direction}`,
+          `${launchLayoutLine}`,
           `Name: ${safeTerminalLine(name)}`,
+          `Color: ${safeTerminalLine(color)}`,
           `Cwd: ${safeTerminalLine(cwd)}`,
-          `Model: ${safeTerminalLine(ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "Pi default")}`,
+          `Model: ${safeTerminalLine(childModel ? `${childModel.provider}/${childModel.id}` : "Pi default")}`,
           "The child may spend model tokens and edit the same workspace concurrently.",
         ].join("\n"),
         { signal: operationSignal },
@@ -444,7 +490,7 @@ export class FleetController {
     let terminalId: string | undefined;
     let actualTerminalVersion = terminalVersion;
     let launcher: PiLauncher | undefined;
-    const statusToken = this.beginStatus(ctx, `fleet: launching ${selectedTerminalLabel} split`);
+    const statusToken = this.beginStatus(ctx, `fleet: launching ${selectedTerminalLabel} ${windowLabel}`);
     try {
       const membership = await this.claimSpawnMembership(ctx, operationSignal, rollbackOwner);
       claimedMembership = membership;
@@ -457,29 +503,22 @@ export class FleetController {
         launchId,
         kickoffCapability,
         childName: name,
+        childColor: color,
         acceptsRequests: false,
-        ...(ctx.model
-          ? {
-              model: {
-                provider: ctx.model.provider,
-                id: ctx.model.id,
-                ...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
-              },
-            }
-          : {}),
+        ...(childModel ? { model: childModel } : {}),
       };
       const launchEnvironment = launchEnvelopeEnvironment(envelope);
       launcher = await this.deps.createLauncher(
         invocation,
         directory,
-        terminal === "zellij" ? launchEnvironment : undefined,
+        terminal === "zellij" || terminal === "external" ? launchEnvironment : undefined,
       );
       if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
       const split = await terminalAdapter.spawnSplit({
         direction,
         cwd,
         launcherCommand: launcher.command,
-        environment: terminal === "zellij" ? {} : launchEnvironment,
+        environment: terminal === "zellij" || terminal === "external" ? {} : launchEnvironment,
         signal: operationSignal,
         isCurrent: () => this.isCurrent(owner, ownerGeneration),
       });
@@ -520,9 +559,11 @@ export class FleetController {
         }
         kickoffAccepted = true;
       }
+      void this.primeFooter(ctx);
       return {
         sessionId: child.sessionId,
         ...(child.name ? { name: child.name } : {}),
+        color,
         cwd: child.cwd,
         terminal,
         terminalId,
@@ -605,6 +646,7 @@ export class FleetController {
       protocolVersion: FLEET_PROTOCOL_VERSION,
       sessionId: ctx.sessionManager.getSessionId(),
       ...(this.pi.getSessionName() ? { name: this.pi.getSessionName() } : {}),
+      color: this.color ?? pickFleetColor(ctx.sessionManager.getSessionId()),
       cwd: ctx.cwd,
       pid: process.pid,
       ...(launchId ? { launchId } : {}),
@@ -623,6 +665,12 @@ export class FleetController {
       onMessage: async (message, deliverySignal) => {
         if (deliverySignal?.aborted || !this.isCurrent(owner, ownerGeneration)) return;
         this.receiveMessage(message);
+        const activeContext = this.activeContext;
+        void this.refreshLead().then((changed) => {
+          if (changed && activeContext && this.isCurrent(owner, ownerGeneration)) {
+            void this.renderFooterStatus(activeContext);
+          }
+        });
         if (message.mode === "kickoff") {
           acceptedKickoff = true;
           if (this.membership?.transport === transport) {
@@ -649,6 +697,7 @@ export class FleetController {
         transport,
       };
       this.membership = membership;
+      void this.primeFooter(ctx);
       return membership;
     } catch (error) {
       await transport.stop();
@@ -805,6 +854,148 @@ export class FleetController {
       ctx.ui.setStatus(STATUS_KEY, undefined);
     } catch {
       // A replaced UI is allowed to reject best-effort cleanup.
+    }
+  }
+
+  private clearRosterStatus(ctx: ExtensionContext): void {
+    try {
+      ctx.ui.setStatus(ROSTER_STATUS_KEY, undefined);
+    } catch {
+      // A replaced UI is allowed to reject best-effort cleanup.
+    }
+  }
+
+  private leadPath(): string | undefined {
+    const directory = this.membership?.transport.endpointManifest?.directory;
+    return directory ? join(directory, "lead.json") : undefined;
+  }
+
+  private async refreshLead(): Promise<boolean> {
+    const path = this.leadPath();
+    if (!path) {
+      const changed = this.leadSessionId !== undefined;
+      this.leadSessionId = undefined;
+      return changed;
+    }
+    try {
+      const raw = JSON.parse(await readFile(path, "utf8")) as { sessionId?: unknown };
+      const next = typeof raw.sessionId === "string" ? raw.sessionId : undefined;
+      const changed = next !== this.leadSessionId;
+      this.leadSessionId = next;
+      return changed;
+    } catch {
+      const changed = this.leadSessionId !== undefined;
+      this.leadSessionId = undefined;
+      return changed;
+    }
+  }
+
+  private async primeFooter(ctx: ExtensionContext): Promise<void> {
+    await this.refreshLead();
+    await this.renderFooterStatus(ctx);
+  }
+
+  private async renderFooterStatus(ctx: ExtensionContext): Promise<void> {
+    const self = this.membership?.transport.peerDescription;
+    if (!self) {
+      this.clearRosterStatus(ctx);
+      return;
+    }
+    const color = self.color ?? pickFleetColor(self.sessionId);
+    const name = self.name ?? self.sessionId;
+    const role = this.leadSessionId === self.sessionId ? "LEAD" : "WORKER";
+    try {
+      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${colorize("●", color)} ${colorize(name, color)} ${boldText(role)}`);
+    } catch {
+      // A replaced UI is allowed to reject best-effort status.
+    }
+  }
+
+  /** Resolve a peer by name or session id from the current snapshot. */
+  async resolvePeer(target: string, signal?: AbortSignal): Promise<FleetPeerDescription | undefined> {
+    const snapshot = await this.snapshot(signal);
+    const byId = snapshot.peers.find((p) => p.sessionId === target);
+    if (byId) return byId;
+    return snapshot.peers.find((p) => p.name === target);
+  }
+
+  async setLead(ctx: ExtensionContext, target: FleetPeerDescription, signal?: AbortSignal): Promise<void> {
+    this.assertCurrentContext(ctx);
+    throwIfAborted(signal, "Pi Fleet lead change aborted");
+    const path = this.leadPath();
+    if (!path) throw new Error("Pi Fleet runtime directory is unavailable");
+    const record = {
+      sessionId: target.sessionId,
+      ...(target.name ? { name: target.name } : {}),
+      at: this.deps.now(),
+    };
+    const temporary = `${path}.tmp-${process.pid}`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "wx" });
+      await rename(temporary, path);
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
+    this.leadSessionId = target.sessionId;
+    await this.broadcastLeadChange(target);
+    await this.renderFooterStatus(ctx);
+  }
+
+  async setOwnColor(ctx: ExtensionContext, color: string): Promise<void> {
+    this.assertCurrentContext(ctx);
+    this.color = color;
+    await this.renderFooterStatus(ctx);
+  }
+
+  private async broadcastLeadChange(target: FleetPeerDescription): Promise<void> {
+    const membership = this.membership;
+    if (!membership) return;
+    const self = membership.transport.peerDescription;
+    let peers: FleetPeerDescription[];
+    try {
+      peers = await membership.transport.listPeers();
+    } catch {
+      return; // the watcher poll reconciles missed notifications
+    }
+    const issuedAt = this.deps.now();
+    const text = `lead changed to ${target.name ?? target.sessionId}`;
+    for (const peer of peers) {
+      if (peer.sessionId === self.sessionId) continue;
+      const message: FleetMessage = {
+        id: this.deps.randomId("msg"),
+        fromSessionId: self.sessionId,
+        ...(self.name ? { fromName: self.name } : {}),
+        fromCwd: self.cwd,
+        toSessionId: peer.sessionId,
+        mode: "notify",
+        text,
+        issuedAt,
+        expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
+      };
+      try {
+        await membership.transport.send(peer.sessionId, message);
+      } catch {
+        // Best-effort: the watcher poll reconciles a missed notification.
+      }
+    }
+  }
+
+  private startLeadWatcher(): void {
+    this.stopLeadWatcher();
+    this.leadWatcher = setInterval(() => {
+      if (this.controller.signal.aborted) return;
+      const activeContext = this.activeContext;
+      if (!activeContext) return;
+      void this.refreshLead().then((changed) => {
+        if (changed && !this.controller.signal.aborted) void this.renderFooterStatus(activeContext);
+      });
+    }, 5_000);
+  }
+
+  private stopLeadWatcher(): void {
+    if (this.leadWatcher !== undefined) {
+      clearInterval(this.leadWatcher);
+      this.leadWatcher = undefined;
     }
   }
 

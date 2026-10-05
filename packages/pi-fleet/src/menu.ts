@@ -115,7 +115,7 @@ export function createFleetMenu(source: FleetMenuSource) {
             label: "Default terminal",
             description: "Automatically detect or pin the backend for launches without an override.",
             currentValue: terminalPreferenceLabel(state.settings.defaultTerminal),
-            values: ["Automatic", "tmux", "Ghostty", "Zellij"],
+            values: ["Automatic", "tmux", "Ghostty", "Zellij", "External"],
             action: "setTerminal",
           },
           {
@@ -164,8 +164,8 @@ export function createFleetMenu(source: FleetMenuSource) {
         title: "Pi Fleet help",
         lines: [
           "Pi Fleet connects explicit sessions owned by one OS user.",
-          "New Pi session creates a separate process in a terminal split and preserves the parent.",
-          "Automatic selection prefers tmux, then Zellij 0.44+, then Ghostty 1.3+ on macOS.",
+          "New Pi session creates a separate process in a terminal window or split and preserves the parent.",
+          "Automatic selection prefers tmux, then Zellij 0.44+, then Ghostty 1.3+ on macOS, and falls back to an external terminal window.",
           "Notify messages do not start turns, requests require recipient permission, and replies do not auto-trigger another turn.",
           "Groups, invites, peer state, and message deduplication are ephemeral.",
         ],
@@ -329,6 +329,8 @@ function terminalSettingValue(value: string | undefined): FleetTerminalPreferenc
       return "ghostty";
     case "Zellij":
       return "zellij";
+    case "External":
+      return "external";
     default:
       throw new Error("Pi Fleet terminal setting is invalid");
   }

@@ -64,19 +64,28 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
   const tmuxSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
   const ghosttySplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
   const zellijSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
+  const externalSplitCalls: Parameters<FleetTerminalPort["spawnSplit"]>[0][] = [];
   let now = 1_800_000_000_000;
   let tmuxCreated = 0;
   let ghosttyCreated = 0;
   let zellijCreated = 0;
+  let externalCreated = 0;
   let launcherCleaned = false;
   const launcherEnvironments: Array<Readonly<Record<string, string>> | undefined> = [];
   let cleanupStateAtFirstPoll: boolean | undefined;
   let pendingPeer: FleetPeerDescription | undefined;
   const spawnSplit = async (
-    terminal: "tmux" | "ghostty" | "zellij",
+    terminal: "tmux" | "ghostty" | "zellij" | "external",
     spawnOptions: Parameters<FleetTerminalPort["spawnSplit"]>[0],
   ) => {
-    const calls = terminal === "tmux" ? tmuxSplitCalls : terminal === "ghostty" ? ghosttySplitCalls : zellijSplitCalls;
+    const calls =
+      terminal === "tmux"
+        ? tmuxSplitCalls
+        : terminal === "ghostty"
+          ? ghosttySplitCalls
+          : terminal === "zellij"
+            ? zellijSplitCalls
+            : externalSplitCalls;
     calls.push(spawnOptions);
     if (options.launchError) throw options.launchError;
     if (options.ready !== false) {
@@ -97,7 +106,8 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
     }
     return {
       terminalId: `${terminal}-child`,
-      version: terminal === "tmux" ? "3.4" : terminal === "ghostty" ? "1.3.1" : "0.44.3",
+      version:
+        terminal === "tmux" ? "3.4" : terminal === "ghostty" ? "1.3.1" : terminal === "zellij" ? "0.44.3" : "alacritty",
     };
   };
   const deps: FleetControllerDependencies = {
@@ -139,6 +149,13 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
         spawnSplit: (spawnOptions) => spawnSplit("zellij", spawnOptions),
       };
     },
+    createExternal: () => {
+      externalCreated += 1;
+      return {
+        assertAvailable: async () => "alacritty",
+        spawnSplit: (spawnOptions) => spawnSplit("external", spawnOptions),
+      };
+    },
     resolveInvocation: (args) => ({ command: "/bin/pi", args }),
     createLauncher: async (_invocation, _directory, environment) => {
       launcherEnvironments.push(environment);
@@ -170,6 +187,7 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
     splitCalls: tmuxSplitCalls,
     ghosttySplitCalls,
     zellijSplitCalls,
+    externalSplitCalls,
     launcherEnvironments,
     get tmuxCreated() {
       return tmuxCreated;
@@ -179,6 +197,9 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
     },
     get zellijCreated() {
       return zellijCreated;
+    },
+    get externalCreated() {
+      return externalCreated;
     },
     get launcherCleaned() {
       return launcherCleaned;
@@ -290,7 +311,7 @@ test("spawn rejects an invalid explicit terminal instead of treating it as omitt
   await controller.sessionStart({ reason: "startup" }, context.ctx);
   await assert.rejects(
     controller.spawn(context.ctx, { terminal: "" } as unknown as SpawnSessionInput),
-    /must be tmux, ghostty, or zellij/u,
+    /must be tmux, ghostty, zellij, or external/u,
   );
   assert.equal(runtime.tmuxCreated, 0);
   assert.equal(runtime.transports.length, 0);
@@ -331,17 +352,18 @@ test("spawn resolves the automatic default to one concrete current backend", asy
   }
 });
 
-test("automatic resolution fails before launch side effects and never falls back after preflight", async () => {
+test("empty context falls back to external, and a resolved backend never falls back after preflight", async () => {
   const missing = harness();
   missing.deps.environment = {};
   const missingController = new FleetController(missing.mock.pi, missing.deps);
   const missingContext = createMockContext({ mode: "tui", hasUI: true, confirm: async () => true });
   await missingController.sessionStart({ reason: "startup" }, missingContext.ctx);
-  await assert.rejects(missingController.spawn(missingContext.ctx, {}), /detect a supported terminal/u);
+  const externalResult = await missingController.spawn(missingContext.ctx, {});
+  assert.equal(externalResult.terminal, "external");
+  assert.equal(missing.externalCreated, 1);
   assert.equal(missing.tmuxCreated, 0);
   assert.equal(missing.zellijCreated, 0);
   assert.equal(missing.ghosttyCreated, 0);
-  assert.equal(missing.transports.length, 0);
   await missingController.sessionShutdown({ reason: "quit" }, missingContext.ctx);
 
   const unavailable = harness();

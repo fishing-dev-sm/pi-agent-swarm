@@ -6,6 +6,7 @@ export const FLEET_LAUNCH_ENV_KEYS = [
   "PI_FLEET_LAUNCH_ID",
   "PI_FLEET_KICKOFF_CAPABILITY",
   "PI_FLEET_CHILD_NAME",
+  "PI_FLEET_COLOR",
   "PI_FLEET_ACCEPT_REQUESTS",
   "PI_FLEET_MODEL_PROVIDER",
   "PI_FLEET_MODEL_ID",
@@ -18,6 +19,7 @@ export interface FleetLaunchEnvelope {
   launchId: string;
   kickoffCapability: string;
   childName?: string;
+  childColor?: string;
   acceptsRequests: boolean;
   model?: { provider: string; id: string; thinkingLevel?: FleetThinkingLevel };
 }
@@ -39,6 +41,7 @@ export function consumeLaunchEnvelope(environment: NodeJS.ProcessEnv = process.e
   const launchId = safeId(values.PI_FLEET_LAUNCH_ID, "launch id");
   const kickoffCapability = safeId(values.PI_FLEET_KICKOFF_CAPABILITY, "kickoff capability");
   const childName = optionalBounded(values.PI_FLEET_CHILD_NAME, "child name", 200);
+  const childColor = optionalHexColor(values.PI_FLEET_COLOR);
   const acceptsRequests = parseBoolean(values.PI_FLEET_ACCEPT_REQUESTS);
   const provider = optionalBounded(values.PI_FLEET_MODEL_PROVIDER, "model provider", 200);
   const id = optionalBounded(values.PI_FLEET_MODEL_ID, "model id", 500);
@@ -58,6 +61,7 @@ export function consumeLaunchEnvelope(environment: NodeJS.ProcessEnv = process.e
     launchId,
     kickoffCapability,
     ...(childName ? { childName } : {}),
+    ...(childColor ? { childColor } : {}),
     acceptsRequests,
     ...(provider && id
       ? {
@@ -79,6 +83,7 @@ export function launchEnvelopeEnvironment(envelope: FleetLaunchEnvelope): Record
     PI_FLEET_KICKOFF_CAPABILITY: envelope.kickoffCapability,
     PI_FLEET_ACCEPT_REQUESTS: envelope.acceptsRequests ? "1" : "0",
     ...(envelope.childName ? { PI_FLEET_CHILD_NAME: envelope.childName } : {}),
+    ...(envelope.childColor ? { PI_FLEET_COLOR: envelope.childColor } : {}),
     ...(envelope.model
       ? {
           PI_FLEET_MODEL_PROVIDER: envelope.model.provider,
@@ -109,4 +114,11 @@ function bounded(value: string | undefined, label: string, maxBytes: number): st
 
 function optionalBounded(value: string | undefined, label: string, maxBytes: number): string | undefined {
   return value === undefined ? undefined : bounded(value, label, maxBytes);
+}
+
+function optionalHexColor(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const lower = value.toLowerCase();
+  if (!/^#[0-9a-f]{6}$/u.test(lower)) throw new Error("Pi Fleet launch color is invalid");
+  return lower;
 }

@@ -1,13 +1,14 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { fleetColorName } from "./color.js";
 import type { FleetSnapshot, SpawnSessionInput, SpawnSessionResult } from "./fleet-controller.js";
 import type { FleetMessage } from "./protocol.js";
 import { terminalLabel } from "./terminal.js";
 import { safeTerminalLine } from "./text.js";
 import type { FleetDeliveryAck } from "./transport.js";
 
-const TERMINALS = ["tmux", "ghostty", "zellij"] as const;
+const TERMINALS = ["tmux", "ghostty", "zellij", "external"] as const;
 const DIRECTIONS = ["right", "down", "left", "up"] as const;
 const BUS_ACTIONS = ["list", "send", "reply"] as const;
 const SEND_MODES = ["notify", "request"] as const;
@@ -34,7 +35,7 @@ const spawnSchema = Type.Object(
     terminal: Type.Optional(
       StringEnum(TERMINALS, {
         description:
-          "Explicit terminal split backend override; omission uses the configured Pi Fleet preference, which may resolve automatically",
+          "Explicit terminal backend override (multiplexer split or external window); omission uses the configured Pi Fleet preference, which may resolve automatically",
       }),
     ),
     direction: Type.Optional(StringEnum(DIRECTIONS, { description: "Terminal split direction" })),
@@ -45,6 +46,20 @@ const spawnSchema = Type.Object(
       }),
     ),
     name: Type.Optional(Type.String({ description: "Optional child Pi session name", maxLength: 200 })),
+    color: Type.Optional(
+      Type.String({
+        description:
+          "Optional child color: a palette name (red, orange, yellow, green, cyan, blue, magenta, purple) or a #rrggbb hex",
+        maxLength: 32,
+      }),
+    ),
+    model: Type.Optional(
+      Type.String({
+        description:
+          "Optional child model as provider/id (e.g. deepseek/deepseek-v4-pro, kimi-coding/k3); defaults to inheriting the current session model",
+        maxLength: 200,
+      }),
+    ),
     cwd: Type.Optional(
       Type.String({
         description: "Existing child working directory, defaulting to the current cwd",
@@ -162,7 +177,8 @@ function peerListResult(snapshot: FleetSnapshot) {
       ...(peer.name ? { name: safeTerminalLine(peer.name) } : {}),
       cwd: safeTerminalLine(peer.cwd),
     };
-    const line = `${listedPeer.name ?? listedPeer.sessionId} · ${listedPeer.sessionId} · ${listedPeer.cwd} · requests ${listedPeer.acceptsRequests ? "allowed" : "blocked"}`;
+    const colorLabel = listedPeer.color ? (fleetColorName(listedPeer.color) ?? listedPeer.color) : "no-color";
+    const line = `${listedPeer.name ?? listedPeer.sessionId} · ${listedPeer.sessionId} · ${colorLabel} · ${listedPeer.cwd} · requests ${listedPeer.acceptsRequests ? "allowed" : "blocked"}`;
     const candidate = createPeerListResult(snapshot, [...peers, listedPeer], [...lines, line]);
     if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > MAX_LIST_RESULT_BYTES) break;
     peers.push(listedPeer);

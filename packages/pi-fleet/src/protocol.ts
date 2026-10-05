@@ -52,6 +52,7 @@ export interface FleetPeerDescription {
   sessionId: string;
   endpointId: string;
   name?: string;
+  color?: string;
   cwd: string;
   pid: number;
   launchId?: string;
@@ -454,7 +455,7 @@ export function validatePeerDescription(value: unknown): FleetPeerDescription {
   if (!isRecord(value)) throw new Error("Pi Fleet peer description is invalid");
   assertExactKeys(
     value,
-    ["acceptsRequests", "cwd", "endpointId", "launchId", "name", "pid", "protocolVersion", "sessionId"],
+    ["acceptsRequests", "color", "cwd", "endpointId", "launchId", "name", "pid", "protocolVersion", "sessionId"],
     "peer description",
   );
   if (value.protocolVersion !== FLEET_PROTOCOL_VERSION) {
@@ -471,11 +472,19 @@ export function validatePeerDescription(value: unknown): FleetPeerDescription {
   if (typeof value.acceptsRequests !== "boolean") {
     throw new Error("Pi Fleet peer request policy is invalid");
   }
+  let color: string | undefined;
+  if (value.color !== undefined) {
+    if (typeof value.color !== "string" || !/^#[0-9a-f]{6}$/u.test(value.color.toLowerCase())) {
+      throw new Error("Pi Fleet peer color is invalid");
+    }
+    color = value.color.toLowerCase();
+  }
   return {
     protocolVersion: FLEET_PROTOCOL_VERSION,
     sessionId,
     endpointId,
     ...(name ? { name } : {}),
+    ...(color ? { color } : {}),
     cwd,
     pid,
     ...(launchId ? { launchId } : {}),
