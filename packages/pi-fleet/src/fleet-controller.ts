@@ -934,14 +934,14 @@ export class FleetController {
     }
     const color = this.color ?? self.color ?? pickFleetColor(self.sessionId);
     const role = this.leadSessionId === self.sessionId ? "LEAD" : "WORKER";
-    // Three filled badges: name on the fleet color (contrast text), the session id in
-    // inverse white, and the role on a uniform warning cream. Both the name and the id
-    // stay visible because /lead accepts either reference.
-    const nameBadge = badge(self.name ? `● ${self.name}` : "●", color, contrastTextColor(color));
-    const idBadge = badge(self.name ? `· ${self.sessionId}` : self.sessionId, "#ffffff", "#000000");
-    const roleBadge = badge(role, ROLE_BADGE_BACKGROUND, "#000000");
+    // Three padded badges joined without gaps: the name on the fleet color (contrast
+    // text), the session id in inverse white, and the role on a uniform warning cream.
+    // Both the name and the id stay visible because /lead accepts either reference.
+    const nameBadge = badge(self.name ? ` ● ${self.name} ` : " ● ", color, contrastTextColor(color));
+    const idBadge = badge(` ${self.sessionId} `, "#ffffff", "#000000");
+    const roleBadge = badge(` ${role} `, ROLE_BADGE_BACKGROUND, "#000000");
     try {
-      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${nameBadge} ${idBadge} ${roleBadge}`);
+      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${nameBadge}${idBadge}${roleBadge}`);
     } catch {
       // A replaced UI is allowed to reject best-effort status.
     }
