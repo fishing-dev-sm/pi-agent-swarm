@@ -35,7 +35,16 @@ type Screen =
   | "status"
   | "help"
   | "leave";
-type Action = "spawn" | "start" | "join" | "send" | "setTerminal" | "setConfirmation" | "setPolicy" | "leave";
+type Action =
+  | "spawn"
+  | "start"
+  | "join"
+  | "send"
+  | "setTerminal"
+  | "setConfirmation"
+  | "setPinToLeadWorkspace"
+  | "setPolicy"
+  | "leave";
 
 const DIRECTION_OPTIONS = ["Right", "Down", "Left", "Up"] as const;
 
@@ -126,6 +135,15 @@ export function createFleetMenu(source: FleetMenuSource) {
             values: ["Ask", "Skip"],
             action: "setConfirmation",
           },
+          {
+            id: "pinToLeadWorkspace",
+            label: "Pin new windows to lead workspace",
+            description:
+              "On i3, place new external windows on the lead session's workspace instead of the focused one.",
+            currentValue: state.settings.pinToLeadWorkspace ? "On" : "Off",
+            values: ["On", "Off"],
+            action: "setPinToLeadWorkspace",
+          },
         ],
       }),
       settingsInvalid: ({ state }) => ({
@@ -149,6 +167,7 @@ export function createFleetMenu(source: FleetMenuSource) {
               `Incoming requests: ${state.acceptsRequests ? "allowed" : "blocked"}`,
               `Default terminal: ${terminalPreferenceLabel(state.settings.defaultTerminal)}`,
               `Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
+              `Pin new windows to lead workspace: ${state.settings.pinToLeadWorkspace ? "On" : "Off"}`,
               "Delivery acknowledgement means extension acceptance, not remote task completion.",
             ]
           : [
@@ -156,6 +175,7 @@ export function createFleetMenu(source: FleetMenuSource) {
               "No socket, group secret, or background discovery is active.",
               `Default terminal: ${terminalPreferenceLabel(state.settings.defaultTerminal)}`,
               `Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
+              `Pin new windows to lead workspace: ${state.settings.pinToLeadWorkspace ? "On" : "Off"}`,
             ],
         hint: "back",
       }),
@@ -273,6 +293,14 @@ export function createFleetMenu(source: FleetMenuSource) {
           signal,
           { confirmSessionLaunch: value !== "Skip" },
           `Confirm new sessions: ${value}.`,
+        ),
+      setPinToLeadWorkspace: ({ ctx, signal, value }) =>
+        saveSettingsPatch(
+          source,
+          ctx,
+          signal,
+          { pinToLeadWorkspace: value !== "Off" },
+          `Pin new windows to lead workspace: ${value}.`,
         ),
       setPolicy: async ({ ctx, signal, itemId }) => {
         const allow = itemId === "allow";

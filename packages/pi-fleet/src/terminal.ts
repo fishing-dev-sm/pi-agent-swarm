@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ExternalLaunchError, ExternalTerminalAdapter } from "./external.js";
 import { GhosttyAdapter, GhosttyLaunchError } from "./ghostty.js";
+import { detectI3, I3WorkspacePinner } from "./i3-workspace.js";
 import { TmuxAdapter, TmuxLaunchError } from "./tmux.js";
 import { ZellijAdapter, ZellijLaunchError } from "./zellij.js";
 
@@ -62,6 +63,7 @@ export function createDefaultTerminalPort(
   pi: ExtensionAPI,
   terminal: FleetTerminal,
   externalCommand?: readonly string[],
+  pinToLeadWorkspace = false,
 ): FleetTerminalPort {
   const options = {
     execute: async (
@@ -85,7 +87,10 @@ export function createDefaultTerminalPort(
     case "zellij":
       return new ZellijAdapter(options);
     case "external":
-      return new ExternalTerminalAdapter(externalCommand ?? ["alacritty", "-e"]);
+      return new ExternalTerminalAdapter(
+        externalCommand ?? ["alacritty", "-e"],
+        pinToLeadWorkspace && detectI3(process.env) ? new I3WorkspacePinner(options) : undefined,
+      );
   }
 }
 

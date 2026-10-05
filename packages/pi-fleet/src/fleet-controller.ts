@@ -51,7 +51,7 @@ import {
 
 const STATUS_KEY = "fleet";
 const ROSTER_STATUS_KEY = "fleet-roster";
-/** Uniform warning-cream background for the footer role badge (LEAD and WORKER alike). */
+/** Uniform warning-cream background for the footer role badge (LEADER and WORKER alike). */
 const ROLE_BADGE_BACKGROUND = "#ffc85a";
 const DEFAULT_LAUNCH_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
@@ -87,7 +87,7 @@ export interface FleetControllerDependencies {
   createTmux(): FleetTerminalPort;
   createGhostty(): FleetTerminalPort;
   createZellij(): FleetTerminalPort;
-  createExternal(command: readonly string[]): FleetTerminalPort;
+  createExternal(command: readonly string[], pinToLeadWorkspace: boolean): FleetTerminalPort;
   resolveInvocation(args: string[]): PiInvocation;
   createLauncher(
     invocation: PiInvocation,
@@ -154,7 +154,8 @@ export function defaultFleetControllerDependencies(pi: ExtensionAPI): FleetContr
     createTmux: () => createDefaultTerminalPort(pi, "tmux"),
     createGhostty: () => createDefaultTerminalPort(pi, "ghostty"),
     createZellij: () => createDefaultTerminalPort(pi, "zellij"),
-    createExternal: (command) => createDefaultTerminalPort(pi, "external", command),
+    createExternal: (command, pinToLeadWorkspace) =>
+      createDefaultTerminalPort(pi, "external", command, pinToLeadWorkspace),
     resolveInvocation: (args) => resolvePiInvocation(args),
     createLauncher: (invocation, directory, embeddedEnvironment) =>
       createPiLauncher(invocation, directory, embeddedEnvironment),
@@ -573,7 +574,10 @@ export class FleetController {
           ? this.deps.createGhostty()
           : terminal === "zellij"
             ? this.deps.createZellij()
-            : this.deps.createExternal(parseExternalCommand(launchSettings.externalCommand));
+            : this.deps.createExternal(
+                parseExternalCommand(launchSettings.externalCommand),
+                launchSettings.pinToLeadWorkspace,
+              );
     const terminalVersion = await terminalAdapter.assertAvailable(operationSignal);
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
     if (launchSettings.confirmSessionLaunch) {
@@ -1084,7 +1088,7 @@ export class FleetController {
     const sessionId = self?.sessionId ?? ctx.sessionManager.getSessionId();
     const name = self?.name ?? this.pi.getSessionName();
     const color = this.color ?? self?.color ?? pickFleetColor(sessionId);
-    const role = this.leadSessionId === sessionId || (!self && this.defaultLead) ? "LEAD" : "WORKER";
+    const role = this.leadSessionId === sessionId || (!self && this.defaultLead) ? "LEADER" : "WORKER";
     // Three padded badges joined without gaps: the name on the fleet color (contrast
     // text), the session id in inverse white, and the role on a uniform warning cream.
     // Both the name and the id stay visible because /lead accepts either reference.

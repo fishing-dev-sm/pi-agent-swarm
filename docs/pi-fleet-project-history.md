@@ -44,7 +44,7 @@
 
 1. **外部终端适配器**：新增 `external` 终端后端，通过 `alacritty -e` 打开独立窗口，由 i3 自动平铺；不依赖 tmux / zellij / ghostty。`auto` 自动检测在找不到上述复用器时回落到 `external`。
 2. **每会话颜色**：内置 8 色盘；`session_spawn` 增加 `color` 参数；新增 `/color` 命令；footer 显示「●名字·角色」；peer 列表带颜色名。
-3. **lead 角色**：新增 `/lead` 命令，写入共享的 `lead.json`；通过「广播通知 + 消息到达时刷新 + 5 秒轮询兜底」三重机制，保证每个窗口 footer 上的 LEAD / WORKER 角色显示正确。
+3. **lead 角色**：新增 `/lead` 命令，写入共享的 `lead.json`；通过「广播通知 + 消息到达时刷新 + 5 秒轮询兜底」三重机制，保证每个窗口 footer 上的 LEADER / WORKER 角色显示正确。
 
 另外给 `session_spawn` 增加了 `model` 参数（格式 `provider/id`），让每个 worker 可以被指定不同的模型。
 

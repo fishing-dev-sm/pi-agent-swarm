@@ -56,6 +56,10 @@ posixTest("fake tmux launches a real child endpoint, propagates cwd and launch i
       assertAvailable: async () => "0.44.3",
       spawnSplit: async (options) => ({ ...(await spawnChild(options)), version: "0.44.3" }),
     }),
+    createExternal: () => ({
+      assertAvailable: async () => "alacritty",
+      spawnSplit: async (options) => ({ ...(await spawnChild(options)), version: "alacritty" }),
+    }),
     resolveInvocation: () => ({ command: "/bin/pi", args: [] }),
     createLauncher: async () => ({
       path: join(runtimeBase, "launcher.sh"),

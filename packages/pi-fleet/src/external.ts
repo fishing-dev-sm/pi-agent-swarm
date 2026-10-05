@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { I3WorkspacePinner } from "./i3-workspace.js";
 import type { TerminalSplitDirection } from "./terminal.js";
 
 /**
@@ -38,7 +39,10 @@ export function parseExternalCommand(value: string): string[] {
 }
 
 export class ExternalTerminalAdapter {
-  constructor(private readonly command: readonly string[]) {}
+  constructor(
+    private readonly command: readonly string[],
+    private readonly i3Pinner?: I3WorkspacePinner,
+  ) {}
 
   async assertAvailable(signal?: AbortSignal): Promise<string> {
     throwIfAborted(signal, "external terminal availability check aborted");
@@ -58,6 +62,21 @@ export class ExternalTerminalAdapter {
       throw new ExternalLaunchError("Pi Fleet session became stale before window creation");
     }
     throwIfAborted(options.signal, "external window creation aborted");
+    // The lead workspace must be captured before the window exists so the diff
+    // below finds exactly the window this launch creates. A capture failure is
+    // non-fatal: the window manager then keeps its default placement.
+    let leadWorkspace: string | undefined;
+    if (this.i3Pinner) {
+      try {
+        leadWorkspace = await this.i3Pinner.captureLeadWorkspace(options.signal);
+      } catch {
+        leadWorkspace = undefined;
+      }
+      if (!options.isCurrent()) {
+        throw new ExternalLaunchError("Pi Fleet session became stale before window creation");
+      }
+      throwIfAborted(options.signal, "external window creation aborted");
+    }
     let pid: number | undefined;
     try {
       const child = spawn(binary, [...this.command.slice(1), options.launcherCommand], {
@@ -75,6 +94,15 @@ export class ExternalTerminalAdapter {
         throw new ExternalLaunchError("external window creation was cancelled", true);
       }
       throw error;
+    }
+    // Placement is best-effort: the window is already open, so an i3 pin failure
+    // only leaves it where the window manager put it.
+    if (this.i3Pinner && leadWorkspace !== undefined) {
+      try {
+        await this.i3Pinner.pinNewWindowToLeadWorkspace(leadWorkspace, options.signal);
+      } catch {
+        // Intentionally ignored.
+      }
     }
     if (options.signal?.aborted) {
       throw new ExternalLaunchError(

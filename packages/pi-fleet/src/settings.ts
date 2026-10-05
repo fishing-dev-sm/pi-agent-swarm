@@ -11,12 +11,14 @@ export const DEFAULT_FLEET_SETTINGS: Readonly<FleetSettings> = Object.freeze({
   defaultTerminal: "auto",
   confirmSessionLaunch: true,
   externalCommand: "alacritty -e",
+  pinToLeadWorkspace: false,
 });
 
 export interface FleetSettings {
   defaultTerminal: FleetTerminalPreference;
   confirmSessionLaunch: boolean;
   externalCommand: string;
+  pinToLeadWorkspace: boolean;
 }
 
 export type FleetSettingsField = keyof FleetSettings;
@@ -77,6 +79,7 @@ const SETTING_FIELDS = [
   "defaultTerminal",
   "confirmSessionLaunch",
   "externalCommand",
+  "pinToLeadWorkspace",
 ] as const satisfies readonly FleetSettingsField[];
 const SETTING_FIELD_SET = new Set<string>(SETTING_FIELDS);
 
@@ -113,6 +116,11 @@ export function normalizeFleetSettingsDocument(value: unknown): NormalizedFleetS
     }
     settings.externalCommand = value.externalCommand.trim();
     sources.externalCommand = "user";
+  }
+  if (Object.hasOwn(value, "pinToLeadWorkspace")) {
+    if (typeof value.pinToLeadWorkspace !== "boolean") return undefined;
+    settings.pinToLeadWorkspace = value.pinToLeadWorkspace;
+    sources.pinToLeadWorkspace = "user";
   }
   return { settings, sources };
 }
@@ -169,6 +177,7 @@ export function createInMemoryFleetSettingsRuntime(): FleetSettingsRuntime {
           ...(canonical.defaultTerminal ? { defaultTerminal: "user" as const } : {}),
           ...(canonical.confirmSessionLaunch !== undefined ? { confirmSessionLaunch: "user" as const } : {}),
           ...(canonical.externalCommand ? { externalCommand: "user" as const } : {}),
+          ...(canonical.pinToLeadWorkspace !== undefined ? { pinToLeadWorkspace: "user" as const } : {}),
         },
         canSave: true,
       };
@@ -339,7 +348,12 @@ function invalidLoad(path: string, reason: string): FleetSettingsLoadResult {
 }
 
 function builtInSources(): Record<FleetSettingsField, FleetSettingsSource> {
-  return { defaultTerminal: "built-in", confirmSessionLaunch: "built-in", externalCommand: "built-in" };
+  return {
+    defaultTerminal: "built-in",
+    confirmSessionLaunch: "built-in",
+    externalCommand: "built-in",
+    pinToLeadWorkspace: "built-in",
+  };
 }
 
 function freezeState(state: FleetSettingsState): Readonly<FleetSettingsState> {

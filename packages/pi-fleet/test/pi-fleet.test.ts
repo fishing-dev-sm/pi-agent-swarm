@@ -40,6 +40,10 @@ function dependencies(): FleetControllerDependencies {
       assertAvailable: async () => "0.44.3",
       spawnSplit: async () => ({ terminalId: "terminal_42", version: "0.44.3" }),
     }),
+    createExternal: () => ({
+      assertAvailable: async () => "alacritty",
+      spawnSplit: async () => ({ terminalId: "external-child", version: "alacritty" }),
+    }),
     resolveInvocation: () => ({ command: "/bin/pi", args: [] }),
     createLauncher: async () => ({
       path: "/tmp/launch.sh",
@@ -170,7 +174,12 @@ function memorySettingsRuntime(): FleetSettingsRuntime & {
 } {
   const state: FleetSettingsState = {
     settings: { ...DEFAULT_FLEET_SETTINGS },
-    sources: { defaultTerminal: "built-in", confirmSessionLaunch: "built-in" },
+    sources: {
+      defaultTerminal: "built-in",
+      confirmSessionLaunch: "built-in",
+      externalCommand: "built-in",
+      pinToLeadWorkspace: "built-in",
+    },
     canSave: true,
   };
   const calls = { reload: 0, flush: 0 };

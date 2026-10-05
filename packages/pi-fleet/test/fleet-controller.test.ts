@@ -71,6 +71,10 @@ function dependencies(
       assertAvailable: async () => "0.44.3",
       spawnSplit: async () => ({ terminalId: "terminal_42", version: "0.44.3" }),
     }),
+    createExternal: () => ({
+      assertAvailable: async () => "alacritty",
+      spawnSplit: async () => ({ terminalId: "external-child", version: "alacritty" }),
+    }),
     resolveInvocation: () => ({ command: "/bin/pi", args: [] }),
     createLauncher: async () => ({
       path: "/tmp/pi-fleet-test/launch.sh",

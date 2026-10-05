@@ -8,7 +8,12 @@ import { DEFAULT_FLEET_SETTINGS, type FleetSettingsPatch, type FleetSettingsStat
 
 const defaultSettings: FleetSettingsState = {
   settings: { ...DEFAULT_FLEET_SETTINGS },
-  sources: { defaultTerminal: "built-in", confirmSessionLaunch: "built-in" },
+  sources: {
+    defaultTerminal: "built-in",
+    confirmSessionLaunch: "built-in",
+    externalCommand: "built-in",
+    pinToLeadWorkspace: "built-in",
+  },
   canSave: true,
 };
 const disconnected: FleetMenuState = {
@@ -117,6 +122,7 @@ test("main menu exposes New Pi session first plus Settings, Status, and Help", (
     [
       ["defaultTerminal", "Automatic"],
       ["confirmSessionLaunch", "Ask"],
+      ["pinToLeadWorkspace", "Off"],
     ],
   );
   assert.deepEqual(settings.items[0]?.values, ["Automatic", "tmux", "Ghostty", "Zellij", "External"]);
@@ -448,17 +454,32 @@ test("RPC Settings changes apply immediately through the shared menu", async () 
     },
     {
       kind: "select",
-      options: ["Default terminal (Automatic)", "Confirm new sessions (Ask)", "Back"],
+      options: [
+        "Default terminal (Automatic)",
+        "Confirm new sessions (Ask)",
+        "Pin new windows to lead workspace (Off)",
+        "Back",
+      ],
       response: "Default terminal (Automatic)",
     },
     {
       kind: "select",
-      options: ["Default terminal (tmux)", "Confirm new sessions (Ask)", "Back"],
+      options: [
+        "Default terminal (tmux)",
+        "Confirm new sessions (Ask)",
+        "Pin new windows to lead workspace (Off)",
+        "Back",
+      ],
       response: "Confirm new sessions (Ask)",
     },
     {
       kind: "select",
-      options: ["Default terminal (tmux)", "Confirm new sessions (Skip)", "Back"],
+      options: [
+        "Default terminal (tmux)",
+        "Confirm new sessions (Skip)",
+        "Pin new windows to lead workspace (Off)",
+        "Back",
+      ],
       response: undefined,
     },
     {

@@ -689,6 +689,8 @@ function memorySettingsRuntime(
     sources: {
       defaultTerminal: Object.hasOwn(overrides, "defaultTerminal") ? "user" : "built-in",
       confirmSessionLaunch: Object.hasOwn(overrides, "confirmSessionLaunch") ? "user" : "built-in",
+      externalCommand: Object.hasOwn(overrides, "externalCommand") ? "user" : "built-in",
+      pinToLeadWorkspace: Object.hasOwn(overrides, "pinToLeadWorkspace") ? "user" : "built-in",
     },
     canSave: issue === undefined,
     ...(issue ? { issue: { kind: "invalid", message: issue } } : {}),

@@ -169,6 +169,14 @@ Right and down use Zellij's native split directions.
 Left and up create the corresponding native pane and then use pane-targeted `move-pane` placement.
 A placement failure is a partial launch because the child pane may already be running and remains visible.
 
+### External
+
+Automatic selection falls back to an external terminal window (default `alacritty -e`) when no tmux, Zellij, or Ghostty signature matches.
+The window manager normally decides where the new window appears.
+
+When `pinToLeadWorkspace` is enabled and Pi runs under i3, Pi Fleet snapshots the window tree before creating the window, treats the focused workspace as the lead session's workspace, and moves the new window onto that workspace as soon as it appears.
+Placement is best-effort: if `i3-msg` cannot move the window, it stays where the window manager put it.
+
 ## ⚙️ Settings
 
 Open `/fleet` and choose **Settings**.
@@ -177,7 +185,8 @@ Pi Fleet stores user settings in `<getAgentDir()>/pi-fleet.json`, normally `~/.p
 ```json
 {
   "defaultTerminal": "auto",
-  "confirmSessionLaunch": true
+  "confirmSessionLaunch": true,
+  "pinToLeadWorkspace": false
 }
 ```
 
@@ -185,6 +194,7 @@ Pi Fleet stores user settings in `<getAgentDir()>/pi-fleet.json`, normally `~/.p
 | --- | --- | --- | --- |
 | `defaultTerminal` | `auto`, `tmux`, `ghostty`, `zellij` | `auto` | Resolves the current backend automatically or pins one for menu launches and omitted tool values. |
 | `confirmSessionLaunch` | `true`, `false` | `true` | Shows or skips the final launch preview for menu and tool launches. |
+| `pinToLeadWorkspace` | `true`, `false` | `false` | On i3, moves each new external window onto the lead session's workspace instead of the focused one. |
 
 An explicit `session_spawn.terminal` value strictly overrides `defaultTerminal` for that launch and never accepts `auto`.
 Pi Fleet reads standard terminal context variables only for automatic selection and does not treat them as settings overrides.

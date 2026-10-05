@@ -53,6 +53,22 @@ function stubController(overrides: Partial<FleetToolController> = {}) {
         acknowledgement: { accepted: true, duplicate: false },
       };
     },
+    shutdownPeer: async (_ctx, targetSessionId) => {
+      calls.push({ kind: "shutdown", targetSessionId });
+      const issuedAt = Date.now();
+      return {
+        message: {
+          id: "msg_1234567890",
+          fromSessionId: "self",
+          toSessionId: targetSessionId,
+          mode: "notify",
+          text: "shutdown request",
+          issuedAt,
+          expiresAt: issuedAt + 120_000,
+        },
+        acknowledgement: { accepted: true, duplicate: false },
+      };
+    },
     ...overrides,
   };
   return { controller, calls, snapshot, spawnResult };
