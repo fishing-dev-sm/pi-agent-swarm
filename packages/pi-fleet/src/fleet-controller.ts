@@ -909,10 +909,12 @@ export class FleetController {
       return;
     }
     const color = this.color ?? self.color ?? pickFleetColor(self.sessionId);
-    const name = self.name ?? self.sessionId;
     const role = this.leadSessionId === self.sessionId ? "LEAD" : "WORKER";
+    // Show both the name and the session id so a human can see either
+    // reference accepted by /lead (name or id), even when both exist.
+    const identity = self.name ? `${colorize(self.name, color)} · ${self.sessionId}` : colorize(self.sessionId, color);
     try {
-      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${colorize("●", color)} ${colorize(name, color)} ${boldText(role)}`);
+      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${colorize("●", color)} ${identity} ${boldText(role)}`);
     } catch {
       // A replaced UI is allowed to reject best-effort status.
     }
