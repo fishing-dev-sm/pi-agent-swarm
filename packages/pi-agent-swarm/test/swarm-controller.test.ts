@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "vitest";
 import { createMockContext, createMockPi } from "../../../test/support.js";
 import { createGroup, formatInvite, type SwarmMessage, type SwarmPeerDescription } from "../src/protocol.js";
@@ -14,15 +17,18 @@ class FakeTransport {
   listPeersHook?: () => Promise<SwarmPeerDescription[]>;
   get endpointManifest() {
     return {
-      directory: "/tmp/pi-swarm-test",
+      directory: this.directory,
       endpointId: "endpoint1234",
-      socketPath: "/tmp/pi-swarm-test/endpoint1234.sock",
-      manifestPath: "/tmp/pi-swarm-test/endpoint1234.json",
+      socketPath: join(this.directory, "endpoint1234.sock"),
+      manifestPath: join(this.directory, "endpoint1234.json"),
       peer: this.options.peer,
     };
   }
 
-  constructor(readonly options: SwarmTransportOptions) {}
+  constructor(
+    readonly options: SwarmTransportOptions,
+    private readonly directory = "/tmp/pi-swarm-test",
+  ) {}
   async start() {
     await this.startHook?.();
     this.started = true;
@@ -59,18 +65,6 @@ function dependencies(
       transports.push(transport);
       return transport;
     },
-    createTmux: () => ({
-      assertAvailable: async () => "3.4",
-      spawnSplit: async () => ({ terminalId: "%42", version: "3.4" }),
-    }),
-    createGhostty: () => ({
-      assertAvailable: async () => "1.3.1",
-      spawnSplit: async () => ({ terminalId: "terminal-child", version: "1.3.1" }),
-    }),
-    createZellij: () => ({
-      assertAvailable: async () => "0.44.3",
-      spawnSplit: async () => ({ terminalId: "terminal_42", version: "0.44.3" }),
-    }),
     createExternal: () => ({
       assertAvailable: async () => "alacritty",
       spawnSplit: async () => ({ terminalId: "external-child", version: "alacritty" }),
@@ -351,4 +345,171 @@ test("incoming messages use follow-up delivery and replies wake the peer", async
   );
   assert.equal(JSON.stringify(mock.sentMessages).includes("/tmp/peer"), true);
   await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+type LeadTestContext = ReturnType<typeof createMockContext>;
+
+async function leadTestSetup(directory: string, sessionId: string) {
+  const mock = createMockPi();
+  const transports: FakeTransport[] = [];
+  const deps = dependencies({
+    createTransport: (options) => {
+      const transport = new FakeTransport(options, directory);
+      transports.push(transport);
+      return transport;
+    },
+  });
+  const sessionManager = {
+    getSessionId: () => sessionId,
+    getSessionName: () => undefined,
+    getBranch: () => [],
+    getEntries: () => [],
+  };
+  const context = createMockContext({ mode: "tui", hasUI: true, sessionManager });
+  return { mock, transports, deps, sessionManager, context };
+}
+
+async function waitForRosterStatus(context: LeadTestContext): Promise<string | undefined> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const value = context.statuses.get("swarm-roster");
+    if (value !== undefined) return value;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return context.statuses.get("swarm-roster");
+}
+
+async function readLeadRecord(directory: string): Promise<{ sessionId?: string } | undefined> {
+  try {
+    return JSON.parse(await readFile(join(directory, "lead.json"), "utf8")) as { sessionId?: string };
+  } catch {
+    return undefined;
+  }
+}
+
+test("lead record survives reload and the rejoined session restores the leader role", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-swarm-lead-"));
+  t.onTestFinished(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  const first = await leadTestSetup(directory, "same-session");
+  const controller = new SwarmController(first.mock.pi, first.deps);
+  await controller.sessionStart({ reason: "startup" }, first.context.ctx);
+  await controller.startNewGroup(first.context.ctx, false);
+  assert.equal((await readLeadRecord(directory))?.sessionId, "same-session");
+
+  await controller.sessionShutdown({ reason: "reload" }, first.context.ctx);
+  // A reload comes right back through the reload handoff, so the lead record must
+  // survive; deleting it would demote the whole group (and the lead itself) to WORKER.
+  assert.equal((await readLeadRecord(directory))?.sessionId, "same-session");
+
+  const reloaded = await leadTestSetup(directory, "same-session");
+  const second = new SwarmController(reloaded.mock.pi, reloaded.deps);
+  await second.sessionStart({ reason: "reload" }, first.context.ctx);
+  assert.equal(reloaded.transports[0]?.options.group.id, first.transports[0]?.options.group.id);
+  const roster = await waitForRosterStatus(first.context);
+  assert.equal(roster?.includes("LEADER"), true);
+  await second.sessionShutdown({ reason: "quit" }, first.context.ctx);
+});
+
+test("lead record is removed when the lead quits or leaves", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-swarm-lead-"));
+  t.onTestFinished(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  const quitter = await leadTestSetup(directory, "quitting-lead");
+  const first = new SwarmController(quitter.mock.pi, quitter.deps);
+  await first.sessionStart({ reason: "startup" }, quitter.context.ctx);
+  await first.startNewGroup(quitter.context.ctx, false);
+  assert.equal((await readLeadRecord(directory))?.sessionId, "quitting-lead");
+  await first.sessionShutdown({ reason: "quit" }, quitter.context.ctx);
+  assert.equal(await readLeadRecord(directory), undefined);
+
+  const leaver = await leadTestSetup(directory, "leaving-lead");
+  const second = new SwarmController(leaver.mock.pi, leaver.deps);
+  await second.sessionStart({ reason: "startup" }, leaver.context.ctx);
+  await second.startNewGroup(leaver.context.ctx, false);
+  assert.equal((await readLeadRecord(directory))?.sessionId, "leaving-lead");
+  await second.leave(leaver.context.ctx);
+  assert.equal(await readLeadRecord(directory), undefined);
+  await second.sessionShutdown({ reason: "quit" }, leaver.context.ctx);
+});
+
+test("session replacement removes the replaced session's lead record", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-swarm-lead-"));
+  t.onTestFinished(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  const replaced = await leadTestSetup(directory, "replaced-session");
+  const controller = new SwarmController(replaced.mock.pi, replaced.deps);
+  await controller.sessionStart({ reason: "startup" }, replaced.context.ctx);
+  await controller.startNewGroup(replaced.context.ctx, false);
+  assert.equal((await readLeadRecord(directory))?.sessionId, "replaced-session");
+
+  const replacementContext = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    sessionManager: {
+      getSessionId: () => "replacement-session",
+      getSessionName: () => undefined,
+      getBranch: () => [],
+      getEntries: () => [],
+    },
+  });
+  await controller.sessionStart({ reason: "startup" }, replacementContext.ctx);
+  assert.equal(await readLeadRecord(directory), undefined);
+  await controller.sessionShutdown({ reason: "quit" }, replacementContext.ctx);
+});
+
+test("member reload preserves another session's lead record", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-swarm-lead-"));
+  t.onTestFinished(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  const member = await leadTestSetup(directory, "member-session");
+  const controller = new SwarmController(member.mock.pi, member.deps);
+  await controller.sessionStart({ reason: "startup" }, member.context.ctx);
+  await controller.startNewGroup(member.context.ctx, false);
+  await controller.setLead(member.context.ctx, {
+    protocolVersion: 1,
+    sessionId: "other-lead",
+    endpointId: "b".repeat(24),
+    cwd: directory,
+    pid: 0,
+    acceptsRequests: false,
+  });
+  assert.equal((await readLeadRecord(directory))?.sessionId, "other-lead");
+
+  await controller.sessionShutdown({ reason: "reload" }, member.context.ctx);
+  assert.equal((await readLeadRecord(directory))?.sessionId, "other-lead");
+
+  const reloaded = await leadTestSetup(directory, "member-session");
+  const second = new SwarmController(reloaded.mock.pi, reloaded.deps);
+  await second.sessionStart({ reason: "reload" }, member.context.ctx);
+  const roster = await waitForRosterStatus(member.context);
+  assert.equal(roster?.includes("WORKER"), true);
+  assert.equal((await readLeadRecord(directory))?.sessionId, "other-lead");
+  await second.sessionShutdown({ reason: "quit" }, member.context.ctx);
+});
+
+test("reload without a lead record stays worker without recreating one", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-swarm-lead-"));
+  t.onTestFinished(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  const first = await leadTestSetup(directory, "same-session");
+  const controller = new SwarmController(first.mock.pi, first.deps);
+  await controller.sessionStart({ reason: "startup" }, first.context.ctx);
+  await controller.startNewGroup(first.context.ctx, false);
+  await rm(join(directory, "lead.json"), { force: true });
+
+  await controller.sessionShutdown({ reason: "reload" }, first.context.ctx);
+  assert.equal(await readLeadRecord(directory), undefined);
+
+  const reloaded = await leadTestSetup(directory, "same-session");
+  const second = new SwarmController(reloaded.mock.pi, reloaded.deps);
+  await second.sessionStart({ reason: "reload" }, first.context.ctx);
+  const roster = await waitForRosterStatus(first.context);
+  assert.equal(roster?.includes("WORKER"), true);
+  assert.equal(await readLeadRecord(directory), undefined);
+  await second.sessionShutdown({ reason: "quit" }, first.context.ctx);
 });

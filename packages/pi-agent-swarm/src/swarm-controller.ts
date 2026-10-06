@@ -916,12 +916,12 @@ export class SwarmController {
     if (!this.isCurrent(ctx)) throw staleError();
   }
 
-  private async cleanupActive(_reloading: boolean): Promise<void> {
+  private async cleanupActive(reloading: boolean): Promise<void> {
     this.generation += 1;
     this.controller.abort();
     let cleanupError: unknown;
     try {
-      await this.leaveGroupInternal();
+      await this.leaveGroupInternal(reloading);
     } catch (error) {
       cleanupError = error;
     }
@@ -932,7 +932,7 @@ export class SwarmController {
     if (cleanupError) throw cleanupError;
   }
 
-  private leaveGroupInternal(): Promise<void> {
+  private leaveGroupInternal(reloading = false): Promise<void> {
     return this.mutateMembership(async () => {
       const membership = this.membership;
       const directory = membership?.transport.endpointManifest?.directory;
@@ -947,8 +947,12 @@ export class SwarmController {
         membership?.group.secret.fill(0);
       }
       // A lead that leaves removes its own lead record so a stale lead.json does
-      // not outlive the session (the next lead overwrites it anyway).
-      if (directory && self && this.leadSessionId === self.sessionId) {
+      // not outlive the session (the next lead overwrites it anyway). A reload
+      // keeps the record: the same session rejoins through the reload handoff and
+      // restores its role from it, and if it never returns the record is no worse
+      // than a crashed lead's. Re-asserting instead would clobber a lead change
+      // made during the reload gap.
+      if (!reloading && directory && self && this.leadSessionId === self.sessionId) {
         await rm(join(directory, "lead.json"), { force: true }).catch(() => undefined);
       }
       this.leadSessionId = undefined;

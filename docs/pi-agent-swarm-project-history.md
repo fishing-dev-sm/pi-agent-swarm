@@ -127,6 +127,24 @@ GitHub 仓库：`fishing-dev-sm/pi-agent-swarm`，npm 包：`pi-agent-swarm`。
 
 教训：**目录改名除仓库外，还需同步检查用户级 `~/.pi/agent` 的安装指向**（settings.json 的 packages 列表、settings 文件本身），这些不在 git 跟踪内，git 检查无法发现。
 
+## 12. LEADER reload 后全组变 WORKER（2026-10-06）
+
+用户报告：leader 会话（01a10fcb）指派 spawn worker 后，自己的 footer badge 从 LEADER 变成 WORKER。磁盘证据：活跃组目录 `pi-swarm/879cac…/` 无 `lead.json`，而 leader 的 endpoint manifest `publishedAt`（19:32:08）晚于组建时间（14:07），证明其间发生过一次 reload。
+
+**根因**：`sessionShutdown(reason="reload")` → `cleanupActive(true)` → `leaveGroupInternal()` 按「lead 离组」逻辑删除 `lead.json`；但 reload handoff（`putReloadHandoff`/`takeReloadHandoff`）只保存 invite/name/color 等成员身份，不保存 lead 身份。同进程秒级重进组后 lead 记录已永久丢失，全组（含 lead 自己）显示 WORKER。`cleanupActive(_reloading)` 参数本就存在却被忽略——原作者留了钩子没接上。spawn 本身不触碰 lead.json，「指派 spawn 后才变 WORKER」是时间巧合（worker 改扩展文件触发了 leader 的热重载）。
+
+**修复**：把 `reloading` 从 `cleanupActive` 传入 `leaveGroupInternal`，reload 导致的离组跳过 `lead.json` 删除（`swarm-controller.ts` :914/:930/:945）。重进组后 `primeFooter → refreshLead` 读到保留的记录立即恢复 LEADER。真正的离开（quit、`/leave`、会话替换、spawn 回滚）保持删除语义。设计取舍：只跳过删除、**不**在 handoff 里存 wasLead 重新断言——reload 间隙若他人合法 `/lead`，旧 lead 回来读到新记录显示 WORKER 是正确行为，盲目重新断言会覆盖新 lead。会话若 reload 后再不回来，陈旧 lead.json 与进程崩溃场景一致，现有设计本已容忍（"the next lead overwrites it anyway"）。
+
+**测试**（先枚举 7 种失败方式 → 写测试看红 → 再实现）：`test/swarm-controller.test.ts` 新增 5 个测试，用真实临时目录验证 lead.json 存废——lead reload 存活并恢复 LEADER（修复前红）、quit/`leave()` 仍删除、会话替换仍删除、成员 reload 不动他人 lead 记录、lead.json 已缺失时 reload 不重建不崩溃（不追溯修复）。FakeTransport 的 `endpointManifest.directory` 参数化以支持真实目录。
+
+**顺带修复（HEAD 既有失败，独立意图）**：`npm test` 的 `tsc -p tsconfig.test.json` 在干净 HEAD 上就报 `createTmux` TS2353（仓库外 worktree 实证）——第 9 节删除 tmux/zellij/ghostty 后端时，`SwarmControllerDependencies` 接口删了三个工厂，但 swarm-controller.test.ts 的 `dependencies()` 工厂里 3 个死 mock 未清理。已删除，全仓库 grep 确认失败类只此一处。
+
+**验证**：`npm run check` ✓、`npm test`（479 文件 / 6136 测试）✓、dist 重建含修复 ✓、`pi --no-extensions -e ./packages/pi-agent-swarm -p` 加载 smoke ✓。Changeset：`.changeset/lead-record-survives-reload.md`（patch）。
+
+**部署注意**：已丢失 lead.json 的现存组不追溯修复——leader 会话 `/reload` 加载新代码后需 `/lead <名字|id>` 一次性恢复记录，之后 reload 不再丢 LEADER。
+
+教训：**生命周期清理逻辑要区分「真的离开」与「reload 瞬离」**——凡是 session_shutdown 里的资源释放，都要问一句：这个资源 reload 回来时还需要吗？handoff 恢复的状态集合必须与 shutdown 清理的状态集合对齐审计。
+
 ## 13. footer badge 三档缩略模式（2026-10-06）
 
 窄终端下三段 footer badge（name+36 位 id+角色，全长 66 列）会溢出换行。用户要求设计「长度不同情况下的缩略模式」，先出三档设计稿审核（全彩 mjs 预览板），通过后实装。
