@@ -237,3 +237,15 @@ Changeset：`.changeset/swarm-github-language-palettes.md`（minor）。
 ## 15. 0.2.0 发布与脱离上游发布流程（2026-10-06）
 
 用户明确：本 fork 已彻底独立，不使用上游的 publish.yml Version PR 流程。发布方式沿用 §9.3 的手动模式：把上游继承的 5 个 `@narumitw/*` changesets 临时移出 `.changeset/` 后运行 `npx changeset version`（只消费本包的 5 个 changesets），随后 `npm publish --workspace pi-agent-swarm`（本机登录身份 `xihuang_hk`）。版本 0.1.0 → 0.2.0（4 minor + 1 patch），CHANGELOG 条目由 changesets 生成。上游 changesets 原样保留，不参与本仓发布。
+
+## 16. 与上游彻底分离的清理（2026-10-06）
+
+**背景**：本仓 GitHub 侧自创建起即非 fork（API `fork: false`），但内容层仍背着整个上游 monorepo。用户授权清理，第一原则是不影响 pi-agent-swarm 正常运行。
+
+**核实**：自 fork 点（4c6b1fb0）以来对上游包零修改（唯一例外 test/support.ts +1 行，属 swarm 测试辅助）；35 个 `@narumitw/*` 包用户无权发布且日常不使用（`~/.pi/agent` 仅装 pi-agent-swarm）；唯一依赖纠缠是 pi-agent-swarm 依赖 `@narumitw/pi-tui-kit@^0.59.0`，npm 上由上游发布的 0.65.1 可满足，删除本地包后从 registry 解析。
+
+**清理**：删 35 个上游包、deprecated/、5 个上游 changesets、上游 docs（adr/api/implementation-notes/plans/research/roadmaps）、上游根测试（accounts-usage-coexistence 等 5 个）、publish.yml 及上游专属 scripts；根 package.json 改名 `pi-agent-swarm-workspace`、pi.extensions 只留 swarm；`scripts/run-package-workflow.mjs` 的 `@narumitw` scope 硬编码改为从包 manifest 读取；本地 489 个上游 tag 删除、`upstream` remote 移除。
+
+**归属**：根与包的 LICENSE 保留 narumiruna 版权行并追加 fishing-dev-sm 行（MIT 衍生作品义务）；根 README（en/zh-CN）以 Acknowledgments 段替代 fork 描述。
+
+**发布方式**（用户指令，m00504）：不走上游 publish.yml Version PR，沿用 §9.3/§15 手动模式：`npm run version-packages` → release commit → `npm publish --workspace pi-agent-swarm` → push。

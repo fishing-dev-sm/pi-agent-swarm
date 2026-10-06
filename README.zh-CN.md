@@ -78,12 +78,13 @@ pi install ./packages/pi-agent-swarm
 ```text
 packages/pi-agent-swarm/        pi-agent-swarm 扩展（权威实现位于 src/ 下）
 docs/                     项目历史、图片与仓库规范
-deprecated/               上游中被排除出活动 workspace 脚本的包
-packages/                 从 fork 保留下来的完整上游 pi-extensions monorepo
 ```
 
-本仓库是 [`narumiruna/pi-extensions`](https://github.com/narumiruna/pi-extensions) 的 fork。
-所有上游扩展包仍位于 `packages/` 下，并保留各自的 README 和许可证。
+## 🙏 鸣谢
+
+本项目最初 fork 自 [`narumiruna/pi-extensions`](https://github.com/narumiruna/pi-extensions)
+（具体为其 `pi-fleet` 包）。感谢上游作者的原始实现与设计。上游版权声明已按要求保留在
+[`LICENSE`](./LICENSE) 中。本仓库现已完全独立，不再跟踪上游。
 
 ## 📄 许可证
 

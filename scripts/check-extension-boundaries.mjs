@@ -39,6 +39,10 @@ const workspacePackages = findWorkspacePackages(packagesDirectory);
 const activePackages = workspacePackages.filter(({ packageJson }) => packageJson.pi?.extensions !== undefined);
 const libraryPackages = workspacePackages.filter(({ packageJson }) => packageJson.pi?.extensions === undefined);
 const libraryPackageNames = new Set(libraryPackages.map(({ name }) => name));
+const activePackageNames = new Set(activePackages.map(({ name }) => name));
+// Published libraries that live outside this workspace but are legitimate runtime
+// dependencies (pi-tui-kit is published upstream under the @narumitw scope).
+const EXTERNAL_LIBRARY_PACKAGES = new Set(["@narumitw/pi-tui-kit"]);
 const failures = [];
 const sourcePaths = activePackages.flatMap((extensionPackage) => {
   const sourceDirectory = path.join(extensionPackage.directory, "src");
@@ -294,6 +298,16 @@ function isForbiddenExtensionReference(packageName, specifier) {
   for (const libraryPackageName of libraryPackageNames) {
     if (specifier === libraryPackageName || specifier.startsWith(`${libraryPackageName}/`)) {
       return false;
+    }
+  }
+  for (const externalLibraryName of EXTERNAL_LIBRARY_PACKAGES) {
+    if (specifier === externalLibraryName || specifier.startsWith(`${externalLibraryName}/`)) {
+      return false;
+    }
+  }
+  for (const extensionPackageName of activePackageNames) {
+    if (specifier === extensionPackageName || specifier.startsWith(`${extensionPackageName}/`)) {
+      return true;
     }
   }
   return EXTENSION_PACKAGE_RE.test(specifier);

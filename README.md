@@ -78,12 +78,14 @@ Use `/swarm`, `session_spawn`, and `session_bus` to launch, steer, and shut down
 ```text
 packages/pi-agent-swarm/        The pi-agent-swarm extension (authoritative implementation under src/)
 docs/                     Project history, images, and repository conventions
-deprecated/               Upstream packages excluded from active workspace scripts
-packages/                 The full upstream pi-extensions monorepo, preserved from the fork
 ```
 
-This repository is a fork of [`narumiruna/pi-extensions`](https://github.com/narumiruna/pi-extensions).
-All upstream extension packages remain under `packages/` and keep their own READMEs and licenses.
+## 🙏 Acknowledgments
+
+This project began as a fork of [`narumiruna/pi-extensions`](https://github.com/narumiruna/pi-extensions)
+(specifically its `pi-fleet` package). Many thanks to the upstream author for the original
+implementation and design. The upstream copyright is retained in [`LICENSE`](./LICENSE) as required.
+This repository is now fully independent and no longer tracks upstream.
 
 ## 📄 License
 

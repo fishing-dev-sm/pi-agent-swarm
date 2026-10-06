@@ -34,6 +34,15 @@ function requireUnscopedName(name) {
   }
 }
 
+function workspacePackageName(name) {
+  const manifestPath = join("packages", `pi-${name}`, "package.json");
+  if (!existsSync(manifestPath)) {
+    console.error(`package manifest not found: ${manifestPath}`);
+    process.exit(2);
+  }
+  return JSON.parse(readFileSync(manifestPath, "utf8")).name;
+}
+
 function doctor(packageName) {
   requireArgument(packageName, "npm run package:doctor -- <package>");
   console.log(`package: ${packageName}`);
@@ -65,7 +74,7 @@ function makePublic(packageName) {
 
 function pack(name) {
   requireUnscopedName(name);
-  run(npmCommand, ["--workspace", `@narumitw/pi-${name}`, "pack", "--dry-run"]);
+  run(npmCommand, ["--workspace", workspacePackageName(name), "pack", "--dry-run"]);
 }
 
 function install(name) {
@@ -74,7 +83,7 @@ function install(name) {
     console.error(`invalid package name: ${name}`);
     process.exit(2);
   }
-  const packageName = `@narumitw/pi-${name}`;
+  const packageName = workspacePackageName(name);
   const isPublished = run(npmCommand, ["view", packageName, "version"], {
     allowFailure: true,
     stdio: "ignore",

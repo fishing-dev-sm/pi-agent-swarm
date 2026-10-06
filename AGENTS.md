@@ -22,9 +22,7 @@
 - Run `npm run` before adding or documenting a root workflow command.
 - Keep root npm scripts as canonical entrypoints only for workflows users run from the root, and move complex implementations under `scripts/`.
 - Keep pre-commit hook logic in `scripts/pre-commit.sh`, invoke it directly from `.husky/pre-commit`, and do not add a duplicate root npm script.
-- Do not run root checks concurrently with a `pi-tui-kit` build or check because both clear `packages/pi-tui-kit/dist`.
-- Rebuild `pi-tui-kit` before consumer tests because consumers resolve its built output.
-- After raising a consumer's Kit floor, run root `npm install`, verify the resolution with `npm ls @narumitw/pi-tui-kit`, and then typecheck.
+- `@narumitw/pi-tui-kit` is an external npm dependency (published upstream); consumers resolve the published tarball, so never assume a local workspace build of it.
 - Keep imported Pi packages in root `devDependencies` so tests emitted under `node_modules/.cache` resolve the intended versions.
 - Prefer Pi AI root exports, and use a variable-specifier dynamic import only when a required subpath has no root export because official Pi can misresolve static `@earendil-works/pi-ai/api/*` imports.
 - Treat Pi's user and project managed npm roots as separate install scopes because deduplication is guaranteed only within one root.
@@ -33,7 +31,6 @@
 ## Boundaries and package layout
 
 - Keep publishable extension packages and reusable libraries under `packages/<package>/`, with implementation source under `packages/<package>/src/`.
-- Keep deprecated references under `deprecated/`, which active checks exclude.
 - Keep each package's manifest, README, license, and TypeScript configuration inside that package.
 - Preserve each README's emoji title; npm, Pi, and license badges; and applicable `✨ Features`, `📦 Install`, `🚀 Quick start`, `⚙️ Settings`, `💬 Commands`, `🗂️ Package layout`, `🔎 Keywords`, and `📄 License` sections.
 - Keep small repository-only extensions and their helpers, documentation, and requested tests under `.pi/extensions/<extension>/`, with `index.ts` as the entrypoint.
@@ -102,13 +99,13 @@
 
 ## Testing and verification
 
-- Keep root integration tests under `test/`, package tests under `packages/<package>/test/*.test.ts`, and archived tests under `deprecated/`.
+- Keep root integration tests under `test/` and package tests under `packages/<package>/test/*.test.ts`.
 - Keep every Vitest test within the configured 5,000 ms timeout, and split or synchronize slow tests instead of adding a larger per-test override.
 - Test custom key handling with at least one non-default keybinding set.
 - Test changed reviews in non-interactive rendering and changed editors for editing and paste behavior.
 - Use table-driven custom-keybinding tests that cover matcher aliases, modifier order, legacy input collisions, terminal-mode differences, invalid configured strings, and the first usable fallback.
 - Run `npm run check` for builds, Biome, package boundaries, and workspace typechecks.
-- Run `npm test` separately for active root and workspace tests; CI must run both gates, while `publish.yml` must not rerun them.
+- Run `npm test` separately for active root and workspace tests; CI must run both gates.
 - Run `npm run package:pack -- <unscoped-name>` and inspect the tarball after package metadata or publishing changes.
 - After packaged runtime-loading changes, run `npm --workspace @narumitw/pi-<unscoped-name> run build --if-present` and smoke with `pi -e ./packages/pi-<unscoped-name>`.
 - After project-local extension changes, smoke with `pi --no-extensions -e ./.pi/extensions/<extension>/index.ts`, then verify trusted-project auto-discovery and `/reload` when practical.
@@ -127,8 +124,8 @@
 - Preserve user-facing experimental warnings and gate experimental behavior behind explicit configuration that defaults to existing behavior.
 - Keep a predecessor extension active until an explicit follow-up decision approves deprecation.
 - Use `npm run package:public -- <package>` only to change an existing package's visibility.
-- Use `npm publish --workspace <package> --access public` only for an explicitly approved first publication of a new scoped package that still returns 404.
-- Except for that first-publication case, let `publish.yml` manage version pull requests, package tags, publications, and GitHub releases.
+- Use `npm publish --workspace <package> --access public` only for an explicitly approved first publication of a new package that still returns 404.
+- Publishing is fully manual (this repo severed the upstream PR-based release flow): consume the package's changesets with `npm run version-packages`, commit the release, then `npm publish --workspace <package>` and push.
 - Require a clean worktree before dependency-maintenance workflows and use Git recovery instead of embedding rollback logic in workflow scripts.
 - Make package-install workflows verify registry visibility first and fall back to the local workspace only when that fixes the current install path.
 
