@@ -3,16 +3,19 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { SwarmColorPaletteName } from "./color.js";
 
 export const SWARM_SETTINGS_FILE = "pi-agent-swarm.json";
 export const MAX_SWARM_SETTINGS_BYTES = 64 * 1024;
 export const DEFAULT_SWARM_SETTINGS: Readonly<SwarmSettings> = Object.freeze({
+  colorPalette: "muted",
   confirmSessionLaunch: true,
   externalCommand: "alacritty -e",
   pinToLeadWorkspace: false,
 });
 
 export interface SwarmSettings {
+  colorPalette: SwarmColorPaletteName;
   confirmSessionLaunch: boolean;
   externalCommand: string;
   pinToLeadWorkspace: boolean;
@@ -73,6 +76,7 @@ export interface SwarmSettingsRuntimeOptions {
 }
 
 const SETTING_FIELDS = [
+  "colorPalette",
   "confirmSessionLaunch",
   "externalCommand",
   "pinToLeadWorkspace",
@@ -88,6 +92,11 @@ export function normalizeSwarmSettingsDocument(value: unknown): NormalizedSwarmS
   const settings: SwarmSettings = { ...DEFAULT_SWARM_SETTINGS };
   const sources = builtInSources();
 
+  if (Object.hasOwn(value, "colorPalette")) {
+    if (value.colorPalette !== "muted" && value.colorPalette !== "bright") return undefined;
+    settings.colorPalette = value.colorPalette;
+    sources.colorPalette = "user";
+  }
   if (Object.hasOwn(value, "confirmSessionLaunch")) {
     if (typeof value.confirmSessionLaunch !== "boolean") return undefined;
     settings.confirmSessionLaunch = value.confirmSessionLaunch;
@@ -157,6 +166,7 @@ export function createInMemorySwarmSettingsRuntime(): SwarmSettingsRuntime {
         settings: { ...state.settings, ...canonical },
         sources: {
           ...state.sources,
+          ...(canonical.colorPalette !== undefined ? { colorPalette: "user" as const } : {}),
           ...(canonical.confirmSessionLaunch !== undefined ? { confirmSessionLaunch: "user" as const } : {}),
           ...(canonical.externalCommand ? { externalCommand: "user" as const } : {}),
           ...(canonical.pinToLeadWorkspace !== undefined ? { pinToLeadWorkspace: "user" as const } : {}),
@@ -331,6 +341,7 @@ function invalidLoad(path: string, reason: string): SwarmSettingsLoadResult {
 
 function builtInSources(): Record<SwarmSettingsField, SwarmSettingsSource> {
   return {
+    colorPalette: "built-in",
     confirmSessionLaunch: "built-in",
     externalCommand: "built-in",
     pinToLeadWorkspace: "built-in",

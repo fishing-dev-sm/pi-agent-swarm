@@ -140,6 +140,7 @@ Edit user settings in `<getAgentDir()>/pi-agent-swarm.json`, normally `~/.pi/age
 
 ```json
 {
+  "colorPalette": "muted",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": true,
   "pinToLeadWorkspace": false
@@ -148,6 +149,7 @@ Edit user settings in `<getAgentDir()>/pi-agent-swarm.json`, normally `~/.pi/age
 
 | Setting | Values | Default | Behavior |
 | --- | --- | --- | --- |
+| `colorPalette` | `muted`, `bright` | `muted` | Roster badge palette derived from GitHub Linguist language colors: `muted` is the low-saturation set whose yellow matches the ROLE badge, `bright` is GitHub's original vivid set. Both share slot order, so a session keeps its hue when the palette switches. Switch live with `/swarm` → **Set theme** (persisted to this file) or edit the value directly and `/reload`. |
 | `externalCommand` | any terminal command | `alacritty -e` | Command used to open each new window. |
 | `confirmSessionLaunch` | `true`, `false` | `true` | Shows or skips the final launch preview for tool launches. |
 | `pinToLeadWorkspace` | `true`, `false` | `false` | Moves each new window onto the lead session's workspace instead of the focused one. |

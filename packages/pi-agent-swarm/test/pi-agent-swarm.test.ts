@@ -19,6 +19,9 @@ function dependencies(): SwarmControllerDependencies {
       setColor: (color) => {
         options.peer.color = color;
       },
+      setName: (name) => {
+        options.peer.name = name;
+      },
       get peerDescription() {
         return { ...options.peer, endpointId: "a".repeat(24) };
       },
@@ -163,6 +166,7 @@ function memorySettingsRuntime(): SwarmSettingsRuntime & {
   const state: SwarmSettingsState = {
     settings: { ...DEFAULT_SWARM_SETTINGS },
     sources: {
+      colorPalette: "built-in",
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
       pinToLeadWorkspace: "built-in",

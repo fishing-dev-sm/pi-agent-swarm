@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 import { createMockContext, createMockPi } from "../../../test/support.js";
 import { createGroup, formatInvite, type SwarmMessage, type SwarmPeerDescription } from "../src/protocol.js";
+import { createInMemorySwarmSettingsRuntime } from "../src/settings.js";
 import { SwarmController, type SwarmControllerDependencies } from "../src/swarm-controller.js";
 import type { SwarmDeliveryAck, SwarmTransportOptions } from "../src/transport.js";
 
@@ -515,4 +516,28 @@ test("reload without a lead record stays worker without recreating one", async (
   assert.equal(roster?.includes("WORKER"), true);
   assert.equal(await readLeadRecord(directory), undefined);
   await second.sessionShutdown({ reason: "quit" }, first.context.ctx);
+});
+
+test("setColorPalette persists the palette and remaps this session's hue slot", async () => {
+  const mock = createMockPi();
+  const deps = dependencies();
+  const settings = createInMemorySwarmSettingsRuntime();
+  const controller = new SwarmController(mock.pi, deps, settings);
+  const context = createMockContext({ mode: "tui", hasUI: true });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  await controller.startNewGroup(context.ctx, false);
+  await controller.setOwnColor(context.ctx, "#c22d40");
+  assert.equal(deps.transports[0]?.options.peer.color, "#c22d40");
+
+  await controller.setColorPalette(context.ctx, "bright");
+  assert.equal(settings.get().settings.colorPalette, "bright");
+  // Muted red maps onto bright red: the session keeps its hue slot.
+  assert.equal(deps.transports[0]?.options.peer.color, "#db5855");
+
+  // A custom hex outside both palettes is left untouched by palette switches.
+  await controller.setOwnColor(context.ctx, "#123456");
+  await controller.setColorPalette(context.ctx, "muted");
+  assert.equal(settings.get().settings.colorPalette, "muted");
+  assert.equal(deps.transports[0]?.options.peer.color, "#123456");
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
 });

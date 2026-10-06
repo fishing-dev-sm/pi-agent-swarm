@@ -7,7 +7,14 @@ import type {
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { normalizeSwarmColor, pickSwarmColor } from "./color.js";
+import {
+  normalizeSwarmColor,
+  pickSwarmColor,
+  type SwarmColor,
+  type SwarmColorPaletteName,
+  swarmColorName,
+  swarmColorPalette,
+} from "./color.js";
 import { parseExternalCommand } from "./external.js";
 import { buildRosterBadge, DEFAULT_TERMINAL_COLUMNS } from "./footer.js";
 import { consumeLaunchEnvelope, launchEnvelopeEnvironment, type SwarmLaunchEnvelope } from "./launch-envelope.js";
@@ -525,7 +532,8 @@ export class SwarmController {
     const launchId = this.deps.randomId("launch");
     const kickoffCapability = this.deps.randomId("kickoff");
     const name = normalizeOptionalText(input.name, "name", 200) ?? `Swarm ${launchId.slice(-6)}`;
-    const color = normalizeSwarmColor(input.color) ?? pickSwarmColor(name);
+    const palette = this.activePalette();
+    const color = normalizeSwarmColor(input.color, palette) ?? pickSwarmColor(name, palette);
     const modelSpec = normalizeOptionalText(input.model, "model", 200);
     let childModel: SwarmLaunchEnvelope["model"];
     if (modelSpec) {
@@ -742,7 +750,7 @@ export class SwarmController {
       protocolVersion: SWARM_PROTOCOL_VERSION,
       sessionId: ctx.sessionManager.getSessionId(),
       ...(this.pi.getSessionName() ? { name: this.pi.getSessionName() } : {}),
-      color: this.color ?? pickSwarmColor(ctx.sessionManager.getSessionId()),
+      color: this.color ?? pickSwarmColor(ctx.sessionManager.getSessionId(), this.activePalette()),
       cwd: ctx.cwd,
       pid: process.pid,
       ...(launchId ? { launchId } : {}),
@@ -1061,7 +1069,7 @@ export class SwarmController {
     }
     const sessionId = self?.sessionId ?? ctx.sessionManager.getSessionId();
     const name = self?.name ?? this.pi.getSessionName();
-    const color = this.color ?? self?.color ?? pickSwarmColor(sessionId);
+    const color = this.color ?? self?.color ?? pickSwarmColor(sessionId, this.activePalette());
     const role = this.leadSessionId === sessionId || (!self && this.defaultLead) ? "LEADER" : "WORKER";
     // The badge degrades through FULL / COMPACT / MINIMAL tiers based on the
     // terminal width (see footer.ts); the role badge always survives.
@@ -1102,6 +1110,37 @@ export class SwarmController {
     }
     this.leadSessionId = target.sessionId;
     await this.broadcastLeadChange(target);
+    await this.renderFooterStatus(ctx);
+  }
+
+  /** Resolve a palette name or #rrggbb hex against the active `colorPalette` setting. */
+  normalizeColor(value: unknown): string | undefined {
+    return normalizeSwarmColor(value, this.activePalette());
+  }
+
+  private activePalette(): readonly SwarmColor[] {
+    return swarmColorPalette(this.settings.get().settings.colorPalette);
+  }
+
+  /**
+   * Persist the roster palette and keep this session on the same hue slot under
+   * the new palette. Peers keep their announced colors; their own sessions decide
+   * locally whether to follow a palette change.
+   */
+  async setColorPalette(ctx: ExtensionContext, palette: SwarmColorPaletteName, signal?: AbortSignal): Promise<void> {
+    this.assertCurrentContext(ctx);
+    throwIfAborted(signal, "Pi Agent Swarm palette change aborted");
+    await this.settings.update({ colorPalette: palette });
+    this.assertCurrentContext(ctx);
+    throwIfAborted(signal, "Pi Agent Swarm palette change aborted");
+    const slot = this.color ? swarmColorName(this.color) : undefined;
+    if (slot) {
+      const next = this.activePalette().find((color) => color.name === slot);
+      if (next && next.hex !== this.color) {
+        this.color = next.hex;
+        this.membership?.transport.setColor(next.hex);
+      }
+    }
     await this.renderFooterStatus(ctx);
   }
 

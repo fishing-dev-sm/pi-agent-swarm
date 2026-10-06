@@ -39,28 +39,33 @@ test("normalization accepts partial settings and rejects invalid owned values", 
     normalizeSwarmSettingsDocument({
       externalCommand: "kitty",
       confirmSessionLaunch: false,
+      colorPalette: "bright",
       future: { retained: true },
     }),
     {
       settings: {
         externalCommand: "kitty",
         confirmSessionLaunch: false,
+        colorPalette: "bright",
         pinToLeadWorkspace: false,
       },
       sources: {
         externalCommand: "user",
         confirmSessionLaunch: "user",
+        colorPalette: "user",
         pinToLeadWorkspace: "built-in",
       },
     },
   );
   assert.deepEqual(normalizeSwarmSettingsDocument({ pinToLeadWorkspace: true }), {
     settings: {
+      colorPalette: "muted",
       confirmSessionLaunch: true,
       externalCommand: "alacritty -e",
       pinToLeadWorkspace: true,
     },
     sources: {
+      colorPalette: "built-in",
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
       pinToLeadWorkspace: "user",
@@ -69,6 +74,7 @@ test("normalization accepts partial settings and rejects invalid owned values", 
   assert.deepEqual(normalizeSwarmSettingsDocument({}), {
     settings: DEFAULT_SWARM_SETTINGS,
     sources: {
+      colorPalette: "built-in",
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
       pinToLeadWorkspace: "built-in",
@@ -77,6 +83,8 @@ test("normalization accepts partial settings and rejects invalid owned values", 
   for (const value of [
     null,
     [],
+    { colorPalette: "neon" },
+    { colorPalette: 5 },
     { confirmSessionLaunch: "yes" },
     { externalCommand: "" },
     { externalCommand: 5 },
@@ -104,6 +112,7 @@ test("updates preserve unknown fields and publish private JSON atomically", asyn
     pinToLeadWorkspace: true,
   });
   assert.deepEqual(runtime.get().settings, {
+    colorPalette: "muted",
     confirmSessionLaunch: false,
     externalCommand: "alacritty -e",
     pinToLeadWorkspace: true,
@@ -184,6 +193,7 @@ test("concurrent updates serialize in call order and reload waits for pending pu
   releaseFirst();
   await Promise.all([first, second, reload, runtime.flush()]);
   assert.deepEqual(runtime.get().settings, {
+    colorPalette: "muted",
     confirmSessionLaunch: false,
     externalCommand: "kitty",
     pinToLeadWorkspace: false,

@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { normalizeSwarmColor } from "./color.js";
 import type { SwarmMenuSource } from "./menu.js";
 import { parseInvite } from "./protocol.js";
 import { renderSwarmMessage, SWARM_MESSAGE_TYPE } from "./renderer.js";
@@ -79,7 +78,7 @@ export function createPiSwarmExtension(dependencies: PiSwarmDependencies = {}): 
     pi.registerCommand("color", {
       description: "Set this session's color (palette name or #rrggbb)",
       handler: async (rawArgs, ctx) => {
-        const color = normalizeSwarmColor(rawArgs.trim());
+        const color = controller.normalizeColor(rawArgs.trim());
         if (!color) {
           throw new Error("Usage: /color <red|orange|yellow|green|cyan|blue|magenta|purple|#rrggbb>");
         }
@@ -142,11 +141,17 @@ function menuSource(controller: SwarmController): SwarmMenuSource {
       }
     },
     setColor: async (commandContext, color, signal) => {
-      const normalized = normalizeSwarmColor(color);
+      const normalized = controller.normalizeColor(color);
       if (!normalized) throw new Error("Pi Agent Swarm color is invalid");
       await controller.setOwnColor(commandContext, normalized, signal);
       if (controller.isCurrent(commandContext)) {
         commandContext.ui.notify(`Color set to ${normalized}.`, "info");
+      }
+    },
+    setPalette: async (commandContext, palette, signal) => {
+      await controller.setColorPalette(commandContext, palette, signal);
+      if (controller.isCurrent(commandContext)) {
+        commandContext.ui.notify(`Theme set to ${palette}.`, "info");
       }
     },
   };

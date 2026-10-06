@@ -54,6 +54,9 @@ class SpawnTransport implements SwarmTransportPort {
   setColor(color: string) {
     this.options.peer.color = color;
   }
+  setName(name: string) {
+    this.options.peer.name = name;
+  }
   get peerDescription() {
     return { ...this.options.peer, endpointId: "a".repeat(24) };
   }
@@ -452,6 +455,7 @@ function memorySettingsRuntime(
   let state: SwarmSettingsState = {
     settings: { ...DEFAULT_SWARM_SETTINGS, ...overrides },
     sources: {
+      colorPalette: Object.hasOwn(overrides, "colorPalette") ? "user" : "built-in",
       confirmSessionLaunch: Object.hasOwn(overrides, "confirmSessionLaunch") ? "user" : "built-in",
       externalCommand: Object.hasOwn(overrides, "externalCommand") ? "user" : "built-in",
       pinToLeadWorkspace: Object.hasOwn(overrides, "pinToLeadWorkspace") ? "user" : "built-in",

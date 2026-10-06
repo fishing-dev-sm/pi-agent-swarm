@@ -210,3 +210,26 @@ GitHub 仓库：`fishing-dev-sm/pi-agent-swarm`，npm 包：`pi-agent-swarm`。
 - E2E 产物 `/tmp/fleet-results/footer-modes-e2e.mjs`（对 esbuild 打包的真实 footer.ts 跑宽度扫描）：12 项断言全过——20..200 列扫描宽度有界且角色永存、160→FULL / 60→COMPACT / 30→MINIMAL、长名带 `…` 短 id 不带、控制序列消毒、CJK 截断不碎字符、两角色等宽。
 - 提交 **`057badd9`**（`feat(pi-agent-swarm): adapt the footer badge to terminal width in three tiers`）。因工作区混有菜单重建与 lead reload 修复的在飞改动，提交时按 hunk 过滤暂存（swarm-controller.ts 14 取 9、README.md 8 取 3），在飞工作未混入。
 - 未验证路径：真实 TTY 拖窗口目视换挡（逻辑已由宽度扫描覆盖）。
+
+## 14. GitHub 语言色调色板与 `/swarm` Set theme（2026-10-06）
+
+用户反馈 roster badge 颜色饱和度过高（Tailwind 500 色系平均饱和度 88%），要求参考 GitHub 各语言颜色体系出颜色稿审核。审核产物 `scripts/color-draft.mjs`（真彩 ANSI 预览板，复刻 FULL 徽章并统计饱和度）。用户定案：低饱和（A）与亮色（B）双方案并存、默认低饱和、设置可切换；ROLE 黄 `#ffc85a` 保留不动；低饱和方案的 yellow 槽与 ROLE 黄同色，不接受亮灰替代。
+
+### 14.1 调色板
+
+- `src/color.ts` 新增 `SWARM_COLOR_PALETTES`：`muted`（默认，低饱和 GitHub Linguist 取色，yellow 槽 = `#ffc85a` 与 ROLE 徽章同色）与 `bright`（GitHub 原色高饱和）。两板槽序一致（red/orange/yellow/green/cyan/blue/magenta/purple），seed 选色跨板保持色相。
+- `SWARM_COLORS` 保留为 muted 别名（menu 等消费点不变）；旧 Tailwind hex 收进 `LEGACY_SWARM_COLORS` 仅用于 hex→槽名反查，旧版本指派的颜色在 peer 标签里仍解析为色名。
+- `normalizeSwarmColor`/`pickSwarmColor` 增加 palette 参数（默认 muted），三处调用点从设置读当前板。
+
+### 14.2 设置与实时切换
+
+- 新增 `colorPalette: "muted" | "bright"` 设置项（默认 muted，校验拒绝其他值）；手改 `pi-agent-swarm.json` 下次 session start 或 `/reload` 生效。
+- `/swarm` 菜单第四项 **Set theme**：`ctx.ui.select` 选板 → `controller.setColorPalette` 持久化设置并把本会话颜色映射到新板同槽（自定义 hex 不动）；只影响自己的 badge，peer 各自本地决定是否跟随。
+- `/color` 与菜单 Set color 统一改走 `controller.normalizeColor`，按当前板解析色名。
+
+### 14.3 验证
+
+- 新增 `test/color.test.ts`（两板槽序一致、muted yellow === ROLE 黄、seed 跨板同槽、legacy hex 反查）；settings/controller/menu 测试补齐新字段与 Set theme 用例。包级 tsc/biome/vitest 与根门禁 `npm run check`、`npm test` 全绿；dist 重建 + 加载 smoke ✓。
+- 未验证路径：TUI 菜单 Set theme 实际渲染目视（逻辑已由 menu 测试覆盖）。
+
+Changeset：`.changeset/swarm-github-language-palettes.md`（minor）。
