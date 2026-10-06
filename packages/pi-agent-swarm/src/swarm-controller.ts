@@ -7,8 +7,9 @@ import type {
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { badge, contrastTextColor, normalizeSwarmColor, pickSwarmColor } from "./color.js";
+import { normalizeSwarmColor, pickSwarmColor } from "./color.js";
 import { parseExternalCommand } from "./external.js";
+import { buildRosterBadge, DEFAULT_TERMINAL_COLUMNS } from "./footer.js";
 import { consumeLaunchEnvelope, launchEnvelopeEnvironment, type SwarmLaunchEnvelope } from "./launch-envelope.js";
 import { createPiLauncher, type PiLauncher } from "./launcher.js";
 import { type PiInvocation, resolvePiInvocation } from "./pi-invocation.js";
@@ -47,8 +48,6 @@ import {
 
 const STATUS_KEY = "swarm";
 const ROSTER_STATUS_KEY = "swarm-roster";
-/** Uniform warning-cream background for the footer role badge (LEADER and WORKER alike). */
-const ROLE_BADGE_BACKGROUND = "#ffc85a";
 const DEFAULT_LAUNCH_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const RELOAD_HANDOFF_TTL_MS = 30_000;
@@ -94,6 +93,8 @@ export interface SwarmControllerDependencies {
   sleep(milliseconds: number, signal?: AbortSignal): Promise<void>;
   launchTimeoutMs: number;
   environment: NodeJS.ProcessEnv;
+  /** Visible terminal columns, or undefined when not attached to a TTY. */
+  terminalColumns?(): number | undefined;
   runtimeBaseDirectory?: string;
 }
 
@@ -152,6 +153,7 @@ export function defaultSwarmControllerDependencies(pi: ExtensionAPI): SwarmContr
     sleep: abortableSleep,
     launchTimeoutMs: DEFAULT_LAUNCH_TIMEOUT_MS,
     environment: process.env,
+    terminalColumns: () => (process.stdout.isTTY ? process.stdout.columns : undefined),
   };
 }
 
@@ -169,6 +171,8 @@ export class SwarmController {
   /** A human-started session is the default lead of its own (not yet started) group. */
   private defaultLead = false;
   private leadWatcher: ReturnType<typeof setInterval> | undefined;
+  private readonly resizeListener = () => this.onTerminalResize();
+  private resizeWatching = false;
   private readonly pendingKickoffIds = new Set<string>();
   private relayChain: Promise<void> = Promise.resolve();
 
@@ -193,6 +197,7 @@ export class SwarmController {
     this.pendingKickoffIds.clear();
     this.relayChain = Promise.resolve();
     this.startLeadWatcher();
+    this.startResizeWatcher();
     const owner = ctx.sessionManager;
     const ownerGeneration = this.generation;
     let envelope: SwarmLaunchEnvelope | undefined;
@@ -281,6 +286,7 @@ export class SwarmController {
   async sessionShutdown(event: Pick<SessionShutdownEvent, "reason">, ctx: ExtensionContext): Promise<void> {
     if (ctx.sessionManager !== this.activeSessionManager) return;
     this.stopLeadWatcher();
+    this.stopResizeWatcher();
     if (event.reason === "reload" && this.membership) {
       const membership = this.membership;
       const peerName = this.pi.getSessionName() ?? membership.transport.peerDescription.name;
@@ -1052,14 +1058,12 @@ export class SwarmController {
     const name = self?.name ?? this.pi.getSessionName();
     const color = this.color ?? self?.color ?? pickSwarmColor(sessionId);
     const role = this.leadSessionId === sessionId || (!self && this.defaultLead) ? "LEADER" : "WORKER";
-    // Three padded badges joined without gaps: the name on the swarm color (contrast
-    // text), the session id in inverse white, and the role on a uniform warning cream.
-    // Both the name and the id stay visible because /lead accepts either reference.
-    const nameBadge = badge(name ? ` ● ${name} ` : " ● ", color, contrastTextColor(color));
-    const idBadge = badge(` ${sessionId} `, "#ffffff", "#000000");
-    const roleBadge = badge(` ${role} `, ROLE_BADGE_BACKGROUND, "#000000");
+    // The badge degrades through FULL / COMPACT / MINIMAL tiers based on the
+    // terminal width (see footer.ts); the role badge always survives.
+    const columns = this.deps.terminalColumns?.() ?? DEFAULT_TERMINAL_COLUMNS;
+    const status = buildRosterBadge({ name, sessionId, color, role, columns });
     try {
-      ctx.ui.setStatus(ROSTER_STATUS_KEY, `${nameBadge}${idBadge}${roleBadge}`);
+      ctx.ui.setStatus(ROSTER_STATUS_KEY, status);
     } catch {
       // A replaced UI is allowed to reject best-effort status.
     }
@@ -1187,6 +1191,30 @@ export class SwarmController {
       clearInterval(this.leadWatcher);
       this.leadWatcher = undefined;
     }
+  }
+
+  // A resized terminal can cross a footer tier boundary, so re-render the badge with
+  // the new width. The listener is TTY-only and session-owned: attached at session
+  // start, detached at shutdown, and idempotent against repeated calls.
+  private startResizeWatcher(): void {
+    this.stopResizeWatcher();
+    if (!process.stdout.isTTY || typeof process.stdout.on !== "function") return;
+    process.stdout.on("resize", this.resizeListener);
+    this.resizeWatching = true;
+  }
+
+  private stopResizeWatcher(): void {
+    if (this.resizeWatching) {
+      process.stdout.off("resize", this.resizeListener);
+      this.resizeWatching = false;
+    }
+  }
+
+  private onTerminalResize(): void {
+    if (this.controller.signal.aborted) return;
+    const activeContext = this.activeContext;
+    if (!activeContext) return;
+    void this.renderFooterStatus(activeContext);
   }
 
   private notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error"): void {

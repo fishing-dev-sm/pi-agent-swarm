@@ -126,3 +126,30 @@ GitHub 仓库：`fishing-dev-sm/pi-agent-swarm`，npm 包：`pi-agent-swarm`。
 - 验证：用修复后的 packages 配置跑 smoke，session 文件自动生成 `"name":"MANAGER-<sessionId前8位>"`，确认扩展加载 + session_start hook + 自动命名 + defaultLead 逻辑正常。
 
 教训：**目录改名除仓库外，还需同步检查用户级 `~/.pi/agent` 的安装指向**（settings.json 的 packages 列表、settings 文件本身），这些不在 git 跟踪内，git 检查无法发现。
+
+## 13. footer badge 三档缩略模式（2026-10-06）
+
+窄终端下三段 footer badge（name+36 位 id+角色，全长 66 列）会溢出换行。用户要求设计「长度不同情况下的缩略模式」，先出三档设计稿审核（全彩 mjs 预览板），通过后实装。
+
+### 13.1 设计（审核通过）
+
+按「可用宽度 A = floor(终端列数 × 0.55)」分三档：
+
+- **FULL**：name + 全 36 位 id + 角色（A 装得下全时）。
+- **COMPACT**：name 超预算按 cell 截断加 `…`（预算 < 8 列则降级），id 取 UUID 前 8 位——与 `MANAGER-<前8位>` 命名、`/lead` 前缀匹配同源，是一等标识符故**不加省略号**。
+- **MINIMAL**：色点（3 列）+ 角色（8 列）= 11 列硬底线，A < 20 或 name 预算不足时启用。
+
+存活优先级：**角色 > 身份色 > name > id**（角色永不砍，用户审核时明确拍板）。
+
+### 13.2 实现
+
+- 新增 `src/footer.ts`：纯函数 `buildRosterBadge({ name, sessionId, color, role, columns })`，集中阈值常量（`FOOTER_WIDTH_FRACTION=0.55`、`SHORT_ID_LENGTH=8`、`MIN_NAME_BUDGET=8`、`DEFAULT_TERMINAL_COLUMNS=80`）；宽度计算用 pi-tui 的 `visibleWidth`/`truncateToWidth`（cell 级，不碎 UTF-8/CJK），name/sessionId 先过 `safeTerminalLine` 消毒。
+- `src/swarm-controller.ts`：`renderFooterStatus` 改为调用 `buildRosterBadge`；`SwarmControllerDependencies` 新增可选 `terminalColumns()`（默认读 `process.stdout.columns`，非 TTY 回退 80 列）；新增 SIGWINCH resize watcher，镜像 leadWatcher 模式（session_start 挂 / sessionShutdown 摘 / 幂等 / abort 后惰性失效），跨档时自动重渲染。
+- `ROLE_BADGE_BACKGROUND="#ffc85a"` 从控制器迁入 footer.ts；README 补 Features bullet、`## 🏷️ Footer badge` 小节与 Package layout 条目；changeset 为 minor。
+
+### 13.3 验证与提交
+
+- 包级 tsc / biome / vitest（88 测试）/ build 全绿；根门禁 `npm run check` + `npm test`（479 文件 / 6136 测试）全绿。
+- E2E 产物 `/tmp/fleet-results/footer-modes-e2e.mjs`（对 esbuild 打包的真实 footer.ts 跑宽度扫描）：12 项断言全过——20..200 列扫描宽度有界且角色永存、160→FULL / 60→COMPACT / 30→MINIMAL、长名带 `…` 短 id 不带、控制序列消毒、CJK 截断不碎字符、两角色等宽。
+- 提交 **`057badd9`**（`feat(pi-agent-swarm): adapt the footer badge to terminal width in three tiers`）。因工作区混有菜单重建与 lead reload 修复的在飞改动，提交时按 hunk 过滤暂存（swarm-controller.ts 14 取 9、README.md 8 取 3），在飞工作未混入。
+- 未验证路径：真实 TTY 拖窗口目视换挡（逻辑已由宽度扫描覆盖）。

@@ -15,6 +15,7 @@ Every agent is a real terminal window tiled by your window manager — never a h
 - Connects explicitly joined same-user sessions through owner-only local sockets and ephemeral invites.
 - Delivers notifications without a model turn and bounds each allowed request to one turn.
 - Relays user input from a worker window into the leader's model context.
+- Shows a colored footer badge with the session name, id, and role, degrading through full, compact, and minimal tiers as the terminal narrows.
 - Authenticates and bounds local protocol traffic, peers, retries, rates, deadlines, and diagnostics.
 - Cleans all sockets, launchers, tasks, timers, and status on leave, reload, replacement, or shutdown.
 
@@ -114,6 +115,15 @@ Peer-list text and details share a 40 KiB UTF-8 result budget below Pi's tool-ou
 All routes support TUI and RPC, reject unknown or trailing arguments, and fail in print or JSON mode before opening sockets.
 Review the [launch flow](#-launch-flow) and [Security and privacy](#-security-and-privacy): accepted peer requests can start paid model turns.
 
+## 🏷️ Footer badge
+
+Each window shows a footer badge with its swarm color, session name, session id, and role (LEADER/WORKER).
+The badge never wraps and never drops the role; it degrades through three tiers as the terminal narrows, re-rendering on resize:
+
+- **FULL**: name + full session id + role, when the badge fits within 55% of the terminal columns.
+- **COMPACT**: name truncated with an ellipsis + 8-column id prefix + role. The prefix is a first-class identifier shared by `MANAGER-<prefix>` naming and `/lead` prefix matching, so it carries no ellipsis.
+- **MINIMAL**: swarm-colored dot + role. The full identity stays available in the `/swarm` menu and message envelopes.
+
 ## 🖥️ External terminal backend
 
 Pi Agent Swarm launches each session as a plain terminal window through a configurable command (default `alacritty -e`).
@@ -210,6 +220,7 @@ packages/pi-agent-swarm/
 ├── src/                               # Authoritative implementation and helpers
 │   ├── index.ts                       # Thin Pi entrypoint
 │   ├── pi-agent-swarm.ts              # Local session launch and messaging
+│   ├── footer.ts                      # Width-adaptive roster badge (full/compact/minimal)
 │   └── i3-workspace.ts                # Lead-workspace window pinning
 ├── dist/                              # Generated Jiti runtime
 ├── scripts/build-runtime.mjs          # Runtime builder
