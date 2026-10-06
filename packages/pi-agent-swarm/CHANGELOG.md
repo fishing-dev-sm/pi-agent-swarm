@@ -1,5 +1,18 @@
 # pi-agent-swarm
 
+## 0.2.0
+
+### Minor Changes
+
+- 20ea7c5: Degrade the footer roster badge through three width tiers so it never wraps on narrow terminals. FULL keeps the name, full session id, and role; COMPACT truncates a long name with an ellipsis and shows the 8-column id prefix (the same prefix used by `MANAGER-<prefix>` naming and `/lead` matching); MINIMAL shows only the swarm-colored dot and role. The role badge always survives, names and ids are sanitized before rendering, name truncation is cell-aware (no split UTF-8 or CJK characters), and the badge re-renders on terminal resize.
+- a4bbc20: Add `pinToLeadWorkspace` so new external terminal windows land on the lead session's i3 workspace instead of the focused one. The lead workspace is located through the process tree and `_NET_WM_PID`, and each newly spawned window is moved there via `i3-msg` after the window manager maps it. Placement is best-effort and never blocks the launch.
+- 680e17e: Rebuild the `/swarm` menu from scratch. The inherited `/fleet` menu was removed and replaced item by item with `Spawn` (launch a worker Pi session in an external terminal), `Rename` (rename this session's Pi name and swarm peer description), and `Set color` (pick from the 8-color palette). Menu actions that open dialogs no longer declare a `busyLabel`, which previously wrapped them in a blocking task loader.
+- ef4484d: Replace the high-saturation Tailwind roster palette with GitHub Linguist language colors. The default `muted` palette is a low-saturation set whose yellow matches the ROLE badge; a vivid `bright` palette is available through the new `colorPalette` setting in `pi-agent-swarm.json` or live via `/swarm` → **Set theme**. Both palettes share slot order, so a session keeps its hue when switching, and hexes assigned by older versions still resolve to palette names in peer labels. Direct file edits apply on the next session start or `/reload`.
+
+### Patch Changes
+
+- 3c926dc: Keep the group lead record when the lead session reloads. A reload previously removed `lead.json` while the reload handoff only restores group membership, so the rejoined lead and every peer dropped to the WORKER badge until someone ran `/lead` again. Real departures (quit, `/leave`, session replacement) still remove the record, and a lead change made during the reload gap is honored when the session rejoins.
+
 ## 0.3.7
 
 ### Patch Changes

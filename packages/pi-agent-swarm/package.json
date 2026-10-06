@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-swarm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Window-manager-native agent swarm for the Pi Coding Agent — every agent runs as a real terminal window under a tiling window manager.",
   "type": "module",
   "license": "MIT",

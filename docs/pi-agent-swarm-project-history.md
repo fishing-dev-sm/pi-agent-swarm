@@ -233,3 +233,7 @@ GitHub 仓库：`fishing-dev-sm/pi-agent-swarm`，npm 包：`pi-agent-swarm`。
 - 未验证路径：TUI 菜单 Set theme 实际渲染目视（逻辑已由 menu 测试覆盖）。
 
 Changeset：`.changeset/swarm-github-language-palettes.md`（minor）。
+
+## 15. 0.2.0 发布与脱离上游发布流程（2026-10-06）
+
+用户明确：本 fork 已彻底独立，不使用上游的 publish.yml Version PR 流程。发布方式沿用 §9.3 的手动模式：把上游继承的 5 个 `@narumitw/*` changesets 临时移出 `.changeset/` 后运行 `npx changeset version`（只消费本包的 5 个 changesets），随后 `npm publish --workspace pi-agent-swarm`（本机登录身份 `xihuang_hk`）。版本 0.1.0 → 0.2.0（4 minor + 1 patch），CHANGELOG 条目由 changesets 生成。上游 changesets 原样保留，不参与本仓发布。
