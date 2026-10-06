@@ -5,7 +5,7 @@ import { parseInvite } from "./protocol.js";
 import { renderSwarmMessage, SWARM_MESSAGE_TYPE } from "./renderer.js";
 import { createSwarmSettingsRuntime, type SwarmSettingsRuntime } from "./settings.js";
 import { SwarmController, type SwarmControllerDependencies } from "./swarm-controller.js";
-import { safeError, safeTerminalLine } from "./text.js";
+import { safeTerminalLine } from "./text.js";
 import { registerSwarmTools } from "./tools.js";
 
 const USAGE = "Usage: /swarm, /swarm start, or /swarm <piagentswarm:v1:invite>";
@@ -39,7 +39,7 @@ export function createPiSwarmExtension(dependencies: PiSwarmDependencies = {}): 
     });
 
     pi.registerCommand("swarm", {
-      description: "Spawn and connect local Pi sessions",
+      description: "Spawn a worker Pi session, or start/join a local group",
       handler: async (rawArgs, ctx) => {
         const args = rawArgs.trim();
         if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
@@ -56,7 +56,7 @@ export function createPiSwarmExtension(dependencies: PiSwarmDependencies = {}): 
         const ownerSignal = controller.sessionSignal;
         const menuModule = await loadMenu();
         if (ownerSignal.aborted || !controller.isCurrent(ctx)) return;
-        await menuModule.showSwarmMenu(ctx, menuSource(controller, settings, ctx), {
+        await menuModule.showSwarmMenu(ctx, menuSource(controller), {
           signal: ownerSignal,
           isCurrent: () => controller.isCurrent(ctx) && !ownerSignal.aborted,
         });
@@ -123,17 +123,9 @@ async function startGroupDirectly(controller: SwarmController, ctx: ExtensionCom
   }
 }
 
-function menuSource(
-  controller: SwarmController,
-  settings: SwarmSettingsRuntime,
-  ctx: ExtensionCommandContext,
-): SwarmMenuSource {
+function menuSource(controller: SwarmController): SwarmMenuSource {
   return {
-    snapshot: async (signal) => ({
-      ...(await controller.snapshot(signal)),
-      ...settings.get(),
-      settingsPath: settings.getPath(),
-    }),
+    snapshot: (signal) => controller.snapshot(signal),
     spawn: async (commandContext, input, signal) => {
       const result = await controller.spawn(commandContext, input, signal);
       if (controller.isCurrent(commandContext)) {
@@ -143,38 +135,20 @@ function menuSource(
         );
       }
     },
-    start: async (commandContext, signal) => {
-      await controller.startNewGroup(commandContext, false, signal);
+    rename: async (commandContext, name, signal) => {
+      await controller.setOwnName(commandContext, name, signal);
       if (controller.isCurrent(commandContext)) {
-        commandContext.ui.notify("Started a local Pi Agent Swarm group.", "info");
+        commandContext.ui.notify(`Session renamed to ${safeTerminalLine(name)}.`, "info");
       }
     },
-    join: async (commandContext, invite, signal) => {
-      try {
-        await controller.joinInvite(commandContext, invite, false, signal);
-      } catch (error) {
-        throw new Error(`Could not join Pi Agent Swarm: ${safeError(error)}`);
-      }
-    },
-    send: async (commandContext, options, signal) => {
-      const result = await controller.send(commandContext, options, signal);
-      if (!result.acknowledgement.accepted) {
-        throw new Error(
-          `Target rejected the message: ${safeTerminalLine(result.acknowledgement.error ?? "unknown reason")}`,
-        );
-      }
+    setColor: async (commandContext, color, signal) => {
+      const normalized = normalizeSwarmColor(color);
+      if (!normalized) throw new Error("Pi Agent Swarm color is invalid");
+      await controller.setOwnColor(commandContext, normalized, signal);
       if (controller.isCurrent(commandContext)) {
-        commandContext.ui.notify(
-          `Target accepted ${safeTerminalLine(result.message.id)}. This does not prove task completion.`,
-          "info",
-        );
+        commandContext.ui.notify(`Color set to ${normalized}.`, "info");
       }
     },
-    updateSettings: async (patch) => {
-      await settings.update(patch);
-    },
-    setAcceptsRequests: (value) => controller.setAcceptsRequests(ctx, value),
-    leave: () => controller.leave(ctx),
   };
 }
 

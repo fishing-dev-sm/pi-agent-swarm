@@ -49,6 +49,9 @@ class FakeTransport {
   setColor(color: string) {
     this.options.peer.color = color;
   }
+  setName(name: string) {
+    this.options.peer.name = name;
+  }
   get peerDescription() {
     return { ...this.options.peer, endpointId: "a".repeat(24) };
   }

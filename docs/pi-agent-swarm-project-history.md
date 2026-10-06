@@ -127,6 +127,45 @@ GitHub 仓库：`fishing-dev-sm/pi-agent-swarm`，npm 包：`pi-agent-swarm`。
 
 教训：**目录改名除仓库外，还需同步检查用户级 `~/.pi/agent` 的安装指向**（settings.json 的 packages 列表、settings 文件本身），这些不在 git 跟踪内，git 检查无法发现。
 
+## 11. `/swarm` 菜单重建（2026-10-06）
+
+独立重构后，`/swarm` 菜单仍完整继承自 `/fleet` 时代，菜单里一堆旧项（邀请加入、lead 管理、peer 列表等）对当前「实体终端窗口」形态已无意义。用户决策：**彻底移除旧菜单，逐项重建**，重建顺序为 Spawn → Rename → Set color。
+
+### 11.1 移除旧菜单
+
+- 删除 `src/menu.ts` 与 `test/menu.test.ts`，清理 `src/pi-agent-swarm.ts` 的菜单集成（loadMenu / menuSource / cachedModuleLoader）、`@narumitw/pi-tui-kit` 依赖与 README 菜单引用。
+- 保留 `settings.update()`（settings 组件核心能力，重建时会用到）。
+
+### 11.2 重建 Spawn（第一项）
+
+- 恢复 `@narumitw/pi-tui-kit@^0.59.0` 依赖；重写 `src/menu.ts`（`Screen="main"`、`Action="spawn"`、`createSwarmMenu`、`showSwarmMenu`）。
+- `src/pi-agent-swarm.ts` 恢复 `loadMenu`（懒加载 + 缓存 + 失败重置）与 `menuSource(controller)`。
+- 验证：typecheck ✓、19 文件 / 79 测试 ✓、biome ✓、build（menu 懒加载 chunk）✓。
+
+### 11.3 修复 Spawn「一直 Launching」卡死
+
+- 根因：Spawn 项声明的 `busyLabel: "Launching"` 在 TUI 模式走 `invokeBusyAction → runTask → TaskLoader`（阻塞式加载器），而 spawn action 内部又嵌套 `ctx.ui.select`（方向）/ `ctx.ui.input`（任务）/ `ctx.ui.confirm`（确认），与 TaskLoader 冲突死锁。
+- 修复：移除 Spawn 项的 `busyLabel`，耗时反馈改由 controller 内部 `beginStatus/updateStatus`（`swarm: launching …` → `swarm: waiting for child session`）承担。
+- 防回归：`test/menu.test.ts` 断言 spawn item 无 `busyLabel`。
+- 教训：`busyLabel` 只适用于纯异步 action；任何 action 内部弹 modal（select/input/confirm）都不能加 busyLabel，否则 TUI 死锁。
+
+### 11.4 加 Rename 与 Set color（第二、三项）
+
+**名字/颜色传播模型**：peer 描述字段（name/color/cwd/acceptsRequests）不在 endpoint manifest 里，而是按需传播——discovery 发 `{ kind: "describe" }`，每个 peer 从内存实时回 `{ kind: "description", peer }`。因此 rename/setColor 只需改本地 `this.peer` + 持久化到 Pi，无需显式广播。
+
+**Rename**：
+
+- `transport.setName(name)` 改 peer description 的 name。
+- `controller.setOwnName(ctx, name, signal?)`：`normalizeOptionalText`（空报错）→ `pi.setSessionName` → `transport.setName` → `renderFooterStatus`。
+- 菜单 action 弹 `ctx.ui.input`（空/取消不生效）；成功后 footer badge 名字立即刷新，其他 peer 下次 discover 读到新名字。
+
+**Set color**：
+
+- 复用 `/color` 的 `controller.setOwnColor`（加可选 `signal` 参数，与 setLead 对齐）。
+- 菜单 action 弹 `ctx.ui.select` 从 8 色调色板（red/orange/yellow/green/cyan/blue/magenta/purple）选，底层 `normalizeSwarmColor` 转 hex；自定义 hex 仍走 `/color` 命令。
+
+验证：typecheck ✓、19 文件 / 83 测试 ✓、biome ✓、build（dist 含新代码）✓。
+
 ## 12. LEADER reload 后全组变 WORKER（2026-10-06）
 
 用户报告：leader 会话（01a10fcb）指派 spawn worker 后，自己的 footer badge 从 LEADER 变成 WORKER。磁盘证据：活跃组目录 `pi-swarm/879cac…/` 无 `lead.json`，而 leader 的 endpoint manifest `publishedAt`（19:32:08）晚于组建时间（14:07），证明其间发生过一次 reload。

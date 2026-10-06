@@ -198,6 +198,10 @@ export class SwarmTransport {
     this.peer.color = color;
   }
 
+  setName(name: string): void {
+    this.peer.name = name;
+  }
+
   get peerDescription(): SwarmPeerDescription {
     return { ...this.peer };
   }

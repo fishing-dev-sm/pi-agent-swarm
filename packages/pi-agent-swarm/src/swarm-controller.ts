@@ -65,6 +65,7 @@ export interface SwarmTransportPort {
   ): Promise<SwarmDeliveryAck>;
   setAcceptsRequests(value: boolean): void;
   setColor(color: string): void;
+  setName(name: string): void;
   readonly peerDescription: SwarmPeerDescription;
   readonly endpointManifest:
     | {
@@ -1104,10 +1105,21 @@ export class SwarmController {
     await this.renderFooterStatus(ctx);
   }
 
-  async setOwnColor(ctx: ExtensionContext, color: string): Promise<void> {
+  async setOwnColor(ctx: ExtensionContext, color: string, signal?: AbortSignal): Promise<void> {
     this.assertCurrentContext(ctx);
+    throwIfAborted(signal, "Pi Agent Swarm color change aborted");
     this.color = color;
     this.membership?.transport.setColor(color);
+    await this.renderFooterStatus(ctx);
+  }
+
+  async setOwnName(ctx: ExtensionContext, name: string, signal?: AbortSignal): Promise<void> {
+    this.assertCurrentContext(ctx);
+    throwIfAborted(signal, "Pi Agent Swarm rename aborted");
+    const normalized = normalizeOptionalText(name, "name", 200);
+    if (!normalized) throw new Error("Pi Agent Swarm session name must not be empty");
+    this.pi.setSessionName(normalized);
+    this.membership?.transport.setName(normalized);
     await this.renderFooterStatus(ctx);
   }
 

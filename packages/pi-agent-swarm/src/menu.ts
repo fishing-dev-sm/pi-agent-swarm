@@ -1,40 +1,20 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { MenuDefinition } from "@narumitw/pi-tui-kit";
-import type { SwarmSettingsPatch, SwarmSettingsState } from "./settings.js";
+import { SWARM_COLORS } from "./color.js";
 import type { SpawnSessionInput, SwarmSnapshot } from "./swarm-controller.js";
-import { safeError, safeTerminalLine } from "./text.js";
+import { safeError } from "./text.js";
 
-export interface SwarmMenuState extends SwarmSnapshot, SwarmSettingsState {
-  settingsPath: string;
-}
+export interface SwarmMenuState extends SwarmSnapshot {}
 
 export interface SwarmMenuSource {
   snapshot(signal?: AbortSignal): Promise<SwarmMenuState>;
   spawn(ctx: ExtensionCommandContext, input: SpawnSessionInput, signal?: AbortSignal): Promise<void>;
-  start(ctx: ExtensionCommandContext, signal?: AbortSignal): Promise<void>;
-  join(ctx: ExtensionCommandContext, invite: string, signal?: AbortSignal): Promise<void>;
-  send(
-    ctx: ExtensionCommandContext,
-    options: { targetSessionId: string; text: string; mode: "notify" | "request" },
-    signal?: AbortSignal,
-  ): Promise<void>;
-  updateSettings(patch: SwarmSettingsPatch, signal?: AbortSignal): Promise<void>;
-  setAcceptsRequests(value: boolean): void;
-  leave(): Promise<void>;
+  rename(ctx: ExtensionCommandContext, name: string, signal?: AbortSignal): Promise<void>;
+  setColor(ctx: ExtensionCommandContext, color: string, signal?: AbortSignal): Promise<void>;
 }
 
-type Screen =
-  | "main"
-  | "join"
-  | "sessions"
-  | "invite"
-  | "requestPolicy"
-  | "settings"
-  | "settingsInvalid"
-  | "status"
-  | "help"
-  | "leave";
-type Action = "spawn" | "start" | "join" | "send" | "setConfirmation" | "setPinToLeadWorkspace" | "setPolicy" | "leave";
+type Screen = "main";
+type Action = "spawn" | "rename" | "setColor";
 
 const DIRECTION_OPTIONS = ["Right", "Down", "Left", "Up"] as const;
 
@@ -43,144 +23,28 @@ export function createSwarmMenu(source: SwarmMenuSource) {
   const menu: MenuDefinition<SwarmMenuState, Screen, Action> = {
     start: "main",
     screens: {
-      main: ({ state }) => mainScreen(state),
-      join: () => ({
-        kind: "input",
-        title: "Join Pi Agent Swarm",
-        lines: [
-          "Paste a local piagentswarm:v1 bearer invite.",
-          "Anyone holding it can message this Pi session while both processes are running.",
-        ],
-        placeholder: "piagentswarm:v1:…",
-        action: "join",
-        hint: "back",
-      }),
-      sessions: ({ state }) => ({
-        kind: "browse",
-        title: "Pi Agent Swarm sessions",
-        lines: state.peers.length
-          ? ["Authenticated live sessions in this ephemeral local group."]
-          : ["No other live sessions are currently authenticated."],
-        items: state.peers.map((peer) => ({
-          id: peer.sessionId,
-          label: safeTerminalLine(peer.name ?? peer.sessionId),
-          statusText: peer.acceptsRequests ? "requests allowed" : "messages only",
-          description: safeTerminalLine(peer.cwd),
-          details: [
-            `Session: ${safeTerminalLine(peer.sessionId)}`,
-            `Process: ${peer.pid}`,
-            ...(peer.launchId ? [`Launch: ${safeTerminalLine(peer.launchId)}`] : []),
-          ],
-        })),
-        viewportSize: "adaptive",
-        hint: "back",
-      }),
-      invite: ({ state }) => ({
-        kind: "review",
-        title: "Pi Agent Swarm bearer invite",
-        lines: [
-          "Copy this only into another local Pi session you trust.",
-          "Pi Agent Swarm does not save the invite, but any copied bearer remains usable until its holder discards it.",
-        ],
-        content: state.invite ?? "Invite is unavailable.",
-        format: { kind: "text" },
-        viewportSize: "adaptive",
-        hint: "back",
-      }),
-      requestPolicy: ({ state }) => ({
-        kind: "choice",
-        title: "Incoming agent requests",
-        lines: [
-          "Messages always enter context without starting a turn.",
-          "Allowed requests may spend model tokens and edit this workspace concurrently.",
-        ],
-        items: [
-          { id: "block", label: "Messages only", description: "Do not start remote-request turns" },
-          { id: "allow", label: "Allow requests", description: "Permit one turn per request" },
-        ],
-        action: "setPolicy",
-        currentItemId: state.acceptsRequests ? "allow" : "block",
-        initialItemId: state.acceptsRequests ? "allow" : "block",
-        viewportSize: 4,
-        hint: "back",
-      }),
-      settings: ({ state }) => ({
-        kind: "settings",
-        title: "Pi Agent Swarm Settings",
-        lines: [`User settings · ${safeTerminalLine(state.settingsPath)}`],
+      main: () => ({
+        kind: "actions",
+        title: "Pi Agent Swarm",
+        lines: ["Spawn workers and manage this session's badge."],
         items: [
           {
-            id: "confirmSessionLaunch",
-            label: "Confirm new sessions",
-            description: "Ask before a new Pi process may spend tokens or edit the workspace.",
-            currentValue: state.settings.confirmSessionLaunch ? "Ask" : "Skip",
-            values: ["Ask", "Skip"],
-            action: "setConfirmation",
+            id: "spawn",
+            label: "Spawn",
+            action: "spawn",
           },
           {
-            id: "pinToLeadWorkspace",
-            label: "Pin new windows to lead workspace",
-            description:
-              "On i3, place new external windows on the lead session's workspace instead of the focused one.",
-            currentValue: state.settings.pinToLeadWorkspace ? "On" : "Off",
-            values: ["On", "Off"],
-            action: "setPinToLeadWorkspace",
+            id: "rename",
+            label: "Rename",
+            action: "rename",
+          },
+          {
+            id: "color",
+            label: "Set color",
+            action: "setColor",
           },
         ],
-      }),
-      settingsInvalid: ({ state }) => ({
-        kind: "detail",
-        title: "Pi Agent Swarm Settings · Read only",
-        lines: [
-          `Invalid settings file. Fix ${safeTerminalLine(state.settingsPath)} and run /reload. The file will not be overwritten.`,
-          ...(state.issue ? [`Issue: ${safeTerminalLine(state.issue.message)}`] : []),
-        ],
-        hint: "back",
-      }),
-      status: ({ state }) => ({
-        kind: "detail",
-        title: "Pi Agent Swarm status",
-        lines: state.connected
-          ? [
-              "State: connected",
-              `Session: ${safeTerminalLine(state.self?.name ?? state.self?.sessionId ?? "unknown")}`,
-              `Cwd: ${safeTerminalLine(state.self?.cwd ?? "unknown")}`,
-              `Other live sessions: ${state.peers.length}`,
-              `Incoming requests: ${state.acceptsRequests ? "allowed" : "blocked"}`,
-              `Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
-              `Pin new windows to lead workspace: ${state.settings.pinToLeadWorkspace ? "On" : "Off"}`,
-              "Delivery acknowledgement means extension acceptance, not remote task completion.",
-            ]
-          : [
-              "State: disconnected",
-              "No socket, group secret, or background discovery is active.",
-              `Launch confirmation: ${state.settings.confirmSessionLaunch ? "Ask" : "Skip"}`,
-              `Pin new windows to lead workspace: ${state.settings.pinToLeadWorkspace ? "On" : "Off"}`,
-            ],
-        hint: "back",
-      }),
-      help: () => ({
-        kind: "detail",
-        title: "Pi Agent Swarm help",
-        lines: [
-          "Pi Agent Swarm connects explicit sessions owned by one OS user.",
-          "New Pi session creates a separate process in an external terminal window and preserves the parent.",
-          "Notify messages do not start turns, requests require recipient permission, and replies do not auto-trigger another turn.",
-          "Groups, invites, peer state, and message deduplication are ephemeral.",
-        ],
-        hint: "back",
-      }),
-      leave: ({ state }) => ({
-        kind: "review",
-        title: "Leave Pi Agent Swarm group?",
-        lines: [
-          `Other live sessions: ${state.peers.length}`,
-          "Leaving closes this session's socket and forgets its in-memory bearer invite.",
-        ],
-        content: "Already delivered peer messages remain in each Pi session transcript.",
-        format: { kind: "text" },
-        confirm: { id: "leave", label: "Leave group", action: "leave" },
-        hint: "back",
+        hint: "close",
       }),
     },
     actions: {
@@ -203,92 +67,21 @@ export function createSwarmMenu(source: SwarmMenuSource) {
         );
         return { kind: "close" };
       },
-      start: async ({ ctx, signal }) => {
-        const confirmed = await ctx.ui.confirm(
-          "Start local Pi Agent Swarm group?",
-          "This creates one owner-only Unix socket and an ephemeral bearer invite. Incoming requests start blocked.",
-          { signal },
-        );
-        if (!confirmed || signal.aborted) return { kind: "stay" };
-        await source.start(ctx, signal);
+      rename: async ({ ctx, signal, state }) => {
+        const name = await ctx.ui.input("Rename session", state.self?.name ?? "Enter a new session name", {
+          signal,
+        });
+        if (name === undefined || !name.trim() || signal.aborted) return { kind: "stay" };
+        await source.rename(ctx, name, signal);
         return { kind: "stay" };
       },
-      join: async ({ ctx, signal, value }) => {
-        if (!value) return { kind: "rejected", error: new Error("Pi Agent Swarm invite is required") };
-        const confirmed = await ctx.ui.confirm(
-          "Join local Pi Agent Swarm group?",
-          "The bearer invite permits local peer messages. Incoming agent requests start blocked.",
-          { signal },
-        );
-        if (!confirmed || signal.aborted) return { kind: "stay" };
-        await source.join(ctx, value, signal);
-        return { kind: "to", screen: "main" };
-      },
-      send: async ({ ctx, signal, state }) => {
-        if (state.peers.length === 0) {
-          return { kind: "rejected", error: new Error("No other live Pi Agent Swarm sessions") };
-        }
-        const labels = state.peers.map(
-          (peer) => `${safeTerminalLine(peer.name ?? peer.sessionId)} · ${safeTerminalLine(peer.sessionId)}`,
-        );
-        const selected = await ctx.ui.select("Send to Pi session", labels, { signal });
-        if (!selected || signal.aborted) return { kind: "stay" };
-        const peer = state.peers[labels.indexOf(selected)];
-        if (!peer) return { kind: "rejected", error: new Error("Selected peer is stale") };
-        const modeLabel = await ctx.ui.select(
-          "Delivery mode",
-          ["Message only", "Agent request — may start a paid turn"],
-          { signal },
-        );
-        if (!modeLabel || signal.aborted) return { kind: "stay" };
-        const text = await ctx.ui.input("Message", "Type a bounded message", { signal });
-        if (!text || signal.aborted) return { kind: "stay" };
-        await source.send(
-          ctx,
-          {
-            targetSessionId: peer.sessionId,
-            text,
-            mode: modeLabel.startsWith("Agent request") ? "request" : "notify",
-          },
+      setColor: async ({ ctx, signal }) => {
+        const choice = await ctx.ui.select("Session color", [...SWARM_COLORS.map((color) => color.name)], {
           signal,
-        );
+        });
+        if (!choice || signal.aborted) return { kind: "stay" };
+        await source.setColor(ctx, choice, signal);
         return { kind: "stay" };
-      },
-      setConfirmation: ({ ctx, signal, value }) =>
-        saveSettingsPatch(
-          source,
-          ctx,
-          signal,
-          { confirmSessionLaunch: value !== "Skip" },
-          `Confirm new sessions: ${value}.`,
-        ),
-      setPinToLeadWorkspace: ({ ctx, signal, value }) =>
-        saveSettingsPatch(
-          source,
-          ctx,
-          signal,
-          { pinToLeadWorkspace: value !== "Off" },
-          `Pin new windows to lead workspace: ${value}.`,
-        ),
-      setPolicy: async ({ ctx, signal, itemId }) => {
-        const allow = itemId === "allow";
-        if (itemId !== "allow" && itemId !== "block") {
-          return { kind: "rejected", error: new Error("Pi Agent Swarm request policy is invalid") };
-        }
-        if (allow) {
-          const confirmed = await ctx.ui.confirm(
-            "Allow incoming agent requests?",
-            "A trusted invite holder may start paid model turns that can edit the current workspace.",
-            { signal },
-          );
-          if (!confirmed || signal.aborted) return { kind: "stay" };
-        }
-        source.setAcceptsRequests(allow);
-        return { kind: "to", screen: "requestPolicy" };
-      },
-      leave: async () => {
-        await source.leave();
-        return { kind: "to", screen: "main" };
       },
     },
   };
@@ -313,85 +106,4 @@ export async function showSwarmMenu(
       }
     },
   });
-}
-
-async function saveSettingsPatch(
-  source: SwarmMenuSource,
-  ctx: ExtensionCommandContext,
-  signal: AbortSignal,
-  patch: SwarmSettingsPatch,
-  successMessage: string,
-) {
-  if (signal.aborted) return { kind: "rejected" as const };
-  try {
-    await source.updateSettings(patch, signal);
-    if (signal.aborted) return { kind: "rejected" as const };
-    ctx.ui.notify(successMessage, "info");
-    return { kind: "stay" as const };
-  } catch (error) {
-    if (!signal.aborted) {
-      ctx.ui.notify(`Could not save Pi Agent Swarm settings; the previous value remains: ${safeError(error)}`, "error");
-    }
-    return { kind: "rejected" as const };
-  }
-}
-
-function settingsMenuItem(state: SwarmMenuState) {
-  return state.issue
-    ? {
-        id: "settings",
-        label: "Settings",
-        description: "Read-only until the invalid settings file is fixed.",
-        to: "settingsInvalid" as const,
-      }
-    : { id: "settings", label: "Settings", to: "settings" as const };
-}
-
-function mainScreen(state: SwarmMenuState) {
-  if (!state.connected) {
-    return {
-      kind: "actions" as const,
-      title: "Pi Agent Swarm · disconnected",
-      lines: ["Local Pi sessions with configured terminal launches and messaging."],
-      items: [
-        {
-          id: "spawn",
-          label: "New Pi session…",
-          action: "spawn" as const,
-          busyLabel: "Launching",
-        },
-        { id: "join", label: "Join with invite", to: "join" as const },
-        { id: "start", label: "Start local group", action: "start" as const },
-        settingsMenuItem(state),
-        { id: "status", label: "Status", to: "status" as const },
-        { id: "help", label: "Help", to: "help" as const },
-      ],
-      hint: "close" as const,
-    };
-  }
-  return {
-    kind: "actions" as const,
-    title: `Pi Agent Swarm · ${safeTerminalLine(state.self?.name ?? state.self?.sessionId ?? "connected")}`,
-    lines: [
-      `${state.peers.length} other live session${state.peers.length === 1 ? "" : "s"} · incoming requests ${state.acceptsRequests ? "allowed" : "blocked"}`,
-      "Delivery acknowledgement confirms extension acceptance only.",
-    ],
-    items: [
-      {
-        id: "spawn",
-        label: "New Pi session…",
-        action: "spawn" as const,
-        busyLabel: "Launching",
-      },
-      { id: "send", label: "Send message", action: "send" as const },
-      { id: "sessions", label: "Sessions", to: "sessions" as const },
-      { id: "invite", label: "Invite another session", to: "invite" as const },
-      { id: "policy", label: "Request policy", to: "requestPolicy" as const },
-      settingsMenuItem(state),
-      { id: "status", label: "Status", to: "status" as const },
-      { id: "help", label: "Help", to: "help" as const },
-      { id: "leave", label: "Leave group…", to: "leave" as const },
-    ],
-    hint: "close" as const,
-  };
 }
