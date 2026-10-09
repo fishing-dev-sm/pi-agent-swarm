@@ -1,5 +1,11 @@
 # pi-agent-swarm
 
+## 0.3.0
+
+### Minor Changes
+
+- 863990e: Rename human-started sessions automatically: after the third completed turn, the bootstrap `MANAGER-<id>` name becomes a `MAN-<title>` summary of the session's first user messages. The rename uses a one-shot completion on the current model, retries on later turns if the completion fails, keeps any name you set yourself, and stays silent on failure (recording a session entry for diagnosis). New `autoName` and `autoNameModel` settings control the behavior. Session name changes made outside the extension (for example `/name`) now refresh the roster peer name and the footer badge immediately.
+
 ## 0.2.0
 
 ### Minor Changes
