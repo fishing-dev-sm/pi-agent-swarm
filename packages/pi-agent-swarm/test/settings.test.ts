@@ -44,12 +44,15 @@ test("normalization accepts partial settings and rejects invalid owned values", 
     }),
     {
       settings: {
+        autoName: true,
         externalCommand: "kitty",
         confirmSessionLaunch: false,
         colorPalette: "bright",
         pinToLeadWorkspace: false,
       },
       sources: {
+        autoName: "built-in",
+        autoNameModel: "built-in",
         externalCommand: "user",
         confirmSessionLaunch: "user",
         colorPalette: "user",
@@ -59,12 +62,15 @@ test("normalization accepts partial settings and rejects invalid owned values", 
   );
   assert.deepEqual(normalizeSwarmSettingsDocument({ pinToLeadWorkspace: true }), {
     settings: {
+      autoName: true,
       colorPalette: "muted",
       confirmSessionLaunch: true,
       externalCommand: "alacritty -e",
       pinToLeadWorkspace: true,
     },
     sources: {
+      autoName: "built-in",
+      autoNameModel: "built-in",
       colorPalette: "built-in",
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
@@ -74,6 +80,8 @@ test("normalization accepts partial settings and rejects invalid owned values", 
   assert.deepEqual(normalizeSwarmSettingsDocument({}), {
     settings: DEFAULT_SWARM_SETTINGS,
     sources: {
+      autoName: "built-in",
+      autoNameModel: "built-in",
       colorPalette: "built-in",
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
@@ -89,6 +97,14 @@ test("normalization accepts partial settings and rejects invalid owned values", 
     { externalCommand: "" },
     { externalCommand: 5 },
     { pinToLeadWorkspace: "yes" },
+    { autoName: "yes" },
+    { autoName: 1 },
+    { autoNameModel: 5 },
+    { autoNameModel: "" },
+    { autoNameModel: "no-slash" },
+    { autoNameModel: "provider/" },
+    { autoNameModel: "/model" },
+    { autoNameModel: "pro vider/model" },
   ]) {
     assert.equal(normalizeSwarmSettingsDocument(value), undefined);
   }
@@ -112,6 +128,7 @@ test("updates preserve unknown fields and publish private JSON atomically", asyn
     pinToLeadWorkspace: true,
   });
   assert.deepEqual(runtime.get().settings, {
+    autoName: true,
     colorPalette: "muted",
     confirmSessionLaunch: false,
     externalCommand: "alacritty -e",
@@ -193,11 +210,44 @@ test("concurrent updates serialize in call order and reload waits for pending pu
   releaseFirst();
   await Promise.all([first, second, reload, runtime.flush()]);
   assert.deepEqual(runtime.get().settings, {
+    autoName: true,
     colorPalette: "muted",
     confirmSessionLaunch: false,
     externalCommand: "kitty",
     pinToLeadWorkspace: false,
   });
+});
+
+test("autoName and autoNameModel settings validate, persist, and track sources", async (t) => {
+  const { settingsPath } = temporarySettings(t);
+  mkdirSync(path.dirname(settingsPath), { recursive: true });
+  writeFileSync(
+    settingsPath,
+    `${JSON.stringify({ autoName: false, autoNameModel: "openai/gpt-5-mini", future: 1 }, null, 2)}\n`,
+  );
+  const runtime = createSwarmSettingsRuntime({ path: settingsPath });
+  const loaded = await runtime.reload();
+  assert.equal(loaded.settings.autoName, false);
+  assert.equal(loaded.settings.autoNameModel, "openai/gpt-5-mini");
+  assert.equal(loaded.sources.autoName, "user");
+  assert.equal(loaded.sources.autoNameModel, "user");
+
+  await runtime.update({ autoName: true });
+  assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")), {
+    autoName: true,
+    autoNameModel: "openai/gpt-5-mini",
+    future: 1,
+  });
+  // Whitespace around the configured model is normalized away on load.
+  assert.deepEqual(normalizeSwarmSettingsDocument({ autoNameModel: "  deepseek/deepseek-v4-pro " })?.settings, {
+    autoName: true,
+    autoNameModel: "deepseek/deepseek-v4-pro",
+    colorPalette: "muted",
+    confirmSessionLaunch: true,
+    externalCommand: "alacritty -e",
+    pinToLeadWorkspace: false,
+  });
+  await assert.rejects(runtime.update({ autoNameModel: "bad" as never }), /invalid/u);
 });
 
 function exists(target: string) {

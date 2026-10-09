@@ -143,7 +143,9 @@ Edit user settings in `<getAgentDir()>/pi-agent-swarm.json`, normally `~/.pi/age
   "colorPalette": "muted",
   "externalCommand": "alacritty -e",
   "confirmSessionLaunch": true,
-  "pinToLeadWorkspace": false
+  "pinToLeadWorkspace": false,
+  "autoName": true,
+  "autoNameModel": "anthropic/claude-haiku-4-5"
 }
 ```
 
@@ -153,6 +155,8 @@ Edit user settings in `<getAgentDir()>/pi-agent-swarm.json`, normally `~/.pi/age
 | `externalCommand` | any terminal command | `alacritty -e` | Command used to open each new window. |
 | `confirmSessionLaunch` | `true`, `false` | `true` | Shows or skips the final launch preview for tool launches. |
 | `pinToLeadWorkspace` | `true`, `false` | `false` | Moves each new window onto the lead session's workspace instead of the focused one. |
+| `autoName` | `true`, `false` | `true` | Renames a human-started session from the bootstrap `MANAGER-<id>` name to a `MAN-<title>` summary of its first three completed turns. The rename uses a one-shot completion, retries on later turns if the completion fails, and steps aside forever as soon as you set a name yourself. Spawned child sessions keep their launch names. |
+| `autoNameModel` | `provider/id` | unset | Model used for the `MAN-<title>` completion. When unset, the session's current model is used, so no extra authentication is needed. An unresolvable value keeps the default name and reports a warning. |
 
 Pi Agent Swarm does not read project settings or extension-specific environment-variable overrides.
 A missing file uses the defaults without creating the file.

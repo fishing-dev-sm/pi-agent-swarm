@@ -541,3 +541,244 @@ test("setColorPalette persists the palette and remaps this session's hue slot", 
   assert.equal(deps.transports[0]?.options.peer.color, "#123456");
   await controller.sessionShutdown({ reason: "quit" }, context.ctx);
 });
+
+test("human session is auto-named from the first turns after the third turn", async () => {
+  const mock = createMockPi();
+  const completions: Array<{ model: unknown; prompt: string }> = [];
+  const currentModel = { provider: "test-provider", id: "test-model" };
+  const deps = dependencies({
+    completeSessionTitle: async (_ctx, model, prompt) => {
+      completions.push({ model, prompt });
+      return "修复登录页样式";
+    },
+  });
+  const controller = new SwarmController(mock.pi, deps);
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    model: currentModel,
+    sessionManager: {
+      getSessionId: () => "0a1b2c3d-rest",
+      getSessionName: () => undefined,
+      getEntries: () => [],
+      getBranch: () => [
+        { type: "message", message: { role: "user", content: "帮我修复登录页的样式问题", timestamp: 1 } },
+        { type: "message", message: { role: "user", content: "按钮还是歪的", timestamp: 2 } },
+      ],
+    },
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  assert.equal(mock.sessionName, "MANAGER-0a1b2c3d");
+
+  await controller.noteTurnEnd(context.ctx);
+  await controller.noteTurnEnd(context.ctx);
+  assert.equal(completions.length, 0);
+  await controller.noteTurnEnd(context.ctx);
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0]?.model, currentModel);
+  assert.match(completions[0]?.prompt ?? "", /帮我修复登录页的样式问题/u);
+  assert.equal(mock.sessionName, "MAN-修复登录页样式");
+  assert.match(context.statuses.get("swarm-roster") ?? "", /MAN-修复登录页样式/u);
+
+  // After the rename the default name is gone, so later turns never complete again.
+  await controller.noteTurnEnd(context.ctx);
+  assert.equal(completions.length, 1);
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("auto-naming skips spawned children, disabled settings, and user-named sessions", async () => {
+  // A spawned child (launch envelope) is never eligible.
+  const childMock = createMockPi();
+  let childCompletions = 0;
+  const childDeps = dependencies({
+    environment: {
+      PI_SWARM_INVITE: formatInvite(createGroup(Buffer.alloc(32, 9)).secret),
+      PI_SWARM_PARENT_SESSION_ID: "parent",
+      PI_SWARM_LAUNCH_ID: "launch_1234567890",
+      PI_SWARM_KICKOFF_CAPABILITY: "kickoff_1234567890abcdef",
+    },
+    completeSessionTitle: async () => {
+      childCompletions += 1;
+      return "不应出现";
+    },
+  });
+  const child = new SwarmController(childMock.pi, childDeps);
+  const childContext = createMockContext({ mode: "tui", hasUI: true, model: { provider: "p", id: "m" } });
+  await child.sessionStart({ reason: "startup" }, childContext.ctx);
+  for (let turn = 0; turn < 4; turn++) await child.noteTurnEnd(childContext.ctx);
+  assert.equal(childCompletions, 0);
+  await child.sessionShutdown({ reason: "quit" }, childContext.ctx);
+
+  // autoName=false blocks the completion entirely.
+  const disabledMock = createMockPi();
+  let disabledCompletions = 0;
+  const disabledSettings = createInMemorySwarmSettingsRuntime();
+  await disabledSettings.update({ autoName: false });
+  const disabled = new SwarmController(
+    disabledMock.pi,
+    dependencies({
+      completeSessionTitle: async () => {
+        disabledCompletions += 1;
+        return "不应出现";
+      },
+    }),
+    disabledSettings,
+  );
+  const disabledContext = createMockContext({ mode: "tui", hasUI: true, model: { provider: "p", id: "m" } });
+  await disabled.sessionStart({ reason: "startup" }, disabledContext.ctx);
+  for (let turn = 0; turn < 3; turn++) await disabled.noteTurnEnd(disabledContext.ctx);
+  assert.equal(disabledCompletions, 0);
+  await disabled.sessionShutdown({ reason: "quit" }, disabledContext.ctx);
+
+  // A name set outside the extension before the threshold turns auto-naming off.
+  const renamedMock = createMockPi();
+  let renamedCompletions = 0;
+  const renamed = new SwarmController(
+    renamedMock.pi,
+    dependencies({
+      completeSessionTitle: async () => {
+        renamedCompletions += 1;
+        return "不应出现";
+      },
+    }),
+  );
+  const renamedContext = createMockContext({ mode: "tui", hasUI: true, model: { provider: "p", id: "m" } });
+  await renamed.sessionStart({ reason: "startup" }, renamedContext.ctx);
+  await renamed.noteSessionInfoChanged("我的窗口", renamedContext.ctx);
+  for (let turn = 0; turn < 3; turn++) await renamed.noteTurnEnd(renamedContext.ctx);
+  assert.equal(renamedCompletions, 0);
+  await renamed.sessionShutdown({ reason: "quit" }, renamedContext.ctx);
+});
+
+test("a user rename during the title completion wins over the auto-name", async () => {
+  const mock = createMockPi();
+  const deps = dependencies({
+    completeSessionTitle: async () => {
+      // The user renames the session while the completion is in flight.
+      mock.rawPi.setSessionName("手动命名");
+      return "自动标题";
+    },
+  });
+  const controller = new SwarmController(mock.pi, deps);
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    model: { provider: "p", id: "m" },
+    sessionManager: {
+      getSessionId: () => "test-session",
+      getSessionName: () => undefined,
+      getEntries: () => [],
+      getBranch: () => [{ type: "message", message: { role: "user", content: "帮我修登录页", timestamp: 1 } }],
+    },
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  for (let turn = 0; turn < 3; turn++) await controller.noteTurnEnd(context.ctx);
+  assert.equal(mock.sessionName, "手动命名");
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("auto-name failures stay silent, keep the default name, and are recorded", async () => {
+  const mock = createMockPi();
+  const deps = dependencies({
+    completeSessionTitle: async () => {
+      throw new Error("provider exploded");
+    },
+  });
+  const controller = new SwarmController(mock.pi, deps);
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    model: { provider: "p", id: "m" },
+    sessionManager: {
+      getSessionId: () => "test-session",
+      getSessionName: () => undefined,
+      getEntries: () => [],
+      getBranch: () => [{ type: "message", message: { role: "user", content: "调试构建", timestamp: 1 } }],
+    },
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  for (let turn = 0; turn < 3; turn++) await controller.noteTurnEnd(context.ctx);
+  assert.equal(mock.sessionName, "MANAGER-test-ses");
+  assert.deepEqual(context.notifications, []);
+  const failure = mock.entries.find((entry) => entry.customType === "pi-swarm-auto-name");
+  assert.match(String((failure?.data as { error?: string } | undefined)?.error ?? ""), /provider exploded/u);
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("a failed auto-name attempt is retried on a later turn", async () => {
+  const mock = createMockPi();
+  let completions = 0;
+  const deps = dependencies({
+    completeSessionTitle: async () => {
+      completions += 1;
+      if (completions === 1) throw new Error("provider exploded");
+      return "重试后的标题";
+    },
+  });
+  const controller = new SwarmController(mock.pi, deps);
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    model: { provider: "p", id: "m" },
+    sessionManager: {
+      getSessionId: () => "test-session",
+      getSessionName: () => undefined,
+      getEntries: () => [],
+      getBranch: () => [{ type: "message", message: { role: "user", content: "调试构建", timestamp: 1 } }],
+    },
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  for (let turn = 0; turn < 3; turn++) await controller.noteTurnEnd(context.ctx);
+  assert.equal(completions, 1);
+  assert.equal(mock.sessionName, "MANAGER-test-ses");
+  await controller.noteTurnEnd(context.ctx);
+  assert.equal(completions, 2);
+  assert.equal(mock.sessionName, "MAN-重试后的标题");
+  // After a successful naming the session no longer carries the default name.
+  await controller.noteTurnEnd(context.ctx);
+  assert.equal(completions, 2);
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("an unresolvable autoNameModel warns once and keeps the default name", async () => {
+  const mock = createMockPi();
+  let completions = 0;
+  const settings = createInMemorySwarmSettingsRuntime();
+  await settings.update({ autoNameModel: "missing/model" });
+  const deps = dependencies({
+    completeSessionTitle: async () => {
+      completions += 1;
+      return "不应出现";
+    },
+  });
+  const controller = new SwarmController(mock.pi, deps, settings);
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    model: { provider: "p", id: "m" },
+    modelRegistry: { find: () => undefined },
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  for (let turn = 0; turn < 3; turn++) await controller.noteTurnEnd(context.ctx);
+  assert.equal(completions, 0);
+  assert.equal(mock.sessionName, "MANAGER-test-ses");
+  assert.ok(context.notifications.some((n) => n.level === "warning" && n.message.includes("autoNameModel")));
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("a name change outside the extension refreshes the transport name and footer badge", async () => {
+  const mock = createMockPi();
+  const deps = dependencies();
+  const controller = new SwarmController(mock.pi, deps);
+  const context = createMockContext({ mode: "tui", hasUI: true });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  await controller.startNewGroup(context.ctx, false);
+  assert.match(context.statuses.get("swarm-roster") ?? "", /MANAGER-test-ses/u);
+
+  // Pi's /name updates the session metadata and fires session_info_changed.
+  mock.rawPi.setSessionName("支付网关联调");
+  await controller.noteSessionInfoChanged("支付网关联调", context.ctx);
+  assert.equal(deps.transports[0]?.options.peer.name, "支付网关联调");
+  assert.match(context.statuses.get("swarm-roster") ?? "", /支付网关联调/u);
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});

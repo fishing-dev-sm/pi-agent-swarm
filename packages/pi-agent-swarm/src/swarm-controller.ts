@@ -1,12 +1,23 @@
 import { randomBytes } from "node:crypto";
 import { readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import {
+  AUTO_NAME_TIMEOUT_MS,
+  AutoNamer,
+  buildAutoNamePrompt,
+  collectAutoNameMessages,
+  completeSessionTitle as defaultCompleteSessionTitle,
+  isDefaultManagerName,
+  resolveAutoNameModel,
+  toAutoName,
+} from "./auto-name.js";
 import {
   normalizeSwarmColor,
   pickSwarmColor,
@@ -104,6 +115,13 @@ export interface SwarmControllerDependencies {
   /** Visible terminal columns, or undefined when not attached to a TTY. */
   terminalColumns?(): number | undefined;
   runtimeBaseDirectory?: string;
+  /** One-shot title completion for session auto-naming; tests substitute a stub. */
+  completeSessionTitle?(
+    ctx: ExtensionContext,
+    model: Model<Api>,
+    prompt: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
 }
 
 export interface SwarmSnapshot {
@@ -178,6 +196,13 @@ export class SwarmController {
   private leadSessionId: string | undefined;
   /** A human-started session is the default lead of its own (not yet started) group. */
   private defaultLead = false;
+  private readonly autoNamer = new AutoNamer();
+  /** Auto-naming applies only to human-started sessions, never to spawned children. */
+  private autoNameEligible = false;
+  /** Set while the auto-namer applies its own name so the change is not read as manual. */
+  private applyingAutoName: string | undefined;
+
+  private autoNameInFlight = false;
   private leadWatcher: ReturnType<typeof setInterval> | undefined;
   private readonly resizeListener = () => this.onTerminalResize();
   private resizeWatching = false;
@@ -202,6 +227,10 @@ export class SwarmController {
     this.parentSessionId = undefined;
     this.leadSessionId = undefined;
     this.defaultLead = false;
+    this.autoNamer.reset();
+    this.autoNameEligible = false;
+    this.applyingAutoName = undefined;
+    this.autoNameInFlight = false;
     this.pendingKickoffIds.clear();
     this.relayChain = Promise.resolve();
     this.startLeadWatcher();
@@ -233,6 +262,7 @@ export class SwarmController {
         this.pi.setSessionName(`MANAGER-${ctx.sessionManager.getSessionId().slice(0, 8)}`);
       }
       this.defaultLead = true;
+      this.autoNameEligible = true;
       await this.renderFooterStatus(ctx);
       return;
     }
@@ -1160,6 +1190,83 @@ export class SwarmController {
     this.pi.setSessionName(normalized);
     this.membership?.transport.setName(normalized);
     await this.renderFooterStatus(ctx);
+  }
+
+  /**
+   * Count completed turns and start the one-shot auto-name attempt for a
+   * human-started session. The attempt runs in the background as an owned task
+   * so shutdown waits for it; it never blocks the turn_end event path. The
+   * returned promise resolves when the attempt settles (tests await it).
+   */
+  noteTurnEnd(ctx: ExtensionContext): Promise<void> {
+    if (!this.isCurrent(ctx)) return Promise.resolve();
+    if (!this.autoNameEligible) return Promise.resolve();
+    if (this.autoNameInFlight) return Promise.resolve();
+    if (!this.autoNamer.noteTurn(this.pi.getSessionName(), this.settings.get().settings.autoName)) {
+      return Promise.resolve();
+    }
+    this.autoNameInFlight = true;
+    const task = this.runAutoName(ctx, ctx.sessionManager, this.generation).finally(() => {
+      this.autoNameInFlight = false;
+    });
+    return this.track(task);
+  }
+
+  /**
+   * Keep the roster peer name and the footer badge in sync when the session
+   * name changes outside the extension (for example `/name`), and treat a
+   * custom name as the user taking over so auto-naming steps aside.
+   */
+  async noteSessionInfoChanged(name: string | undefined, ctx: ExtensionContext): Promise<void> {
+    if (!this.isCurrent(ctx)) return;
+    if (name === undefined || name !== this.applyingAutoName) this.autoNamer.noteExternalName(name);
+    if (name) this.membership?.transport.setName(name);
+    await this.renderFooterStatus(ctx);
+  }
+
+  /**
+   * Best-effort naming: summarize the first turns into `MAN-<title>` with the
+   * current (or configured) model. Any failure keeps the default MANAGER-<id>
+   * name, is recorded as a session entry for diagnosis, and is retried on a
+   * later turn until the attempt budget runs out. The session name is
+   * re-checked right before applying so a rename that happened during the
+   * completion always wins.
+   */
+  private async runAutoName(ctx: ExtensionContext, owner: object, ownerGeneration: number): Promise<void> {
+    try {
+      const configured = this.settings.get().settings.autoNameModel;
+      const model = resolveAutoNameModel(ctx, configured);
+      if (!model) {
+        if (configured) {
+          this.notify(
+            ctx,
+            `Pi Agent Swarm could not resolve autoNameModel "${configured}"; keeping the default session name.`,
+            "warning",
+          );
+        }
+        return;
+      }
+      const messages = collectAutoNameMessages(ctx);
+      if (messages.length === 0) return;
+      const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(AUTO_NAME_TIMEOUT_MS)]);
+      const complete = this.deps.completeSessionTitle ?? defaultCompleteSessionTitle;
+      const raw = await complete(ctx, model, buildAutoNamePrompt(messages), signal);
+      if (!this.isCurrent(owner, ownerGeneration)) return;
+      const name = toAutoName(raw);
+      if (!name) return;
+      const currentName = this.pi.getSessionName();
+      if (currentName !== undefined && !isDefaultManagerName(currentName)) return;
+      this.applyingAutoName = name;
+      try {
+        await this.setOwnName(ctx, name, signal);
+      } finally {
+        this.applyingAutoName = undefined;
+      }
+    } catch (error) {
+      // Best-effort: any failure keeps the default MANAGER-<id> name and is
+      // retried on a later turn; record it for offline diagnosis only.
+      this.pi.appendEntry("pi-swarm-auto-name", { ok: false, error: safeTerminalLine(safeError(error)) });
+    }
   }
 
   /**

@@ -32,6 +32,12 @@ export function createPiSwarmExtension(dependencies: PiSwarmDependencies = {}): 
     pi.on("session_shutdown", async (event, ctx) => {
       await controller.sessionShutdown(event, ctx);
     });
+    pi.on("turn_end", async (_event, ctx) => {
+      controller.noteTurnEnd(ctx);
+    });
+    pi.on("session_info_changed", async (event, ctx) => {
+      await controller.noteSessionInfoChanged(event.name, ctx);
+    });
     pi.on("input", async (event, ctx) => {
       if (event.source !== "interactive") return;
       void controller.relaySteerInput(event.text, ctx);

@@ -459,6 +459,8 @@ function memorySettingsRuntime(
       confirmSessionLaunch: Object.hasOwn(overrides, "confirmSessionLaunch") ? "user" : "built-in",
       externalCommand: Object.hasOwn(overrides, "externalCommand") ? "user" : "built-in",
       pinToLeadWorkspace: Object.hasOwn(overrides, "pinToLeadWorkspace") ? "user" : "built-in",
+      autoName: Object.hasOwn(overrides, "autoName") ? "user" : "built-in",
+      autoNameModel: Object.hasOwn(overrides, "autoNameModel") ? "user" : "built-in",
     },
     canSave: issue === undefined,
     ...(issue ? { issue: { kind: "invalid", message: issue } } : {}),

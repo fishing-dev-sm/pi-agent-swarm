@@ -3,11 +3,13 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isAutoNameModel } from "./auto-name.js";
 import type { SwarmColorPaletteName } from "./color.js";
 
 export const SWARM_SETTINGS_FILE = "pi-agent-swarm.json";
 export const MAX_SWARM_SETTINGS_BYTES = 64 * 1024;
 export const DEFAULT_SWARM_SETTINGS: Readonly<SwarmSettings> = Object.freeze({
+  autoName: true,
   colorPalette: "muted",
   confirmSessionLaunch: true,
   externalCommand: "alacritty -e",
@@ -15,6 +17,8 @@ export const DEFAULT_SWARM_SETTINGS: Readonly<SwarmSettings> = Object.freeze({
 });
 
 export interface SwarmSettings {
+  autoName: boolean;
+  autoNameModel?: string;
   colorPalette: SwarmColorPaletteName;
   confirmSessionLaunch: boolean;
   externalCommand: string;
@@ -76,6 +80,8 @@ export interface SwarmSettingsRuntimeOptions {
 }
 
 const SETTING_FIELDS = [
+  "autoName",
+  "autoNameModel",
   "colorPalette",
   "confirmSessionLaunch",
   "externalCommand",
@@ -92,6 +98,18 @@ export function normalizeSwarmSettingsDocument(value: unknown): NormalizedSwarmS
   const settings: SwarmSettings = { ...DEFAULT_SWARM_SETTINGS };
   const sources = builtInSources();
 
+  if (Object.hasOwn(value, "autoName")) {
+    if (typeof value.autoName !== "boolean") return undefined;
+    settings.autoName = value.autoName;
+    sources.autoName = "user";
+  }
+  if (Object.hasOwn(value, "autoNameModel")) {
+    if (typeof value.autoNameModel !== "string" || !isAutoNameModel(value.autoNameModel.trim())) {
+      return undefined;
+    }
+    settings.autoNameModel = value.autoNameModel.trim();
+    sources.autoNameModel = "user";
+  }
   if (Object.hasOwn(value, "colorPalette")) {
     if (value.colorPalette !== "muted" && value.colorPalette !== "bright") return undefined;
     settings.colorPalette = value.colorPalette;
@@ -166,6 +184,8 @@ export function createInMemorySwarmSettingsRuntime(): SwarmSettingsRuntime {
         settings: { ...state.settings, ...canonical },
         sources: {
           ...state.sources,
+          ...(canonical.autoName !== undefined ? { autoName: "user" as const } : {}),
+          ...(canonical.autoNameModel !== undefined ? { autoNameModel: "user" as const } : {}),
           ...(canonical.colorPalette !== undefined ? { colorPalette: "user" as const } : {}),
           ...(canonical.confirmSessionLaunch !== undefined ? { confirmSessionLaunch: "user" as const } : {}),
           ...(canonical.externalCommand ? { externalCommand: "user" as const } : {}),
@@ -341,6 +361,8 @@ function invalidLoad(path: string, reason: string): SwarmSettingsLoadResult {
 
 function builtInSources(): Record<SwarmSettingsField, SwarmSettingsSource> {
   return {
+    autoName: "built-in",
+    autoNameModel: "built-in",
     colorPalette: "built-in",
     confirmSessionLaunch: "built-in",
     externalCommand: "built-in",

@@ -170,6 +170,8 @@ function memorySettingsRuntime(): SwarmSettingsRuntime & {
       confirmSessionLaunch: "built-in",
       externalCommand: "built-in",
       pinToLeadWorkspace: "built-in",
+      autoName: "built-in",
+      autoNameModel: "built-in",
     },
     canSave: true,
   };
