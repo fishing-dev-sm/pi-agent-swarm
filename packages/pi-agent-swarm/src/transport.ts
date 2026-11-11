@@ -76,6 +76,13 @@ export interface SwarmTransportOptions {
   onMessage(message: SwarmMessage, signal: AbortSignal): Promise<void> | void;
   /** Resolve whether a shutdown control message from the given sender is authorized. */
   authorizeShutdown?: (message: SwarmMessage) => boolean;
+  /** Handoff publication is accepted only by the current coordinating leader. */
+  authorizeHandoff?: (message: SwarmMessage) => boolean;
+  /**
+   * Report the stable reason a request is refused while a lifecycle freeze is active,
+   * for example `context_handoff` while a worker waits for its successor.
+   */
+  rejectRequest?: (message: SwarmMessage) => SwarmAckPayload | undefined;
   seenMessageIds?: readonly string[];
   kickoffConsumed?: boolean;
   now?: () => number;
@@ -555,6 +562,14 @@ export class SwarmTransport {
   }
 
   private messagePolicyError(message: SwarmMessage, kickoffCapability?: string): SwarmAckPayload | undefined {
+    if (message.kind === "handoff" && !(this.options.authorizeHandoff?.(message) ?? false)) {
+      return {
+        kind: "ack",
+        status: "rejected",
+        code: "context_handoff",
+        error: "Target session is not the authorized handoff leader",
+      };
+    }
     if (message.kind === "shutdown" && !(this.options.authorizeShutdown?.(message) ?? false)) {
       return {
         kind: "ack",
@@ -564,6 +579,8 @@ export class SwarmTransport {
       };
     }
     if (message.mode === "request" && !this.peer.acceptsRequests) {
+      const lifecycleRejection = this.options.rejectRequest?.(message);
+      if (lifecycleRejection) return lifecycleRejection;
       return {
         kind: "ack",
         status: "rejected",

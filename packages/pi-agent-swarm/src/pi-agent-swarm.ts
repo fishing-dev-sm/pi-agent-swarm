@@ -7,7 +7,7 @@ import { SwarmController, type SwarmControllerDependencies } from "./swarm-contr
 import { safeTerminalLine } from "./text.js";
 import { registerSwarmTools } from "./tools.js";
 
-const USAGE = "Usage: /swarm, /swarm start, or /swarm <piagentswarm:v1:invite>";
+const USAGE = "Usage: /swarm, /swarm start, /swarm requests <on|off>, or /swarm <piagentswarm:v1:invite>";
 
 type SwarmMenuModule = Pick<typeof import("./menu.js"), "showSwarmMenu">;
 
@@ -35,6 +35,9 @@ export function createPiSwarmExtension(dependencies: PiSwarmDependencies = {}): 
     pi.on("turn_end", async (_event, ctx) => {
       controller.noteTurnEnd(ctx);
     });
+    pi.on("agent_settled", async (_event, ctx) => {
+      await controller.agentSettled(ctx);
+    });
     pi.on("session_info_changed", async (event, ctx) => {
       await controller.noteSessionInfoChanged(event.name, ctx);
     });
@@ -44,7 +47,16 @@ export function createPiSwarmExtension(dependencies: PiSwarmDependencies = {}): 
     });
 
     pi.registerCommand("swarm", {
-      description: "Spawn a worker Pi session, or start/join a local group",
+      description: "Spawn a worker, manage a local group, or allow follow-up requests",
+      getArgumentCompletions(prefix) {
+        const normalized = prefix.trimStart();
+        const separator = normalized.search(/\s/u);
+        if (separator < 0) return argumentCompletions(["start", "requests"], normalized);
+        if (normalized.slice(0, separator) !== "requests") return null;
+        const value = normalized.slice(separator).trimStart();
+        if (/\s/u.test(value)) return null;
+        return argumentCompletions(["on", "off"], value);
+      },
       handler: async (rawArgs, ctx) => {
         const args = rawArgs.trim();
         if (ctx.mode !== "tui" && ctx.mode !== "rpc") {
@@ -52,6 +64,10 @@ export function createPiSwarmExtension(dependencies: PiSwarmDependencies = {}): 
         }
         if (args === "start") {
           await startGroupDirectly(controller, ctx);
+          return;
+        }
+        if (args === "requests on" || args === "requests off") {
+          setRequestPolicyDirectly(controller, ctx, args === "requests on");
           return;
         }
         if (args) {
@@ -128,6 +144,19 @@ async function startGroupDirectly(controller: SwarmController, ctx: ExtensionCom
   }
 }
 
+function argumentCompletions(values: readonly string[], prefix: string) {
+  const matches = values.filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value }));
+  return matches.length > 0 ? matches : null;
+}
+
+function setRequestPolicyDirectly(controller: SwarmController, ctx: ExtensionCommandContext, value: boolean): void {
+  if (controller.sessionSignal.aborted) return;
+  controller.setAcceptsRequests(ctx, value);
+  if (controller.isCurrent(ctx)) {
+    ctx.ui.notify(`Follow-up agent requests ${value ? "enabled" : "blocked"} for this session.`, "info");
+  }
+}
+
 function menuSource(controller: SwarmController): SwarmMenuSource {
   return {
     snapshot: (signal) => controller.snapshot(signal),
@@ -159,6 +188,9 @@ function menuSource(controller: SwarmController): SwarmMenuSource {
       if (controller.isCurrent(commandContext)) {
         commandContext.ui.notify(`Theme set to ${palette}.`, "info");
       }
+    },
+    setRequests: async (commandContext, value) => {
+      setRequestPolicyDirectly(controller, commandContext, value);
     },
   };
 }

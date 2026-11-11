@@ -18,6 +18,7 @@ const ENDPOINT_ID = /^[a-f0-9]{24}$/u;
 const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/u;
 const BASE64URL_MAC = /^[A-Za-z0-9_-]{43}$/u;
 const ACK_CODES = new Set<SwarmAckCode>([
+  "context_handoff",
   "delivery_failed",
   "kickoff_consumed",
   "launch_mismatch",
@@ -36,9 +37,9 @@ export type SwarmMessageMode = "notify" | "request" | "reply" | "kickoff";
 
 /**
  * Routes a message: `undefined` or `"steer"` enter the model context, while
- * `"lead"` and `"shutdown"` stay on the control plane and never reach the model.
+ * `"lead"`, `"shutdown"`, and `"handoff"` stay on the control plane and never reach the model.
  */
-export type SwarmMessageKind = "lead" | "steer" | "shutdown";
+export type SwarmMessageKind = "lead" | "steer" | "shutdown" | "handoff";
 
 export interface SwarmMessage {
   id: string;
@@ -72,6 +73,7 @@ export type SwarmLocalPeerDescription = Omit<SwarmPeerDescription, "endpointId">
 export type SwarmAckStatus = "accepted" | "duplicate" | "rejected" | "busy";
 
 export type SwarmAckCode =
+  | "context_handoff"
   | "delivery_failed"
   | "kickoff_consumed"
   | "launch_mismatch"
@@ -277,8 +279,17 @@ export function validateMessage(value: unknown): SwarmMessage {
   }
   const replyTo = optionalId(value.replyTo, "reply message id");
   const launchId = optionalId(value.launchId, "launch id");
-  if (value.kind !== undefined && value.kind !== "lead" && value.kind !== "steer" && value.kind !== "shutdown") {
+  if (
+    value.kind !== undefined &&
+    value.kind !== "lead" &&
+    value.kind !== "steer" &&
+    value.kind !== "shutdown" &&
+    value.kind !== "handoff"
+  ) {
     throw new Error("Pi Agent Swarm message kind is invalid");
+  }
+  if (value.kind === "handoff" && mode !== "notify") {
+    throw new Error("Pi Agent Swarm handoff must be a notify control message");
   }
   if (mode === "reply" && !replyTo) throw new Error("Pi Agent Swarm reply requires a reply message id");
   if (mode === "kickoff" && !launchId) throw new Error("Pi Agent Swarm kickoff requires a launch id");

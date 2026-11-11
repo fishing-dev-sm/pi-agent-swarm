@@ -265,6 +265,8 @@ test("message validation uses UTF-8 limits and enforces a finite signed lifetime
     /message is too large/u,
   );
   assert.throws(() => validateMessage({ ...message(), mode: "execute" }), /mode/u);
+  assert.equal(validateMessage({ ...message(), mode: "notify", kind: "handoff" }).kind, "handoff");
+  assert.throws(() => validateMessage({ ...message(), kind: "handoff", mode: "request" }), /handoff/iu);
   assert.throws(() => validateMessage({ ...message(), id: "bad id" }), /message id/u);
   assert.throws(() => validateMessage({ ...message(), expiresAt: NOW }), /lifetime/u);
   assert.doesNotThrow(() => validateMessageTiming(message(), NOW + DEFAULT_MESSAGE_TTL_MS));

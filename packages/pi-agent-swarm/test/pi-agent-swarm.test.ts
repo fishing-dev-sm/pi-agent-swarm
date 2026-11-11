@@ -155,7 +155,38 @@ test("direct invite joins in TUI and RPC but rejects unknown, trailing, JSON, an
     const command = mock.commands.get("swarm");
     assert.ok(command);
     await assert.rejects(Promise.resolve(command.handler("", context.ctx)), /unavailable.*mode/iu);
+    await assert.rejects(Promise.resolve(command.handler("requests on", context.ctx)), /unavailable.*mode/iu);
     assert.equal(context.notifications.length, 0);
+    await emit(mock, "session_shutdown", { reason: "quit" }, context.ctx);
+  }
+});
+
+test("request policy command toggles the local session, completes known values, and rejects invalid input", async () => {
+  for (const mode of ["tui", "rpc"] as const) {
+    const mock = createMockPi();
+    createPiSwarmExtension({
+      controllerDependencies: dependencies(),
+      settingsRuntime: memorySettingsRuntime(),
+    })(mock.pi);
+    const context = createMockContext({ mode, hasUI: true });
+    await emit(mock, "session_start", { reason: "startup" }, context.ctx);
+    const command = mock.commands.get("swarm");
+    assert.ok(command);
+    await assert.rejects(Promise.resolve(command.handler("requests on", context.ctx)), /not connected/iu);
+    await command.handler("start", context.ctx);
+    assert.deepEqual(command.getArgumentCompletions?.("r"), [{ value: "requests", label: "requests" }]);
+    assert.deepEqual(command.getArgumentCompletions?.("requests "), [
+      { value: "on", label: "on" },
+      { value: "off", label: "off" },
+    ]);
+    assert.equal(command.getArgumentCompletions?.("requests on "), null);
+    await command.handler("requests on", context.ctx);
+    assert.match(context.notifications.at(-1)?.message ?? "", /requests enabled/iu);
+    await command.handler("requests off", context.ctx);
+    assert.match(context.notifications.at(-1)?.message ?? "", /requests blocked/iu);
+    for (const invalid of ["requests", "requests maybe", "requests on trailing"]) {
+      await assert.rejects(Promise.resolve(command.handler(invalid, context.ctx)), /Usage/iu);
+    }
     await emit(mock, "session_shutdown", { reason: "quit" }, context.ctx);
   }
 });

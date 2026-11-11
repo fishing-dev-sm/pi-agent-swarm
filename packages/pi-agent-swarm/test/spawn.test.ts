@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "vitest";
 import { createMockContext, createMockPi } from "../../../test/support.js";
+import {
+  publishWorkerHandoff,
+  readWorkerLineage,
+  updateWorkerLineage,
+  type WorkerHandoffContent,
+} from "../src/context-recycling.js";
 import { ExternalLaunchError } from "../src/external.js";
 import type { SwarmMessage, SwarmPeerDescription } from "../src/protocol.js";
 import {
@@ -24,6 +33,7 @@ class SpawnTransport implements SwarmTransportPort {
   authorizations: Array<SwarmSendAuthorization | undefined> = [];
   stopped = 0;
   beforeList?: () => void;
+  beforeSend?: (message: SwarmMessage) => Promise<void>;
   readonly endpointManifest = {
     directory: "/tmp/pi-swarm-spawn-test",
     socketPath: "/tmp/pi-swarm-spawn-test/endpoint.sock",
@@ -46,6 +56,7 @@ class SpawnTransport implements SwarmTransportPort {
   ): Promise<SwarmDeliveryAck> {
     this.messages.push(message);
     this.authorizations.push(authorization);
+    await this.beforeSend?.(message);
     return { accepted: true, duplicate: false };
   }
   setAcceptsRequests(value: boolean) {
@@ -88,7 +99,7 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
         cwd: spawnOptions.cwd,
         pid: 456,
         launchId: childEnvironment.PI_SWARM_LAUNCH_ID,
-        acceptsRequests: false,
+        acceptsRequests: childEnvironment.PI_SWARM_ACCEPT_REQUESTS === "1",
       };
     }
     return { terminalId: "external-child", version: "alacritty" };
@@ -154,6 +165,57 @@ function harness(options: { ready?: boolean; launchError?: Error } = {}) {
   };
 }
 
+const successorHandoff: WorkerHandoffContent = {
+  originalObjective: "Repair the worker without losing progress",
+  currentState: "Generation one is frozen",
+  completedWork: "Reproduced the failure",
+  remainingWork: "Apply and verify the fix",
+  modifiedFiles: "src/example.ts",
+  verification: "Focused reproduction fails as expected",
+  decisions: "Retain the current architecture",
+  blocker: "Context budget reached",
+  nextAction: "Edit src/example.ts and run its focused E2E check",
+  artifacts: [],
+};
+
+async function readyLineage(root: string, leaderSessionId: string) {
+  return publishWorkerHandoff({
+    projectRoot: root,
+    lineageId: "lineage_successor",
+    generation: 1,
+    leaderSessionId,
+    policy: { taskProfile: "auto", maxContextPercent: 50, maxReplacements: 2 },
+    launch: { cwd: root, name: "Worker", color: "red", allowRequests: true },
+    content: successorHandoff,
+    nextAction: successorHandoff.nextAction,
+  });
+}
+
+function simulateSuccessorInitialization(transport: SpawnTransport | undefined, root: string, lineageId: string): void {
+  if (!transport) return;
+  transport.beforeSend = async (outgoing) => {
+    if (outgoing.mode === "kickoff") {
+      // A real successor initializes generation 2 during session_start before
+      // it can accept the continuation kickoff.
+      await updateWorkerLineage(root, lineageId, { currentGeneration: 2, replacementCount: 1, state: "working" });
+    }
+  };
+}
+
+async function waitForAssertion(assertion: () => Promise<void>): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  throw lastError;
+}
+
 test("spawn auto-creates a group, preserves parent, inherits model, and sends kickoff", async () => {
   const runtime = harness();
   const { mock, deps, transports, splitCalls } = runtime;
@@ -191,6 +253,7 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
   assert.equal(runtime.launcherEnvironments[0]?.PI_SWARM_MODEL_PROVIDER, "provider");
   assert.equal(runtime.launcherEnvironments[0]?.PI_SWARM_MODEL_ID, "model");
   assert.equal(runtime.launcherEnvironments[0]?.PI_SWARM_THINKING, "high");
+  assert.equal(runtime.launcherEnvironments[0]?.PI_SWARM_ACCEPT_REQUESTS, "0");
   assert.match(runtime.launcherEnvironments[0]?.PI_SWARM_INVITE ?? "", /^piagentswarm:v1:/u);
   assert.match(runtime.launcherEnvironments[0]?.PI_SWARM_KICKOFF_CAPABILITY ?? "", /^kickoff_/u);
   assert.equal(transports[0]?.messages[0]?.mode, "kickoff");
@@ -206,6 +269,23 @@ test("spawn auto-creates a group, preserves parent, inherits model, and sends ki
   assert.equal(runtime.launcherCleaned, true);
   assert.equal(mock.sentMessages.length, 0);
   await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("spawn passes the explicit follow-up request policy to the child", async () => {
+  for (const [allowRequests, expected] of [
+    [undefined, false],
+    [false, false],
+    [true, true],
+  ] as const) {
+    const runtime = harness();
+    const controller = new SwarmController(runtime.mock.pi, runtime.deps);
+    const context = createMockContext({ mode: "rpc", hasUI: true, confirm: async () => true });
+    await controller.sessionStart({ reason: "startup" }, context.ctx);
+    await controller.spawn(context.ctx, { allowRequests });
+    assert.equal(runtime.launcherEnvironments[0]?.PI_SWARM_ACCEPT_REQUESTS, expected ? "1" : "0");
+    assert.equal(runtime.transports[0]?.peers[0]?.acceptsRequests, expected);
+    await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+  }
 });
 
 test("spawn reuses an existing group and supports all split directions", async () => {
@@ -443,6 +523,153 @@ test("pre-split failure rolls back an automatic group while readiness timeout ke
   assert.equal(timeoutHarness.launcherCleaned, true);
   assert.equal((await timeout.snapshot()).connected, true);
   await timeout.sessionShutdown({ reason: "quit" }, secondContext.ctx);
+});
+
+test("leader launches an authorized successor and retires its predecessor", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-swarm-successor-"));
+  const runtime = harness();
+  runtime.deps.realpath = async (value) => value;
+  const controller = new SwarmController(runtime.mock.pi, runtime.deps);
+  let confirmations = 0;
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    cwd: root,
+    sessionManager: {
+      getSessionId: () => "leader-session",
+      getSessionName: () => undefined,
+      getBranch: () => [],
+      getEntries: () => [],
+    },
+    model: { provider: "provider", id: "model" },
+    modelRegistry: { find: () => ({ provider: "provider", id: "model" }) },
+    confirm: async () => {
+      confirmations += 1;
+      return true;
+    },
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  await controller.startNewGroup(context.ctx, false);
+  const { handoffPath } = await readyLineage(root, "leader-session");
+  const message: SwarmMessage = {
+    id: "msg_handoff_successor",
+    fromSessionId: "old-worker",
+    fromCwd: root,
+    toSessionId: "leader-session",
+    mode: "notify",
+    kind: "handoff",
+    text: handoffPath,
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+  };
+  simulateSuccessorInitialization(runtime.transports[0], root, "lineage_successor");
+  await runtime.transports[0]?.options.onMessage(message, new AbortController().signal);
+  await waitForAssertion(async () => {
+    const lineage = await readWorkerLineage(root, "lineage_successor");
+    assert.deepEqual([lineage.currentGeneration, lineage.state], [2, "working"]);
+    assert.equal(lineage.replacementCount, 1);
+    assert.equal(lineage.retiredThroughGeneration, 1);
+  });
+  assert.equal(confirmations, 0);
+  const successorEnvironment = runtime.launcherEnvironments[0];
+  assert.equal(successorEnvironment?.PI_SWARM_ACCEPT_REQUESTS, "1");
+  const recyclingEnvelope = JSON.parse(successorEnvironment?.PI_SWARM_CONTEXT_RECYCLING ?? "{}") as {
+    lineageId?: string;
+    generation?: number;
+    replacementCount?: number;
+    handoffPath?: string;
+  };
+  assert.deepEqual(
+    [recyclingEnvelope.lineageId, recyclingEnvelope.generation, recyclingEnvelope.replacementCount],
+    ["lineage_successor", 2, 1],
+  );
+  assert.equal(recyclingEnvelope.handoffPath, handoffPath);
+  assert.equal(
+    runtime.transports[0]?.messages.some((entry) => entry.mode === "kickoff" && entry.text.includes(handoffPath)),
+    true,
+  );
+  assert.equal(
+    runtime.transports[0]?.messages.some((entry) => entry.kind === "shutdown" && entry.toSessionId === "old-worker"),
+    true,
+  );
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("leader startup recovers an interrupted replacement without model input", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-swarm-successor-recovery-"));
+  const runtime = harness();
+  runtime.deps.realpath = async (value) => value;
+  const controller = new SwarmController(runtime.mock.pi, runtime.deps);
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    cwd: root,
+    sessionManager: {
+      getSessionId: () => "leader-session",
+      getSessionName: () => undefined,
+      getBranch: () => [],
+      getEntries: () => [],
+    },
+    model: { provider: "provider", id: "model" },
+    modelRegistry: { find: () => ({ provider: "provider", id: "model" }) },
+    confirm: async () => true,
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  await controller.startNewGroup(context.ctx, false);
+  await readyLineage(root, "leader-session");
+  await updateWorkerLineage(root, "lineage_successor", { state: "replacing", workerSessionId: "old-worker" });
+  simulateSuccessorInitialization(runtime.transports[0], root, "lineage_successor");
+  await controller.startNewGroup(context.ctx, false);
+  await waitForAssertion(async () => {
+    const lineage = await readWorkerLineage(root, "lineage_successor");
+    assert.deepEqual([lineage.currentGeneration, lineage.state], [2, "working"]);
+  });
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+test("failed successor launch restores handoff_ready for an explicit retry", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-swarm-successor-failure-"));
+  const runtime = harness({ launchError: new Error("terminal unavailable") });
+  runtime.deps.realpath = async (value) => value;
+  const controller = new SwarmController(runtime.mock.pi, runtime.deps);
+  const context = createMockContext({
+    mode: "tui",
+    hasUI: true,
+    cwd: root,
+    sessionManager: {
+      getSessionId: () => "leader-session",
+      getSessionName: () => undefined,
+      getBranch: () => [],
+      getEntries: () => [],
+    },
+    confirm: async () => true,
+  });
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  await controller.startNewGroup(context.ctx, false);
+  const { handoffPath } = await readyLineage(root, "leader-session");
+  await runtime.transports[0]?.options.onMessage(
+    {
+      id: "msg_handoff_failure",
+      fromSessionId: "old-worker",
+      fromCwd: root,
+      toSessionId: "leader-session",
+      mode: "notify",
+      kind: "handoff",
+      text: handoffPath,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    },
+    new AbortController().signal,
+  );
+  await waitForAssertion(async () => {
+    assert.equal((await readWorkerLineage(root, "lineage_successor")).state, "handoff_ready");
+    assert.match(context.notifications.map((entry) => entry.message).join("\n"), /could not replace worker/iu);
+  });
+  assert.equal(
+    runtime.transports[0]?.messages.some((entry) => entry.kind === "shutdown"),
+    false,
+  );
+  await controller.sessionShutdown({ reason: "quit" }, context.ctx);
 });
 
 function memorySettingsRuntime(

@@ -24,6 +24,7 @@
     "check:boundaries": "node ./scripts/check-extension-boundaries.mjs",
     "prepare": "node .husky/install.mjs",
     "benchmark:extension-startup": "node ./scripts/benchmark-extension-startup.mjs",
+    "e2e:context-recycling": "node ./scripts/e2e-context-recycling.mjs",
     "package:doctor": "node ./scripts/run-package-workflow.mjs doctor",
     "package:doctor-all": "node ./scripts/run-package-workflow.mjs doctor-all",
     "package:install": "node ./scripts/run-package-workflow.mjs install",

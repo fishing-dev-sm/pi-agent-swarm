@@ -1,3 +1,5 @@
+import { type ContextRecyclingLaunch, normalizeContextRecyclingPolicy } from "./context-recycling.js";
+
 type SwarmThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export const SWARM_LAUNCH_ENV_KEYS = [
@@ -11,6 +13,7 @@ export const SWARM_LAUNCH_ENV_KEYS = [
   "PI_SWARM_MODEL_PROVIDER",
   "PI_SWARM_MODEL_ID",
   "PI_SWARM_THINKING",
+  "PI_SWARM_CONTEXT_RECYCLING",
 ] as const;
 
 export interface SwarmLaunchEnvelope {
@@ -21,6 +24,7 @@ export interface SwarmLaunchEnvelope {
   childName?: string;
   childColor?: string;
   acceptsRequests: boolean;
+  contextRecycling?: ContextRecyclingLaunch;
   model?: { provider: string; id: string; thinkingLevel?: SwarmThinkingLevel };
 }
 
@@ -43,6 +47,7 @@ export function consumeLaunchEnvelope(environment: NodeJS.ProcessEnv = process.e
   const childName = optionalBounded(values.PI_SWARM_CHILD_NAME, "child name", 200);
   const childColor = optionalHexColor(values.PI_SWARM_COLOR);
   const acceptsRequests = parseBoolean(values.PI_SWARM_ACCEPT_REQUESTS);
+  const contextRecycling = parseContextRecycling(values.PI_SWARM_CONTEXT_RECYCLING);
   const provider = optionalBounded(values.PI_SWARM_MODEL_PROVIDER, "model provider", 200);
   const id = optionalBounded(values.PI_SWARM_MODEL_ID, "model id", 500);
   if ((provider === undefined) !== (id === undefined)) {
@@ -63,6 +68,7 @@ export function consumeLaunchEnvelope(environment: NodeJS.ProcessEnv = process.e
     ...(childName ? { childName } : {}),
     ...(childColor ? { childColor } : {}),
     acceptsRequests,
+    ...(contextRecycling ? { contextRecycling } : {}),
     ...(provider && id
       ? {
           model: {
@@ -82,6 +88,7 @@ export function launchEnvelopeEnvironment(envelope: SwarmLaunchEnvelope): Record
     PI_SWARM_LAUNCH_ID: envelope.launchId,
     PI_SWARM_KICKOFF_CAPABILITY: envelope.kickoffCapability,
     PI_SWARM_ACCEPT_REQUESTS: envelope.acceptsRequests ? "1" : "0",
+    ...(envelope.contextRecycling ? { PI_SWARM_CONTEXT_RECYCLING: JSON.stringify(envelope.contextRecycling) } : {}),
     ...(envelope.childName ? { PI_SWARM_CHILD_NAME: envelope.childName } : {}),
     ...(envelope.childColor ? { PI_SWARM_COLOR: envelope.childColor } : {}),
     ...(envelope.model
@@ -91,6 +98,50 @@ export function launchEnvelopeEnvironment(envelope: SwarmLaunchEnvelope): Record
           ...(envelope.model.thinkingLevel ? { PI_SWARM_THINKING: envelope.model.thinkingLevel } : {}),
         }
       : {}),
+  };
+}
+
+function parseContextRecycling(value: string | undefined): ContextRecyclingLaunch | undefined {
+  if (value === undefined) return undefined;
+  const boundedValue = bounded(value, "context recycling policy", 4096);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(boundedValue);
+  } catch {
+    throw new Error("Pi Agent Swarm launch context recycling policy is invalid");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Pi Agent Swarm launch context recycling policy is invalid");
+  }
+  const candidate = parsed as Record<string, unknown>;
+  const allowed = ["lineageId", "generation", "replacementCount", "policy", "handoffPath"];
+  if (Object.keys(candidate).some((key) => !allowed.includes(key))) {
+    throw new Error("Pi Agent Swarm launch context recycling policy is invalid");
+  }
+  const lineageId = safeId(candidate.lineageId as string | undefined, "lineage id");
+  if (!Number.isInteger(candidate.generation) || (candidate.generation as number) < 1) {
+    throw new Error("Pi Agent Swarm launch context recycling generation is invalid");
+  }
+  if (!Number.isInteger(candidate.replacementCount) || (candidate.replacementCount as number) < 0) {
+    throw new Error("Pi Agent Swarm launch context recycling replacement count is invalid");
+  }
+  const handoffPath = optionalBounded(candidate.handoffPath as string | undefined, "context handoff path", 4096);
+  if ((candidate.generation === 1) !== (handoffPath === undefined)) {
+    throw new Error("Pi Agent Swarm launch context handoff path is inconsistent");
+  }
+  const policy = normalizeContextRecyclingPolicy(candidate.policy);
+  if (
+    candidate.generation !== (candidate.replacementCount as number) + 1 ||
+    (candidate.replacementCount as number) > policy.maxReplacements
+  ) {
+    throw new Error("Pi Agent Swarm launch context recycling generation is inconsistent");
+  }
+  return {
+    lineageId,
+    generation: candidate.generation as number,
+    replacementCount: candidate.replacementCount as number,
+    policy,
+    ...(handoffPath ? { handoffPath } : {}),
   };
 }
 

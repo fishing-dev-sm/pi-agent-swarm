@@ -12,23 +12,25 @@ export interface SwarmMenuSource {
   rename(ctx: ExtensionCommandContext, name: string, signal?: AbortSignal): Promise<void>;
   setColor(ctx: ExtensionCommandContext, color: string, signal?: AbortSignal): Promise<void>;
   setPalette(ctx: ExtensionCommandContext, palette: SwarmColorPaletteName, signal?: AbortSignal): Promise<void>;
+  setRequests(ctx: ExtensionCommandContext, value: boolean): Promise<void>;
 }
 
 type Screen = "main";
-type Action = "spawn" | "rename" | "setColor" | "setTheme";
+type Action = "spawn" | "rename" | "setColor" | "setTheme" | "setRequests";
 
 const DIRECTION_OPTIONS = ["Right", "Down", "Left", "Up"] as const;
 const PALETTE_OPTIONS = [
   { label: "muted (default, low-saturation GitHub colors)", value: "muted" },
   { label: "bright (vivid GitHub colors)", value: "bright" },
 ] as const satisfies readonly { label: string; value: SwarmColorPaletteName }[];
+const REQUEST_OPTIONS = ["Block (default)", "Allow paid turns from trusted peers"] as const;
 
 export function createSwarmMenu(source: SwarmMenuSource) {
   const getState = ({ signal }: { signal?: AbortSignal } = {}) => source.snapshot(signal);
   const menu: MenuDefinition<SwarmMenuState, Screen, Action> = {
     start: "main",
     screens: {
-      main: () => ({
+      main: ({ state }) => ({
         kind: "actions",
         title: "Pi Agent Swarm",
         lines: ["Spawn workers and manage this session's badge."],
@@ -53,6 +55,11 @@ export function createSwarmMenu(source: SwarmMenuSource) {
             label: "Set theme",
             action: "setTheme",
           },
+          {
+            id: "requests",
+            label: `Follow-up requests: ${state.acceptsRequests ? "allowed" : "blocked"}`,
+            action: "setRequests",
+          },
         ],
         hint: "close",
       }),
@@ -63,6 +70,8 @@ export function createSwarmMenu(source: SwarmMenuSource) {
           signal,
         });
         if (!directionChoice || signal.aborted) return { kind: "stay" };
+        const requestChoice = await ctx.ui.select("Follow-up agent requests", [...REQUEST_OPTIONS], { signal });
+        if (!requestChoice || signal.aborted) return { kind: "stay" };
         const task = await ctx.ui.input("Optional first task", "Submit an empty value for an idle child session", {
           signal,
         });
@@ -71,6 +80,7 @@ export function createSwarmMenu(source: SwarmMenuSource) {
           ctx,
           {
             direction: directionChoice.toLowerCase() as SpawnSessionInput["direction"],
+            allowRequests: requestChoice === "Allow paid turns from trusted peers",
             ...(task ? { task } : {}),
           },
           signal,
@@ -91,6 +101,10 @@ export function createSwarmMenu(source: SwarmMenuSource) {
         });
         if (!choice || signal.aborted) return { kind: "stay" };
         await source.setColor(ctx, choice, signal);
+        return { kind: "stay" };
+      },
+      setRequests: async ({ ctx, state }) => {
+        await source.setRequests(ctx, !state.acceptsRequests);
         return { kind: "stay" };
       },
       setTheme: async ({ ctx, signal }) => {

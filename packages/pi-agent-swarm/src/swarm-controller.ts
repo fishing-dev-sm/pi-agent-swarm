@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
@@ -26,6 +26,22 @@ import {
   swarmColorName,
   swarmColorPalette,
 } from "./color.js";
+import {
+  type ContextRecyclingLaunch,
+  type ContextRecyclingPolicyInput,
+  contextHandoffDecision,
+  initializeWorkerLineage,
+  normalizeContextRecyclingPolicy,
+  publishWorkerHandoff,
+  readWorkerLineage,
+  updateWorkerLineage,
+  verifyWorkerHandoffReadable,
+  type WorkerHandoffContent,
+  type WorkerLineage,
+  type WorkerLineageState,
+  type WorkerTaskStatus,
+  workerLineagePaths,
+} from "./context-recycling.js";
 import { parseExternalCommand } from "./external.js";
 import { buildRosterBadge, DEFAULT_TERMINAL_COLUMNS } from "./footer.js";
 import { consumeLaunchEnvelope, launchEnvelopeEnvironment, type SwarmLaunchEnvelope } from "./launch-envelope.js";
@@ -137,6 +153,10 @@ export interface SwarmSnapshot {
 
 export interface SpawnSessionInput {
   direction?: TerminalSplitDirection;
+  allowRequests?: boolean;
+  contextRecycling?: ContextRecyclingPolicyInput;
+  /** Internal continuation identity; public tools use contextRecycling instead. */
+  recyclingLaunch?: ContextRecyclingLaunch;
   task?: string;
   name?: string;
   color?: string;
@@ -152,6 +172,18 @@ export interface SpawnSessionResult {
   terminalId: string;
   terminalVersion: string;
   kickoffAccepted: boolean;
+  lineageId?: string;
+}
+
+interface ActiveWorkerRecycling {
+  launch: ContextRecyclingLaunch;
+  projectRoot: string;
+  leaderSessionId: string;
+  specification: WorkerLineage["launch"];
+  state: WorkerLineageState;
+  taskStatus?: WorkerTaskStatus;
+  handoff?: WorkerHandoffContent;
+  handoffAttempts: number;
 }
 
 interface Membership {
@@ -208,6 +240,9 @@ export class SwarmController {
   private resizeWatching = false;
   private readonly pendingKickoffIds = new Set<string>();
   private relayChain: Promise<void> = Promise.resolve();
+  private recycling: ActiveWorkerRecycling | undefined;
+  private recyclingChain: Promise<void> = Promise.resolve();
+  private readonly successorLaunches = new Map<string, Promise<void>>();
 
   constructor(
     private readonly pi: ExtensionAPI,
@@ -233,6 +268,9 @@ export class SwarmController {
     this.autoNameInFlight = false;
     this.pendingKickoffIds.clear();
     this.relayChain = Promise.resolve();
+    this.recycling = undefined;
+    this.recyclingChain = Promise.resolve();
+    this.successorLaunches.clear();
     this.startLeadWatcher();
     this.startResizeWatcher();
     const owner = ctx.sessionManager;
@@ -298,6 +336,10 @@ export class SwarmController {
           handoff?.kickoffConsumed ?? false,
         ),
       );
+      const recyclingLaunch = envelope?.contextRecycling ?? handoff?.contextRecycling;
+      if (recyclingLaunch && this.parentSessionId) {
+        await this.initializeContextRecycling(ctx, recyclingLaunch, this.parentSessionId);
+      }
     } catch (error) {
       if (this.isCurrent(owner, ownerGeneration)) {
         this.notify(ctx, `Pi Agent Swarm could not join the launch group: ${safeError(error)}`, "error");
@@ -338,6 +380,7 @@ export class SwarmController {
         ...(peerName ? { name: peerName } : {}),
         ...(peerColor ? { color: peerColor } : {}),
         ...(this.parentSessionId ? { parentSessionId: this.parentSessionId } : {}),
+        ...(this.recycling ? { contextRecycling: this.recycling.launch } : {}),
         expiresAt: this.deps.now() + RELOAD_HANDOFF_TTL_MS,
       });
     }
@@ -378,6 +421,10 @@ export class SwarmController {
           // Best-effort: a manager can still run a group without an explicit lead record.
         }
       }
+      void this.track(this.recoverProjectHandoffs(ctx)).catch((error) => {
+        if (this.isCurrent(ctx))
+          this.notify(ctx, `Pi Agent Swarm handoff recovery failed: ${safeError(error)}`, "warning");
+      });
       return this.snapshot(signal);
     });
   }
@@ -418,9 +465,249 @@ export class SwarmController {
   setAcceptsRequests(ctx: ExtensionContext, value: boolean): void {
     this.assertCurrentContext(ctx);
     if (!this.membership) throw new Error("Pi Agent Swarm is not connected");
+    if (this.recycling?.state === "retired") {
+      throw new Error("Pi Agent Swarm retired workers cannot accept new requests");
+    }
     this.membership.rollbackLaunch = undefined;
     this.membership.acceptsRequests = value;
     this.membership.transport.setAcceptsRequests(value);
+    if (value && this.recycling && ["handoff_pending", "handoff_ready", "failed"].includes(this.recycling.state)) {
+      const recycling = this.recycling;
+      const previousState = recycling.state;
+      recycling.state = "working";
+      recycling.handoffAttempts = 0;
+      void updateWorkerLineage(
+        recycling.projectRoot,
+        recycling.launch.lineageId,
+        { state: "working" },
+        { generation: recycling.launch.generation, state: previousState },
+      ).catch((error) => {
+        if (this.recycling === recycling)
+          this.notify(ctx, `Pi Agent Swarm could not resume its lineage: ${safeError(error)}`, "error");
+      });
+    }
+  }
+
+  private async initializeContextRecycling(
+    ctx: ExtensionContext,
+    launch: ContextRecyclingLaunch,
+    leaderSessionId: string,
+  ): Promise<void> {
+    const model = ctx.model;
+    const specification: WorkerLineage["launch"] = {
+      cwd: ctx.cwd,
+      ...(this.pi.getSessionName() ? { name: this.pi.getSessionName() } : {}),
+      ...(this.color ? { color: this.color } : {}),
+      ...(model ? { model: `${model.provider}/${model.id}` } : {}),
+      allowRequests: this.membership?.acceptsRequests ?? false,
+    };
+    await verifyWorkerHandoffReadable(ctx.cwd, launch);
+    const lineage = await initializeWorkerLineage({
+      projectRoot: ctx.cwd,
+      launch,
+      leaderSessionId,
+      workerSessionId: ctx.sessionManager.getSessionId(),
+      specification,
+    });
+    if (!this.isCurrent(ctx)) return;
+    const staleGeneration = lineage.currentGeneration !== launch.generation;
+    this.recycling = {
+      launch,
+      projectRoot: ctx.cwd,
+      leaderSessionId,
+      specification,
+      state: staleGeneration ? "retired" : lineage.state,
+      handoffAttempts: 0,
+    };
+    if (staleGeneration || ["handoff_pending", "handoff_ready", "replacing", "failed"].includes(lineage.state)) {
+      this.freezeForHandoff();
+    }
+  }
+
+  async agentSettled(ctx: ExtensionContext): Promise<void> {
+    if (!this.isCurrent(ctx) || !this.recycling) return;
+    const run = this.recyclingChain.then(() => this.agentSettledOwned(ctx));
+    this.recyclingChain = run.catch(() => undefined);
+    await run.catch((error) => {
+      if (this.isCurrent(ctx))
+        this.notify(ctx, `Pi Agent Swarm context recycling failed: ${safeError(error)}`, "error");
+    });
+  }
+
+  private async agentSettledOwned(ctx: ExtensionContext): Promise<void> {
+    const recycling = this.recycling;
+    if (!recycling || !this.isCurrent(ctx)) return;
+    if (recycling.state === "completed" || recycling.state === "retired" || recycling.state === "replacing") return;
+    const usage = ctx.getContextUsage();
+    if (usage) {
+      await updateWorkerLineage(
+        recycling.projectRoot,
+        recycling.launch.lineageId,
+        { contextUsage: { ...usage, updatedAt: new Date().toISOString() } },
+        { generation: recycling.launch.generation, state: recycling.state },
+      );
+      if (this.recycling !== recycling || !this.isCurrent(ctx)) return;
+    }
+    if (recycling.state === "handoff_ready" || recycling.state === "failed") return;
+    if (recycling.state === "handoff_pending") {
+      if (recycling.handoff) {
+        await this.publishHandoff(ctx, recycling.handoff);
+      } else {
+        await this.requestHandoffTurn(ctx, recycling);
+      }
+      return;
+    }
+    const decision = contextHandoffDecision(
+      usage?.percent,
+      recycling.taskStatus,
+      recycling.launch.policy.maxContextPercent,
+    );
+    if (decision === "continue") return;
+    if (decision === "complete") {
+      recycling.state = "completed";
+      await updateWorkerLineage(
+        recycling.projectRoot,
+        recycling.launch.lineageId,
+        { state: "completed" },
+        { generation: recycling.launch.generation, state: "working" },
+      );
+      return;
+    }
+    if (recycling.launch.replacementCount >= recycling.launch.policy.maxReplacements) {
+      recycling.state = "failed";
+      this.freezeForHandoff();
+      await updateWorkerLineage(
+        recycling.projectRoot,
+        recycling.launch.lineageId,
+        { state: "failed" },
+        { generation: recycling.launch.generation, state: "working" },
+      );
+      const text = `Context recycling paused for lineage ${recycling.launch.lineageId}: replacement budget ${recycling.launch.policy.maxReplacements} is exhausted.`;
+      this.notify(ctx, text, "warning");
+      await this.send(ctx, { targetSessionId: recycling.leaderSessionId, text, mode: "notify" });
+      return;
+    }
+    recycling.state = "handoff_pending";
+    recycling.handoffAttempts = 0;
+    this.freezeForHandoff();
+    await updateWorkerLineage(
+      recycling.projectRoot,
+      recycling.launch.lineageId,
+      { state: "handoff_pending" },
+      { generation: recycling.launch.generation, state: "working" },
+    );
+    if (recycling.handoff) await this.publishHandoff(ctx, recycling.handoff);
+    else await this.requestHandoffTurn(ctx, recycling);
+  }
+
+  private async requestHandoffTurn(ctx: ExtensionContext, recycling: ActiveWorkerRecycling): Promise<void> {
+    if (!this.isCurrent(ctx) || this.recycling !== recycling) return;
+    if (recycling.handoffAttempts >= 2) {
+      recycling.state = "failed";
+      this.notify(ctx, "Pi Agent Swarm could not obtain a structured handoff; the worker remains frozen.", "error");
+      await updateWorkerLineage(
+        recycling.projectRoot,
+        recycling.launch.lineageId,
+        { state: "failed" },
+        { generation: recycling.launch.generation, state: "handoff_pending" },
+      ).catch(() => undefined);
+      await this.send(ctx, {
+        targetSessionId: recycling.leaderSessionId,
+        text: `Context recycling stopped for lineage ${recycling.launch.lineageId}: no structured handoff after ${recycling.handoffAttempts} attempts.`,
+        mode: "notify",
+      }).catch(() => undefined);
+      return;
+    }
+    recycling.handoffAttempts += 1;
+    const paths = workerLineagePaths(recycling.projectRoot, recycling.launch.lineageId, recycling.launch.generation);
+    const content = [
+      "Pi Agent Swarm context handoff is required. Do not continue ordinary task work in this turn.",
+      "Call session_bus action=handoff once with a complete handoff object containing all required fields.",
+      `Write the handoff for: ${paths.handoffPath}`,
+      `Put large supporting logs under: ${paths.artifactsDirectory}`,
+      "Do not include invites, capabilities, credentials, environment dumps, or a raw transcript.",
+      "The exact nextAction must allow a fresh worker to continue without repeating completed work.",
+    ].join("\n");
+    this.pi.sendMessage(
+      { customType: SWARM_MESSAGE_TYPE, content, display: false, details: {} },
+      { deliverAs: "followUp", triggerTurn: true },
+    );
+  }
+
+  async publishHandoff(
+    ctx: ExtensionContext,
+    handoff: WorkerHandoffContent,
+    signal?: AbortSignal,
+  ): Promise<{ handoffPath: string }> {
+    this.assertCurrentContext(ctx);
+    const recycling = this.recycling;
+    if (recycling?.state !== "handoff_pending") {
+      throw new Error("Pi Agent Swarm is not waiting for a context handoff");
+    }
+    const membership = this.membership;
+    if (!membership) throw new Error("Pi Agent Swarm is not connected");
+    const paths = await publishWorkerHandoff({
+      projectRoot: recycling.projectRoot,
+      lineageId: recycling.launch.lineageId,
+      generation: recycling.launch.generation,
+      leaderSessionId: recycling.leaderSessionId,
+      policy: recycling.launch.policy,
+      launch: recycling.specification,
+      content: handoff,
+      nextAction: handoff.nextAction,
+    });
+    if (this.recycling !== recycling || !this.isCurrent(ctx)) throw staleError();
+    const self = membership.transport.peerDescription;
+    const issuedAt = this.deps.now();
+    try {
+      const acknowledgement = await membership.transport.send(
+        recycling.leaderSessionId,
+        {
+          id: this.deps.randomId("msg"),
+          fromSessionId: self.sessionId,
+          ...(self.name ? { fromName: self.name } : {}),
+          fromCwd: self.cwd,
+          toSessionId: recycling.leaderSessionId,
+          mode: "notify",
+          kind: "handoff",
+          text: paths.handoffPath,
+          issuedAt,
+          expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
+        },
+        combineSignals(signal, this.controller.signal),
+      );
+      if (!acknowledgement.accepted) {
+        throw new Error(`Pi Agent Swarm leader rejected the handoff: ${acknowledgement.error ?? "unknown reason"}`);
+      }
+    } catch (error) {
+      if (this.recycling === recycling && recycling.state === "handoff_pending" && this.isCurrent(ctx)) {
+        const latest = await readWorkerLineage(recycling.projectRoot, recycling.launch.lineageId);
+        if (latest.currentGeneration > recycling.launch.generation || latest.state === "replacing") {
+          recycling.state = "handoff_ready";
+          recycling.handoff = handoff;
+          return { handoffPath: paths.handoffPath };
+        }
+        if (latest.currentGeneration === recycling.launch.generation && latest.state === "handoff_ready") {
+          await updateWorkerLineage(
+            recycling.projectRoot,
+            recycling.launch.lineageId,
+            { state: "handoff_pending" },
+            { generation: recycling.launch.generation, state: "handoff_ready" },
+          );
+        }
+      }
+      throw error;
+    }
+    if (this.recycling !== recycling || this.membership !== membership || !this.isCurrent(ctx)) throw staleError();
+    recycling.state = "handoff_ready";
+    recycling.handoff = handoff;
+    return { handoffPath: paths.handoffPath };
+  }
+
+  private freezeForHandoff(): void {
+    if (!this.membership) return;
+    this.membership.acceptsRequests = false;
+    this.membership.transport.setAcceptsRequests(false);
   }
 
   async snapshot(signal?: AbortSignal): Promise<SwarmSnapshot> {
@@ -466,6 +753,8 @@ export class SwarmController {
       text: string;
       mode: Exclude<SwarmMessageMode, "kickoff">;
       replyTo?: string;
+      taskStatus?: WorkerTaskStatus;
+      handoff?: WorkerHandoffContent;
     },
     signal?: AbortSignal,
   ): Promise<{ message: SwarmMessage; acknowledgement: SwarmDeliveryAck }> {
@@ -473,7 +762,12 @@ export class SwarmController {
     const membership = this.membership;
     if (!membership) throw new Error("Pi Agent Swarm is not connected");
     membership.rollbackLaunch = undefined;
-    if (Buffer.byteLength(options.text) > MAX_MESSAGE_BYTES) {
+    const usage = this.recycling && options.mode === "reply" ? ctx.getContextUsage() : undefined;
+    const metricPrefix =
+      this.recycling && options.mode === "reply"
+        ? `[Swarm lineage ${this.recycling.launch.lineageId} generation ${this.recycling.launch.generation}; model ${ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unknown"}; context ${usage?.percent ?? "unknown"}%${usage ? ` (${usage.tokens ?? "unknown"}/${usage.contextWindow} tokens)` : ""}; taskProfile ${this.recycling.launch.policy.taskProfile}; state ${this.recycling.state}; updatedAt ${new Date().toISOString()}]\n`
+        : "";
+    if (Buffer.byteLength(`${metricPrefix}${options.text}`) > MAX_MESSAGE_BYTES) {
       throw new Error("Pi Agent Swarm message is too large");
     }
     const self = membership.transport.peerDescription;
@@ -485,7 +779,7 @@ export class SwarmController {
       fromCwd: self.cwd,
       toSessionId: options.targetSessionId,
       mode: options.mode,
-      text: options.text,
+      text: `${metricPrefix}${options.text}`,
       issuedAt,
       expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
       ...(options.replyTo ? { replyTo: options.replyTo } : {}),
@@ -496,6 +790,10 @@ export class SwarmController {
     const acknowledgement = await membership.transport.send(options.targetSessionId, message, operationSignal);
     if (operationSignal.aborted || this.membership !== membership || !this.isCurrent(owner, ownerGeneration)) {
       throw staleError();
+    }
+    if (acknowledgement.accepted && this.recycling && options.mode === "reply") {
+      this.recycling.taskStatus = options.taskStatus ?? "working";
+      this.recycling.handoff = options.handoff;
     }
     return { message, acknowledgement };
   }
@@ -553,6 +851,16 @@ export class SwarmController {
     await this.settings.flush();
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
     const launchSettings = this.settings.get().settings;
+    const recyclingLaunch =
+      input.recyclingLaunch ??
+      (input.contextRecycling
+        ? {
+            lineageId: this.deps.randomId("lineage"),
+            generation: 1,
+            replacementCount: 0,
+            policy: normalizeContextRecyclingPolicy(input.contextRecycling),
+          }
+        : undefined);
     const direction = input.direction ?? "right";
     const windowLabel = "window";
     const launchLayoutLine = "External terminal window (the window manager places it)";
@@ -596,7 +904,7 @@ export class SwarmController {
     );
     const terminalVersion = await terminalAdapter.assertAvailable(operationSignal);
     if (!this.isCurrent(owner, ownerGeneration)) throw staleError();
-    if (launchSettings.confirmSessionLaunch) {
+    if (launchSettings.confirmSessionLaunch && !input.recyclingLaunch) {
       const confirmed = await ctx.ui.confirm(
         "Create a new Pi session?",
         [
@@ -605,6 +913,8 @@ export class SwarmController {
           `Color: ${safeTerminalLine(color)}`,
           `Cwd: ${safeTerminalLine(cwd)}`,
           `Model: ${safeTerminalLine(childModel ? `${childModel.provider}/${childModel.id}` : "Pi default")}`,
+          `Follow-up requests: ${input.allowRequests ? "allowed for trusted peers" : "blocked"}.`,
+          `Context recycling: ${recyclingLaunch ? `${recyclingLaunch.policy.maxContextPercent}% soft handoff, at most ${recyclingLaunch.policy.maxReplacements} replacements` : "disabled"}.`,
           "The child may spend model tokens and edit the same workspace concurrently.",
         ].join("\n"),
         { signal: operationSignal },
@@ -632,7 +942,8 @@ export class SwarmController {
         kickoffCapability,
         childName: name,
         childColor: color,
-        acceptsRequests: false,
+        acceptsRequests: input.allowRequests === true,
+        ...(recyclingLaunch ? { contextRecycling: recyclingLaunch } : {}),
         ...(childModel ? { model: childModel } : {}),
       };
       const launchEnvironment = launchEnvelopeEnvironment(envelope);
@@ -699,6 +1010,7 @@ export class SwarmController {
         terminalId,
         terminalVersion: actualTerminalVersion,
         kickoffAccepted,
+        ...(recyclingLaunch ? { lineageId: recyclingLaunch.lineageId } : {}),
       };
     } catch (error) {
       const partial = splitCreated || (isTerminalLaunchError(error) && error.splitCreated);
@@ -799,6 +1111,19 @@ export class SwarmController {
       authorizeShutdown: (message) =>
         message.fromSessionId === this.parentSessionId ||
         (this.leadSessionId !== undefined && message.fromSessionId === this.leadSessionId),
+      authorizeHandoff: () =>
+        this.isCurrent(owner, ownerGeneration) && this.leadSessionId === ctx.sessionManager.getSessionId(),
+      rejectRequest: () => {
+        const state = this.recycling?.state;
+        if (!state || !["handoff_pending", "handoff_ready", "replacing", "failed", "retired"].includes(state))
+          return undefined;
+        return {
+          kind: "ack",
+          status: "rejected",
+          code: "context_handoff",
+          error: `Target worker is ${state}; only the context handoff protocol may continue`,
+        };
+      },
       onMessage: async (message, deliverySignal) => {
         if (deliverySignal?.aborted || !this.isCurrent(owner, ownerGeneration)) return;
         const activeContext = this.activeContext;
@@ -812,6 +1137,19 @@ export class SwarmController {
           // without a provider request and the settle boundary performs the
           // shutdown. A busy session settles on its own and needs no trigger.
           const idle = activeContext?.isIdle() ?? false;
+          if (this.recycling) {
+            const recycling = this.recycling;
+            recycling.state = "retired";
+            const lineage = await readWorkerLineage(recycling.projectRoot, recycling.launch.lineageId);
+            await updateWorkerLineage(
+              recycling.projectRoot,
+              recycling.launch.lineageId,
+              lineage.currentGeneration === recycling.launch.generation
+                ? { state: "retired" }
+                : { retiredThroughGeneration: recycling.launch.generation },
+              { generation: lineage.currentGeneration },
+            );
+          }
           activeContext?.shutdown();
           if (idle && activeContext) {
             const details: SwarmMessageDetails = { message };
@@ -826,7 +1164,10 @@ export class SwarmController {
         if (message.kind === "lead") {
           // Lead broadcasts only update the role badge; they never enter the model
           // context. refreshLead below reconciles the same information.
+        } else if (message.kind === "handoff") {
+          if (activeContext) await this.acceptWorkerHandoff(activeContext, message);
         } else {
+          await this.noteIncomingWork(message);
           this.receiveMessage(message);
         }
         void this.refreshLead().then((changed) => {
@@ -869,6 +1210,207 @@ export class SwarmController {
     } finally {
       this.endStatus(token);
     }
+  }
+
+  private acceptWorkerHandoff(ctx: ExtensionContext, message: SwarmMessage): void {
+    const key = `${message.fromSessionId}:${message.text}`;
+    if (this.successorLaunches.has(key)) return;
+    const owner = ctx.sessionManager;
+    const ownerGeneration = this.generation;
+    const task = this.spawnSuccessor(ctx, message).catch((error) => {
+      this.successorLaunches.delete(key);
+      if (this.isCurrent(owner, ownerGeneration)) {
+        this.notify(
+          ctx,
+          `Pi Agent Swarm could not replace worker ${safeTerminalLine(message.fromName ?? message.fromSessionId)}: ${safeError(error)}`,
+          "error",
+        );
+      }
+    });
+    this.successorLaunches.set(key, task);
+  }
+
+  private async recoverProjectHandoffs(ctx: ExtensionContext): Promise<void> {
+    const directory = resolve(ctx.cwd, ".pi", "agent-swarm", "lineages");
+    const entries = await readdir(directory, { withFileTypes: true }).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      let lineage = await readWorkerLineage(ctx.cwd, entry.name).catch(() => undefined);
+      if (!lineage || lineage.leaderSessionId !== ctx.sessionManager.getSessionId()) continue;
+      if (!lineage.workerSessionId || !lineage.currentHandoffPath) continue;
+      const workerSessionId = lineage.workerSessionId;
+      const handoffPath = lineage.currentHandoffPath;
+      const key = `${workerSessionId}:${handoffPath}`;
+      if (this.successorLaunches.has(key)) continue;
+      if (lineage.state === "replacing") {
+        try {
+          await this.restoreHandoffReady(ctx.cwd, entry.name, lineage.currentGeneration);
+        } catch {
+          // A live successor advanced this lineage, so there is nothing to recover.
+          continue;
+        }
+        lineage = await readWorkerLineage(ctx.cwd, entry.name).catch(() => undefined);
+        if (!lineage) continue;
+      }
+      if (
+        lineage.state !== "handoff_ready" ||
+        lineage.workerSessionId !== workerSessionId ||
+        lineage.currentHandoffPath !== handoffPath
+      ) {
+        continue;
+      }
+      const issuedAt = this.deps.now();
+      this.acceptWorkerHandoff(ctx, {
+        id: this.deps.randomId("msg"),
+        fromSessionId: workerSessionId,
+        fromCwd: ctx.cwd,
+        toSessionId: ctx.sessionManager.getSessionId(),
+        mode: "notify",
+        kind: "handoff",
+        text: handoffPath,
+        issuedAt,
+        expiresAt: issuedAt + DEFAULT_MESSAGE_TTL_MS,
+      });
+    }
+  }
+
+  private async spawnSuccessor(ctx: ExtensionContext, message: SwarmMessage): Promise<void> {
+    const projectRoot = message.fromCwd;
+    if (!projectRoot) throw new Error("Handoff sender did not provide its project cwd");
+    const handoffPath = resolve(message.text);
+    const storagePrefix = `${resolve(projectRoot, ".pi", "agent-swarm", "lineages")}${sep}`;
+    if (!handoffPath.startsWith(storagePrefix) || basename(dirname(handoffPath)) !== "generations") {
+      throw new Error("Handoff path is outside the sender's project lineage storage");
+    }
+    const lineageId = basename(dirname(dirname(handoffPath)));
+    const lineage = await readWorkerLineage(projectRoot, lineageId);
+    if (!this.isCurrent(ctx)) throw staleError();
+    if (
+      lineage.leaderSessionId !== ctx.sessionManager.getSessionId() ||
+      resolve(lineage.currentHandoffPath ?? "") !== handoffPath ||
+      lineage.state !== "handoff_ready" ||
+      !lineage.nextAction
+    ) {
+      throw new Error("Handoff lineage is not ready for this leader");
+    }
+    if (lineage.replacementCount >= lineage.policy.maxReplacements) {
+      throw new Error("Handoff replacement budget is exhausted");
+    }
+    // Reading the exact artifact before launch proves that this leader can access
+    // the durable handoff; its contents are not injected into the leader context.
+    await readFile(handoffPath, "utf8");
+    const nextGeneration = lineage.currentGeneration + 1;
+    const replacementCount = lineage.replacementCount + 1;
+    await updateWorkerLineage(
+      projectRoot,
+      lineageId,
+      { state: "replacing" },
+      { generation: lineage.currentGeneration, state: "handoff_ready" },
+    );
+    const baseName = lineage.launch.name ?? `Worker ${lineageId.slice(-6)}`;
+    const continuation = [
+      `Continue Swarm lineage ${lineageId}, generation ${nextGeneration}.`,
+      `Read the exact handoff at ${handoffPath}.`,
+      `Original objective: ${lineage.originalObjective}`,
+      `Remaining objective: ${lineage.remainingWork ?? "See the handoff."}`,
+      `Exact next action: ${lineage.nextAction}`,
+      "Do not repeat completed work. Read artifact paths only when needed. Report through session_bus with taskStatus.",
+    ].join("\n");
+    let result: SpawnSessionResult | undefined;
+    try {
+      result = await this.spawn(ctx, {
+        cwd: lineage.launch.cwd,
+        model: lineage.launch.model,
+        name: `${baseName} · G${nextGeneration}`.slice(0, 200),
+        ...(lineage.launch.color ? { color: lineage.launch.color } : {}),
+        allowRequests: lineage.launch.allowRequests,
+        recyclingLaunch: {
+          lineageId,
+          generation: nextGeneration,
+          replacementCount,
+          policy: lineage.policy,
+          handoffPath,
+        },
+        task: continuation,
+      });
+      if (!result.kickoffAccepted) throw new Error("Successor did not accept its continuation");
+      if (!this.isCurrent(ctx)) throw staleError();
+    } catch (error) {
+      if (result && (!result.kickoffAccepted || !this.isCurrent(ctx))) {
+        await this.shutdownPeer(ctx, result.sessionId).catch(() => undefined);
+      }
+      await this.restoreHandoffReady(projectRoot, lineageId, lineage.currentGeneration);
+      throw error;
+    }
+    await updateWorkerLineage(
+      projectRoot,
+      lineageId,
+      {
+        state: "working",
+        currentGeneration: nextGeneration,
+        replacementCount,
+        successorSessionId: result.sessionId,
+      },
+      { generation: nextGeneration },
+    );
+    let predecessorRetired = false;
+    let shutdownError = "unknown reason";
+    for (let attempt = 0; attempt < 2 && this.isCurrent(ctx); attempt += 1) {
+      try {
+        const shutdown = await this.shutdownPeer(ctx, message.fromSessionId);
+        predecessorRetired = shutdown.acknowledgement.accepted;
+        shutdownError = shutdown.acknowledgement.error ?? "shutdown rejected";
+      } catch (error) {
+        shutdownError = safeError(error);
+      }
+      if (predecessorRetired) break;
+      if (attempt === 0) await this.deps.sleep(25, this.controller.signal).catch(() => undefined);
+    }
+    if (predecessorRetired && this.isCurrent(ctx)) {
+      await updateWorkerLineage(
+        projectRoot,
+        lineageId,
+        { retiredThroughGeneration: lineage.currentGeneration },
+        { generation: nextGeneration, state: "working" },
+      );
+    } else if (this.isCurrent(ctx)) {
+      this.notify(
+        ctx,
+        `Successor is ready, but the predecessor remains frozen: ${safeTerminalLine(shutdownError)}`,
+        "warning",
+      );
+    }
+    if (this.isCurrent(ctx)) {
+      this.notify(
+        ctx,
+        `Pi Agent Swarm replaced ${safeTerminalLine(baseName)} with generation ${nextGeneration}.`,
+        "info",
+      );
+    }
+  }
+
+  private async restoreHandoffReady(projectRoot: string, lineageId: string, generation: number): Promise<void> {
+    const latest = await readWorkerLineage(projectRoot, lineageId);
+    if (latest.currentGeneration === generation && latest.state === "replacing") {
+      await updateWorkerLineage(projectRoot, lineageId, { state: "handoff_ready" }, { generation, state: "replacing" });
+    }
+  }
+
+  private async noteIncomingWork(message: SwarmMessage): Promise<void> {
+    const recycling = this.recycling;
+    if (!recycling || (message.mode !== "kickoff" && message.mode !== "request")) return;
+    recycling.taskStatus = "working";
+    recycling.handoff = undefined;
+    recycling.state = "working";
+    recycling.handoffAttempts = 0;
+    const patch: Record<string, unknown> = { state: "working" };
+    if (message.mode === "kickoff" && recycling.launch.generation === 1) patch.originalObjective = message.text;
+    await updateWorkerLineage(recycling.projectRoot, recycling.launch.lineageId, patch, {
+      generation: recycling.launch.generation,
+    });
   }
 
   private receiveMessage(message: SwarmMessage): void {

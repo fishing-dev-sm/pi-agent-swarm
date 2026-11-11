@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 import { createMockContext, createMockPi } from "../../../test/support.js";
+import { readWorkerLineage, updateWorkerLineage, type WorkerHandoffContent } from "../src/context-recycling.js";
 import { createGroup, formatInvite, type SwarmMessage, type SwarmPeerDescription } from "../src/protocol.js";
 import { createInMemorySwarmSettingsRuntime } from "../src/settings.js";
 import { SwarmController, type SwarmControllerDependencies } from "../src/swarm-controller.js";
@@ -16,6 +17,7 @@ class FakeTransport {
   peers: SwarmPeerDescription[] = [];
   startHook?: () => Promise<void>;
   listPeersHook?: () => Promise<SwarmPeerDescription[]>;
+  sendHook?: (message: SwarmMessage) => Promise<SwarmDeliveryAck | undefined> | SwarmDeliveryAck | undefined;
   get endpointManifest() {
     return {
       directory: this.directory,
@@ -42,7 +44,7 @@ class FakeTransport {
   }
   async send(_target: string, message: SwarmMessage): Promise<SwarmDeliveryAck> {
     this.messages.push(message);
-    return { accepted: true, duplicate: false };
+    return (await this.sendHook?.(message)) ?? { accepted: true, duplicate: false };
   }
   setAcceptsRequests(value: boolean) {
     this.options.peer.acceptsRequests = value;
@@ -764,6 +766,183 @@ test("an unresolvable autoNameModel warns once and keeps the default name", asyn
   assert.equal(mock.sessionName, "MANAGER-test-ses");
   assert.ok(context.notifications.some((n) => n.level === "warning" && n.message.includes("autoNameModel")));
   await controller.sessionShutdown({ reason: "quit" }, context.ctx);
+});
+
+const testHandoff: WorkerHandoffContent = {
+  originalObjective: "Fix the parser",
+  currentState: "The regression is isolated",
+  completedWork: "Added a fixture",
+  remainingWork: "Repair the implementation",
+  modifiedFiles: "/project/src/parser.ts",
+  verification: "The fixture fails",
+  decisions: "Preserve the public API",
+  blocker: "None",
+  nextAction: "Edit the parser",
+  artifacts: [],
+};
+
+async function recyclingWorker(percent: number | null) {
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-swarm-worker-recycling-"));
+  const mock = createMockPi();
+  const deps = dependencies({
+    environment: {
+      PI_SWARM_INVITE: formatInvite(createGroup(Buffer.alloc(32, 23)).secret),
+      PI_SWARM_PARENT_SESSION_ID: "leader-session",
+      PI_SWARM_LAUNCH_ID: "launch_1234567890",
+      PI_SWARM_KICKOFF_CAPABILITY: "kickoff_1234567890abcdef",
+      PI_SWARM_CHILD_NAME: "Worker",
+      PI_SWARM_ACCEPT_REQUESTS: "1",
+      PI_SWARM_CONTEXT_RECYCLING: JSON.stringify({
+        lineageId: "lineage_12345678",
+        generation: 1,
+        replacementCount: 0,
+        policy: { taskProfile: "long", maxContextPercent: 50, maxReplacements: 2 },
+      }),
+    },
+  });
+  let aborts = 0;
+  const context = createMockContext({
+    cwd: projectRoot,
+    mode: "tui",
+    hasUI: true,
+    model: { provider: "p", id: "m" },
+    modelRegistry: { find: () => ({ provider: "p", id: "m" }) },
+    getContextUsage: () => ({ tokens: percent === null ? null : percent * 10, contextWindow: 1000, percent }),
+    abort: () => {
+      aborts += 1;
+    },
+    sessionManager: {
+      getSessionId: () => "worker-session",
+      getSessionName: () => "Worker",
+      getEntries: () => [],
+      getBranch: () => [],
+    },
+  });
+  const controller = new SwarmController(mock.pi, deps);
+  await controller.sessionStart({ reason: "startup" }, context.ctx);
+  const transport = deps.transports[0];
+  await transport?.options.onMessage(
+    {
+      id: "msg_kickoff",
+      fromSessionId: "leader-session",
+      toSessionId: "worker-session",
+      mode: "kickoff",
+      text: testHandoff.originalObjective,
+      issuedAt: 1_800_000_000_000,
+      expiresAt: 1_800_000_100_000,
+      launchId: "launch_1234567890",
+    },
+    new AbortController().signal,
+  );
+  return {
+    projectRoot,
+    mock,
+    deps,
+    context,
+    controller,
+    transport,
+    get aborts() {
+      return aborts;
+    },
+  };
+}
+
+test("an unfinished worker crossing 50 percent freezes ordinary requests and requests a handoff without aborting", async () => {
+  const worker = await recyclingWorker(52);
+  await worker.controller.agentSettled(worker.context.ctx);
+  assert.equal(worker.aborts, 0);
+  assert.equal(worker.transport?.options.peer.acceptsRequests, false);
+  const prompt = worker.mock.sentMessages.at(-1);
+  assert.equal((prompt?.options as { triggerTurn?: boolean } | undefined)?.triggerTurn, true);
+  assert.match(JSON.stringify(prompt?.message), /handoff/iu);
+  assert.match(JSON.stringify(prompt?.message), /0001-handoff.md/u);
+  const lineage = await readWorkerLineage(worker.projectRoot, "lineage_12345678");
+  assert.equal(lineage.state, "handoff_pending");
+  assert.equal(lineage.contextUsage?.percent, 52);
+  await worker.controller.sessionShutdown({ reason: "quit" }, worker.context.ctx);
+});
+
+test("a completed task at 52 percent reports completion without requesting a successor", async () => {
+  const worker = await recyclingWorker(52);
+  await worker.controller.send(worker.context.ctx, {
+    targetSessionId: "leader-session",
+    text: "Done",
+    mode: "reply",
+    replyTo: "msg_kickoff",
+    taskStatus: "completed",
+  });
+  const sentBefore = worker.mock.sentMessages.length;
+  await worker.controller.agentSettled(worker.context.ctx);
+  assert.equal(worker.mock.sentMessages.length, sentBefore);
+  const lineage = await readWorkerLineage(worker.projectRoot, "lineage_12345678");
+  assert.equal(lineage.state, "completed");
+  await worker.controller.sessionShutdown({ reason: "quit" }, worker.context.ctx);
+});
+
+test("a structured handoff is published before its control message and keeps the old worker frozen", async () => {
+  const worker = await recyclingWorker(52);
+  await worker.controller.agentSettled(worker.context.ctx);
+  const result = await worker.controller.publishHandoff(worker.context.ctx, testHandoff);
+  assert.match(result.handoffPath, /0001-handoff.md$/u);
+  const control = worker.transport?.messages.at(-1);
+  assert.equal(control?.kind, "handoff");
+  assert.equal(control?.mode, "notify");
+  assert.equal(control?.toSessionId, "leader-session");
+  assert.equal(control?.text, result.handoffPath);
+  const lineage = await readWorkerLineage(worker.projectRoot, "lineage_12345678");
+  assert.equal(lineage.state, "handoff_ready");
+  assert.equal(worker.transport?.options.peer.acceptsRequests, false);
+  await worker.controller.sessionShutdown({ reason: "quit" }, worker.context.ctx);
+});
+
+test("repeated missing handoffs stop recycling with a durable failure", async () => {
+  const worker = await recyclingWorker(52);
+  await worker.controller.agentSettled(worker.context.ctx);
+  await worker.controller.agentSettled(worker.context.ctx);
+  await worker.controller.agentSettled(worker.context.ctx);
+  const lineage = await readWorkerLineage(worker.projectRoot, "lineage_12345678");
+  assert.equal(lineage.state, "failed");
+  const notifications = worker.transport?.messages.filter((message) => message.mode === "notify") ?? [];
+  assert.ok(notifications.some((message) => /no structured handoff/u.test(message.text)));
+  await worker.controller.sessionShutdown({ reason: "quit" }, worker.context.ctx);
+});
+
+test("a rejected handoff delivery rolls durable state back to handoff_pending", async () => {
+  const worker = await recyclingWorker(52);
+  await worker.controller.agentSettled(worker.context.ctx);
+  if (worker.transport) {
+    worker.transport.sendHook = (message) =>
+      message.kind === "handoff" ? { accepted: false, duplicate: false, code: "context_handoff" } : undefined;
+  }
+  await assert.rejects(worker.controller.publishHandoff(worker.context.ctx, testHandoff), /rejected the handoff/iu);
+  assert.equal((await readWorkerLineage(worker.projectRoot, "lineage_12345678")).state, "handoff_pending");
+  await worker.controller.agentSettled(worker.context.ctx);
+  const prompt = worker.mock.sentMessages.at(-1);
+  assert.equal((prompt?.options as { triggerTurn?: boolean } | undefined)?.triggerTurn, true);
+  assert.match(JSON.stringify(prompt?.message), /handoff/iu);
+  await worker.controller.sessionShutdown({ reason: "quit" }, worker.context.ctx);
+});
+
+test("a lost handoff acknowledgement cannot roll back an already launched successor", async () => {
+  const worker = await recyclingWorker(52);
+  await worker.controller.agentSettled(worker.context.ctx);
+  if (worker.transport) {
+    worker.transport.sendHook = async (message) => {
+      if (message.kind !== "handoff") return undefined;
+      await updateWorkerLineage(worker.projectRoot, "lineage_12345678", {
+        currentGeneration: 2,
+        replacementCount: 1,
+        state: "working",
+      });
+      return { accepted: false, duplicate: false, code: "delivery_failed" };
+    };
+  }
+  const result = await worker.controller.publishHandoff(worker.context.ctx, testHandoff);
+  assert.match(result.handoffPath, /0001-handoff.md$/u);
+  const lineage = await readWorkerLineage(worker.projectRoot, "lineage_12345678");
+  assert.equal(lineage.currentGeneration, 2);
+  assert.equal(lineage.state, "working");
+  await worker.controller.sessionShutdown({ reason: "quit" }, worker.context.ctx);
 });
 
 test("a name change outside the extension refreshes the transport name and footer badge", async () => {

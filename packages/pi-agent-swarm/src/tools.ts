@@ -2,13 +2,14 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { swarmColorName } from "./color.js";
+import type { WorkerHandoffContent, WorkerTaskStatus } from "./context-recycling.js";
 import type { SwarmMessage } from "./protocol.js";
 import type { SpawnSessionInput, SpawnSessionResult, SwarmSnapshot } from "./swarm-controller.js";
 import { safeTerminalLine } from "./text.js";
 import type { SwarmDeliveryAck } from "./transport.js";
 
 const DIRECTIONS = ["right", "down", "left", "up"] as const;
-const BUS_ACTIONS = ["list", "send", "reply", "shutdown"] as const;
+const BUS_ACTIONS = ["list", "send", "reply", "shutdown", "handoff"] as const;
 const SEND_MODES = ["notify", "request"] as const;
 const MAX_LISTED_PEERS = 64;
 const MAX_LIST_RESULT_BYTES = 40 * 1024;
@@ -23,6 +24,8 @@ export interface SwarmToolController {
       text: string;
       mode: "notify" | "request" | "reply";
       replyTo?: string;
+      taskStatus?: WorkerTaskStatus;
+      handoff?: WorkerHandoffContent;
     },
     signal?: AbortSignal,
   ): Promise<{ message: SwarmMessage; acknowledgement: SwarmDeliveryAck }>;
@@ -31,11 +34,66 @@ export interface SwarmToolController {
     targetSessionId: string,
     signal?: AbortSignal,
   ): Promise<{ message: SwarmMessage; acknowledgement: SwarmDeliveryAck }>;
+  publishHandoff(
+    ctx: ExtensionContext,
+    handoff: WorkerHandoffContent,
+    signal?: AbortSignal,
+  ): Promise<{ handoffPath: string }>;
 }
+
+const handoffSchema = Type.Object(
+  {
+    originalObjective: Type.String({ maxLength: 8_192 }),
+    currentState: Type.String({ maxLength: 8_192 }),
+    completedWork: Type.String({ maxLength: 8_192 }),
+    remainingWork: Type.String({ maxLength: 8_192 }),
+    modifiedFiles: Type.String({ maxLength: 8_192 }),
+    verification: Type.String({ maxLength: 8_192 }),
+    decisions: Type.String({ maxLength: 8_192 }),
+    blocker: Type.String({ maxLength: 8_192 }),
+    nextAction: Type.String({ maxLength: 8_192 }),
+    artifacts: Type.Array(Type.String({ maxLength: 4_096 }), { maxItems: 32 }),
+  },
+  { additionalProperties: false },
+);
 
 const spawnSchema = Type.Object(
   {
     direction: Type.Optional(StringEnum(DIRECTIONS, { description: "Terminal window direction" })),
+    allowRequests: Type.Optional(
+      Type.Boolean({
+        description:
+          "Allow trusted peers to request follow-up turns in the child after its initial task; defaults to false. This can incur model charges and concurrent workspace edits.",
+      }),
+    ),
+    contextRecycling: Type.Optional(
+      Type.Object(
+        {
+          taskProfile: Type.Union([Type.Literal("short"), Type.Literal("long"), Type.Literal("auto")], {
+            description: "Leader's assessment of the assignment duration",
+          }),
+          maxContextPercent: Type.Optional(
+            Type.Number({
+              description: "Soft handoff threshold; defaults to 50 and never aborts the current turn",
+              minimum: 1,
+              maximum: 100,
+            }),
+          ),
+          maxReplacements: Type.Optional(
+            Type.Integer({
+              description: "Maximum authorized automatic successors; defaults to 3, maximum 10",
+              minimum: 0,
+              maximum: 10,
+            }),
+          ),
+        },
+        {
+          additionalProperties: false,
+          description:
+            "Authorize bounded automatic worker replacement after a stable-boundary handoff. Omit to disable recycling.",
+        },
+      ),
+    ),
     task: Type.Optional(
       Type.String({
         description: "Optional first task sent after child readiness",
@@ -80,6 +138,12 @@ const busSchema = Type.Object(
     replyTo: Type.Optional(
       Type.String({ description: "Original message id for a reply", minLength: 1, maxLength: 128 }),
     ),
+    taskStatus: Type.Optional(
+      Type.Union([Type.Literal("working"), Type.Literal("completed")], {
+        description: "Worker task state for context recycling; completed prevents successor creation",
+      }),
+    ),
+    handoff: Type.Optional(handoffSchema),
   },
   { additionalProperties: false },
 );
@@ -94,6 +158,8 @@ export function registerSwarmTools(pi: ExtensionAPI, controller: SwarmToolContro
     promptGuidelines: [
       "Use session_spawn only when the user explicitly asks to open or start another Pi session.",
       "Do not claim the child is ready until session_spawn returns authenticated readiness metadata.",
+      "Use allowRequests only when the user wants this worker to accept follow-up tasks in the same session; it defaults to false.",
+      "Use contextRecycling only with explicit user authorization for bounded automatic worker replacement; the threshold is soft and never interrupts a healthy turn.",
     ],
     parameters: spawnSchema,
     executionMode: "sequential",
@@ -129,6 +195,7 @@ export function registerSwarmTools(pi: ExtensionAPI, controller: SwarmToolContro
     promptGuidelines: [
       "Use session_bus to communicate with sessions already connected through Pi Agent Swarm.",
       "Treat session_bus accepted acknowledgements as extension delivery only, not proof that a remote task succeeded.",
+      "Workers with contextRecycling must report taskStatus=completed when done; unfinished workers publish a structured handoff when asked.",
     ],
     parameters: busSchema,
     executionMode: "sequential",
@@ -138,6 +205,8 @@ export function registerSwarmTools(pi: ExtensionAPI, controller: SwarmToolContro
         assertAbsent(params.message, "message", "list");
         assertAbsent(params.mode, "mode", "list");
         assertAbsent(params.replyTo, "replyTo", "list");
+        assertAbsent(params.taskStatus, "taskStatus", "list");
+        assertAbsent(params.handoff, "handoff", "list");
         const snapshot = await controller.snapshot(signal);
         if (!snapshot.connected) {
           return {
@@ -152,22 +221,51 @@ export function registerSwarmTools(pi: ExtensionAPI, controller: SwarmToolContro
         assertAbsent(params.message, "message", "shutdown");
         assertAbsent(params.mode, "mode", "shutdown");
         assertAbsent(params.replyTo, "replyTo", "shutdown");
+        assertAbsent(params.taskStatus, "taskStatus", "shutdown");
+        assertAbsent(params.handoff, "handoff", "shutdown");
         const shutdownTarget = required(params.targetSessionId, "targetSessionId");
         const result = await controller.shutdownPeer(ctx, shutdownTarget, signal);
         return shutdownResult(result, shutdownTarget);
+      }
+
+      if (params.action === "handoff") {
+        assertAbsent(params.targetSessionId, "targetSessionId", "handoff");
+        assertAbsent(params.message, "message", "handoff");
+        assertAbsent(params.mode, "mode", "handoff");
+        assertAbsent(params.replyTo, "replyTo", "handoff");
+        assertAbsent(params.taskStatus, "taskStatus", "handoff");
+        if (!params.handoff) throw new Error("session_bus handoff is required for this action");
+        const result = await controller.publishHandoff(ctx, params.handoff, signal);
+        return {
+          content: [{ type: "text", text: `Worker handoff is ready: ${safeTerminalLine(result.handoffPath)}` }],
+          details: result,
+        };
       }
 
       const targetSessionId = required(params.targetSessionId, "targetSessionId");
       const message = required(params.message, "message");
       if (params.action === "send") {
         assertAbsent(params.replyTo, "replyTo", "send");
+        assertAbsent(params.taskStatus, "taskStatus", "send");
+        assertAbsent(params.handoff, "handoff", "send");
         const mode = params.mode ?? "notify";
         const result = await controller.send(ctx, { targetSessionId, text: message, mode }, signal);
         return deliveryResult(result, targetSessionId);
       }
       assertAbsent(params.mode, "mode", "reply");
       const replyTo = required(params.replyTo, "replyTo");
-      const result = await controller.send(ctx, { targetSessionId, text: message, mode: "reply", replyTo }, signal);
+      const result = await controller.send(
+        ctx,
+        {
+          targetSessionId,
+          text: message,
+          mode: "reply",
+          replyTo,
+          ...(params.taskStatus ? { taskStatus: params.taskStatus } : {}),
+          ...(params.handoff ? { handoff: params.handoff } : {}),
+        },
+        signal,
+      );
       return deliveryResult(result, targetSessionId);
     },
   });
@@ -270,6 +368,6 @@ function required(value: string | undefined, field: string): string {
   return value;
 }
 
-function assertAbsent(value: string | undefined, field: string, action: string): void {
+function assertAbsent(value: unknown, field: string, action: string): void {
   if (value !== undefined) throw new Error(`session_bus ${field} is not accepted for action ${action}`);
 }

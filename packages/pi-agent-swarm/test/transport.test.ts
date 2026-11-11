@@ -8,6 +8,7 @@ import {
   createSignedEndpointManifest,
   DEFAULT_MESSAGE_TTL_MS,
   SWARM_PROTOCOL_VERSION,
+  type SwarmAckPayload,
   type SwarmGroup,
   type SwarmMessage,
 } from "../src/protocol.js";
@@ -56,6 +57,8 @@ function createTransport(
     requestTimeoutMs?: number;
     discoveryDeadlineMs?: number;
     discoveryProbeTimeoutMs?: number;
+    authorizeHandoff?: (message: SwarmMessage) => boolean;
+    rejectRequest?: (message: SwarmMessage) => SwarmAckPayload | undefined;
   } = {},
 ): SwarmTransport {
   return new SwarmTransport({
@@ -77,6 +80,8 @@ function createTransport(
       ? { discoveryProbeTimeoutMs: options.discoveryProbeTimeoutMs }
       : {}),
     ...(options.kickoffCapability ? { kickoffCapability: options.kickoffCapability } : {}),
+    ...(options.authorizeHandoff ? { authorizeHandoff: options.authorizeHandoff } : {}),
+    ...(options.rejectRequest ? { rejectRequest: options.rejectRequest } : {}),
     onMessage,
   });
 }
@@ -134,6 +139,32 @@ posixTest("two transports discover endpoint identities, authenticate, deduplicat
     await Promise.all([first.stop(), second.stop(), first.stop()]);
     await assert.rejects(readFile(manifest.manifestPath, "utf8"));
     assert.equal((await stat(manifest.directory)).isDirectory(), true);
+  });
+});
+
+posixTest("handoff control messages require explicit leader authorization", async () => {
+  await fixture(async (baseDirectory) => {
+    const group = createGroup(Buffer.alloc(32, 10));
+    const worker = createTransport(group, baseDirectory, "worker");
+    const received: SwarmMessage[] = [];
+    const leader = createTransport(
+      group,
+      baseDirectory,
+      "leader",
+      async (message) => {
+        received.push(message);
+      },
+      { authorizeHandoff: (message) => message.fromSessionId === "worker" },
+    );
+    const observer = createTransport(group, baseDirectory, "observer");
+    await Promise.all([worker.start(), leader.start(), observer.start()]);
+    const handoff = { ...swarmMessage("msg_handoff_denied", "worker", "observer"), kind: "handoff" as const };
+    assert.equal((await worker.send("observer", handoff)).code, "context_handoff");
+    assert.equal(received.length, 0);
+    const accepted = { ...swarmMessage("msg_handoff_allowed", "worker", "leader"), kind: "handoff" as const };
+    assert.equal((await worker.send("leader", accepted)).accepted, true);
+    assert.equal(received.length, 1);
+    await Promise.all([worker.stop(), leader.stop(), observer.stop()]);
   });
 });
 
@@ -608,6 +639,43 @@ async function createBlackhole(
   (server as Server & { swarmTestSockets?: Set<Socket> }).swarmTestSockets = sockets;
   return server;
 }
+
+posixTest("a frozen worker reports context_handoff instead of requests_disabled", async () => {
+  await fixture(async (baseDirectory) => {
+    const group = createGroup(Buffer.alloc(32, 9));
+    let frozen = false;
+    const first = createTransport(group, baseDirectory, "first", async () => undefined, { acceptsRequests: true });
+    const second = createTransport(group, baseDirectory, "second", async () => undefined, {
+      acceptsRequests: false,
+      rejectRequest: () =>
+        frozen
+          ? {
+              kind: "ack",
+              status: "rejected",
+              code: "context_handoff",
+              error: "Target worker is handoff_pending; only the context handoff protocol may continue",
+            }
+          : undefined,
+    });
+    await first.start();
+    await second.start();
+    const request = swarmMessage("msg_frozen_123456", "first", "second", "request");
+    assert.deepEqual(await first.send("second", request), {
+      accepted: false,
+      duplicate: false,
+      code: "requests_disabled",
+      error: "Target session does not allow agent requests",
+    });
+    frozen = true;
+    assert.deepEqual(await first.send("second", swarmMessage("msg_frozen_123457", "first", "second", "request")), {
+      accepted: false,
+      duplicate: false,
+      code: "context_handoff",
+      error: "Target worker is handoff_pending; only the context handoff protocol may continue",
+    });
+    await Promise.all([first.stop(), second.stop()]);
+  });
+});
 
 function listenServer(server: Server, path: string): Promise<void> {
   return new Promise((resolve, reject) => {

@@ -52,6 +52,9 @@ function stubController(overrides: Partial<SwarmToolController> = {}) {
         acknowledgement: { accepted: true, duplicate: false },
       };
     },
+    publishHandoff: async () => {
+      throw new Error("No handoff was requested");
+    },
     shutdownPeer: async (_ctx, targetSessionId) => {
       calls.push({ kind: "shutdown", targetSessionId });
       const issuedAt = Date.now();
@@ -86,7 +89,9 @@ test("registers separate spawn and bus tools with focused schemas", () => {
   };
   const bus = mock.tools[1] as { parameters: { properties?: Record<string, unknown> } };
   assert.deepEqual(Object.keys(spawn.parameters.properties ?? {}).sort(), [
+    "allowRequests",
     "color",
+    "contextRecycling",
     "cwd",
     "direction",
     "model",
@@ -95,10 +100,12 @@ test("registers separate spawn and bus tools with focused schemas", () => {
   ]);
   assert.deepEqual(Object.keys(bus.parameters.properties ?? {}).sort(), [
     "action",
+    "handoff",
     "message",
     "mode",
     "replyTo",
     "targetSessionId",
+    "taskStatus",
   ]);
 });
 
@@ -112,7 +119,14 @@ test("session_spawn delegates launch input and returns readiness without secrets
   const context = createMockContext({ mode: "tui", hasUI: true });
   const result = await tool.execute(
     "call-1",
-    { direction: "down", task: "check tests", name: "Child", cwd: "/tmp/child" },
+    {
+      direction: "down",
+      task: "check tests",
+      name: "Child",
+      cwd: "/tmp/child",
+      allowRequests: true,
+      contextRecycling: { taskProfile: "long", maxContextPercent: 50, maxReplacements: 2 },
+    },
     undefined,
     undefined,
     context.ctx,
@@ -120,7 +134,14 @@ test("session_spawn delegates launch input and returns readiness without secrets
   assert.deepEqual(calls, [
     {
       kind: "spawn",
-      input: { direction: "down", task: "check tests", name: "Child", cwd: "/tmp/child" },
+      input: {
+        direction: "down",
+        task: "check tests",
+        name: "Child",
+        cwd: "/tmp/child",
+        allowRequests: true,
+        contextRecycling: { taskProfile: "long", maxContextPercent: 50, maxReplacements: 2 },
+      },
     },
   ]);
   assert.match(result.content[0]?.text ?? "", /child.*ready.*external/iu);
@@ -171,6 +192,42 @@ test("session_bus lists peers, sends requests, and correlates replies", async ()
       },
     },
   ]);
+});
+
+test("session_bus publishes a structured handoff without a target session", async () => {
+  const mock = createMockPi();
+  const { controller, calls } = stubController({
+    publishHandoff: async (_ctx, input) => {
+      calls.push({ kind: "handoff", input });
+      return { handoffPath: "/project/.pi/agent-swarm/lineages/lineage_1/generations/0001-handoff.md" };
+    },
+  });
+  registerSwarmTools(mock.pi, controller);
+  const tool = mock.tools.find(({ name }) => name === "session_bus") as {
+    execute(...args: unknown[]): Promise<{ content: Array<{ text: string }> }>;
+  };
+  const context = createMockContext({ mode: "tui", hasUI: true });
+  const content = {
+    originalObjective: "Fix the parser",
+    currentState: "Fixture added",
+    completedWork: "Isolated the bug",
+    remainingWork: "Repair the parser",
+    modifiedFiles: "/project/src/parser.ts",
+    verification: "Fixture fails",
+    decisions: "Preserve the API",
+    blocker: "None",
+    nextAction: "Edit the parser",
+    artifacts: [],
+  };
+  const result = await tool.execute(
+    "call-handoff",
+    { action: "handoff", handoff: content },
+    undefined,
+    undefined,
+    context.ctx,
+  );
+  assert.match(result.content[0]?.text ?? "", /handoff.*ready/iu);
+  assert.deepEqual(calls, [{ kind: "handoff", input: content }]);
 });
 
 test("session_bus bounds aggregate peer text and details by UTF-8 bytes", async () => {

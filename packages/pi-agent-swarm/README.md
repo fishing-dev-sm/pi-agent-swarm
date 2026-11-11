@@ -14,6 +14,8 @@ Every agent is a real terminal window tiled by your window manager — never a h
 - Waits for the child to authenticate before reporting that the new session is ready.
 - Connects explicitly joined same-user sessions through owner-only local sockets and ephemeral invites.
 - Delivers notifications without a model turn and bounds each allowed request to one turn.
+- Supports explicit follow-up requests so a leader can review a worker's reply and continue the same session.
+- Recycles an opted-in unfinished worker at a stable boundary after a soft context threshold, preserving a concise project-local handoff for its successor.
 - Relays user input from a worker window into the leader's model context.
 - Shows a colored footer badge with the session name, id, and role, degrading through full, compact, and minimal tiers as the terminal narrows.
 - Authenticates and bounds local protocol traffic, peers, retries, rates, deadlines, and diagnostics.
@@ -49,9 +51,17 @@ Review extension source before installing it.
 
 ## 🚀 Quick start
 
-Run `/swarm` to open the menu and spawn a worker Pi session, rename this session, or change its footer color.
+Run `/swarm` to open the menu and spawn a worker Pi session, rename this session, change its footer color, or toggle follow-up requests.
 Start a local group with `/swarm start`, then ask your model to launch a child session with the `session_spawn` tool; the child joins the group automatically.
 Before creating a window, Pi Agent Swarm asks for the configured launch confirmation.
+
+For a review-and-revise workflow, select **Allow paid turns from trusted peers** when spawning, or set `allowRequests: true` in `session_spawn`.
+The worker can then report with `session_bus reply`, and the leader can request revisions in that same session with `session_bus send mode=request`.
+In an existing joined session, the local user can run `/swarm requests on` to enable this workflow and `/swarm requests off` to block it again.
+
+For long or unpredictable work, set `contextRecycling` in `session_spawn` and launch with a task. After a turn finishes at or above the soft threshold, an unfinished worker enters `handoff_pending`, publishes a structured handoff with `session_bus`, and freezes. The leader starts one bounded successor with the same cwd, model, request permission, and lineage. The current turn is never aborted merely for crossing the threshold; a completed task is not replaced. A worker that cannot publish a handoff after two attempts stays frozen on a durable `failed` lineage, and the leader is notified.
+
+See [Worker context recycling and handoff storage](../../docs/worker-context-recycling.md) for lifecycle and recovery details.
 
 ## 🧭 Launch flow
 
@@ -78,6 +88,8 @@ Creates a separate Pi process in an external terminal window.
 | Parameter | Required | Description |
 | --- | --- | --- |
 | `direction` | No | `right`, `down`, `left`, or `up`; defaults to `right`. |
+| `allowRequests` | No | Allows trusted peers to request follow-up turns after the initial task; defaults to `false`. |
+| `contextRecycling` | No | Opts into automatic lineage handoff. Fields: `taskProfile` (`short`, `long`, or `auto`), optional `maxContextPercent` (1–100, default 50), and optional `maxReplacements` (0–10, default 3). |
 | `task` | No | First task sent only after authenticated readiness. |
 | `name` | No | Child session display name. |
 | `color` | No | Child color: a palette name or a `#rrggbb` hex. |
@@ -87,6 +99,7 @@ Creates a separate Pi process in an external terminal window.
 The tool supports only TUI and RPC modes because launch may require confirmation.
 In JSON and print modes, it fails before creating a group, launcher, or window.
 Successful details include `terminalId` and `terminalVersion`.
+Context recycling requires a non-empty initial task and `allowRequests: true`. The replacement budget is authorization for automatic launches, not a per-turn deadline.
 
 ### `session_bus`
 
@@ -96,13 +109,17 @@ Lists or messages sessions in the active Pi Agent Swarm group.
 | --- | --- | --- |
 | `list` | none | Lists authenticated live peers and request policy. |
 | `send` | `targetSessionId`, `message`, optional `mode` | Sends `notify` by default or a permitted one-turn `request`. |
-| `reply` | `targetSessionId`, `message`, `replyTo` | Correlates a reply without starting another automatic turn. |
+| `reply` | `targetSessionId`, `message`, `replyTo`, optional `taskStatus` | Correlates a reply without starting another automatic turn. `taskStatus` is `working` or `completed`. |
+| `send` | `kind: "handoff"`, `handoff` | Publishes the current worker's structured handoff to the leader without injecting it into model context. |
 | `shutdown` | `targetSessionId` | Asks a peer to shut down gracefully. |
 
 An accepted acknowledgement means the recipient extension accepted or deduplicated the message, not that the remote agent completed the work.
-Rejected and busy acknowledgements use stable codes such as `requests_disabled`, `rate_limited`, `target_busy`, `shutdown_unauthorized`, and `delivery_failed`.
+Rejected and busy acknowledgements use stable codes such as `requests_disabled`, `context_handoff`, `rate_limited`, `target_busy`, `shutdown_unauthorized`, and `delivery_failed`.
+A recycled worker that is frozen for handoff, replacement, or retirement answers requests with `context_handoff` so a leader does not mistake the freeze for a disabled request policy.
 Rate-limited responses may include a bounded retry delay.
 Peer-list text and details share a 40 KiB UTF-8 result budget below Pi's tool-output limit.
+
+A handoff requires `originalObjective`, `currentState`, `completedWork`, `remainingWork`, `modifiedFiles`, `verification`, `decisions`, `blocker`, `nextAction`, and `artifacts`. Artifacts are absolute paths within the worker project, not inline logs. The leader receives only the bounded handoff path and its launch metadata; it reads the document when constructing the successor kickoff. `taskStatus` is available on `reply` and defaults to `completed`; ordinary `send` remains a working notification or request.
 
 ## 💬 Commands
 
@@ -110,6 +127,7 @@ Peer-list text and details share a 40 KiB UTF-8 result budget below Pi's tool-ou
 | --- | --- |
 | `/swarm` | Open the menu to spawn a worker, rename this session, or set its color. |
 | `/swarm start` | Start a local group with this session as lead. |
+| `/swarm requests <on\|off>` | Allow or block follow-up agent requests in this joined session; blocked by default. |
 | `/swarm <piagentswarm:v1:invite>` | Review the join confirmation and join one ephemeral local group. |
 | `/lead` | Promote a session to leader or inspect the current leader. |
 | `/color` | Set the current session's footer color. |
@@ -178,6 +196,7 @@ The child consumes and deletes those values during `session_start` before Pi too
 These values are not user settings or supported environment overrides.
 
 Incoming agent requests are blocked by default.
+Enable them explicitly during spawn or with `/swarm requests on` in the target session.
 Enabling them permits trusted invite holders to start paid model turns that may edit the same workspace concurrently.
 
 ## 🔒 Security and privacy
@@ -198,6 +217,8 @@ Enabling them permits trusted invite holders to start paid model turns that may 
 - Pi Agent Swarm does not retain invites as durable settings or group state, but a recipient can copy and reuse one until every holder discards it or moves to a new group.
 - Invites are not placed in tool output, status, notifications, custom renderers, or model context.
 - Launch values briefly exist in a private `0700` launcher that unlinks itself before starting Pi, so terminal command metadata cannot retain them.
+- Worker lineage and handoff files are project-local, owner-restricted, atomically published, and excluded by `.pi/agent-swarm/.gitignore`. They reject bearer secrets and artifact paths outside the project, but are not a boundary against same-user processes.
+- Handoffs contain structured progress and artifact references rather than a copied session transcript. Large artifacts remain opt-in reads.
 - Peer names, paths, messages, model ids, and errors are treated as untrusted terminal text and sanitized only at display boundaries.
 - A same-user process or another privileged Pi extension is outside the security boundary and may inspect process arguments, private runtime files, memory, or environment.
 - Pi Agent Swarm separates groups but does not sandbox them from the operating-system user.

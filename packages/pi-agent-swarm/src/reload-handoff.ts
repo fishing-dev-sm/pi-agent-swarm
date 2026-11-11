@@ -1,3 +1,5 @@
+import type { ContextRecyclingLaunch } from "./context-recycling.js";
+
 const RELOAD_HANDOFFS = Symbol.for("pi-agent-swarm/reload-handoffs");
 
 export interface SwarmReloadHandoff {
@@ -9,6 +11,7 @@ export interface SwarmReloadHandoff {
   name?: string;
   color?: string;
   parentSessionId?: string;
+  contextRecycling?: ContextRecyclingLaunch;
   expiresAt: number;
 }
 
