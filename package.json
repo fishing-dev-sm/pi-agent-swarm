@@ -44,7 +44,7 @@
     "@earendil-works/pi-ai": "^1.4.0",
     "@earendil-works/pi-coding-agent": "^1.4.0",
     "@earendil-works/pi-server": "^1.1.0",
-    "@earendil-works/pi-tui": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.5.0",
     "@types/node": "^26.6.4",
     "concurrently": "^10.0.5",
     "esbuild": "0.28.2",
